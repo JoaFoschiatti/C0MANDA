@@ -4,21 +4,19 @@ const eventBus = require('../services/event-bus');
 const {
   prisma,
   uniqueId,
-  createTenant,
-  createUsuario,
+    createUsuario,
   signTokenForUser,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Eventos SSE', () => {
-  let tenant;
-  let otherTenant;
-  let token;
+    let token;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    otherTenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+        await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
@@ -26,12 +24,10 @@ describe('Eventos SSE', () => {
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await cleanupTenantData(otherTenant.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
-  it('solo emite eventos del mismo tenant (requiere tenantId en payload)', async () => {
+  it('emite eventos autenticados para la instalacion unica', async () => {
     const server = app.listen(0);
 
     try {
@@ -62,7 +58,7 @@ describe('Eventos SSE', () => {
           const timeoutId = setTimeout(() => {
             res.destroy();
             req.destroy();
-            reject(new Error('No se recibió evento SSE a tiempo'));
+            reject(new Error('No se recibio evento SSE a tiempo'));
           }, 1500);
 
           const cleanup = () => {
@@ -77,11 +73,11 @@ describe('Eventos SSE', () => {
             buffer = messages.pop() || '';
 
             for (const msg of messages) {
-              if (msg.startsWith(':')) continue; // keep-alive
+              if (msg.startsWith(':')) continue;
 
               const lines = msg.split('\n').filter(Boolean);
-              const eventLine = lines.find(l => l.startsWith('event:'));
-              const dataLine = lines.find(l => l.startsWith('data:'));
+              const eventLine = lines.find((line) => line.startsWith('event:'));
+              const dataLine = lines.find((line) => line.startsWith('data:'));
 
               if (!eventLine || !dataLine) continue;
 
@@ -97,9 +93,7 @@ describe('Eventos SSE', () => {
           });
 
           setImmediate(() => {
-            eventBus.publish('test.other', { tenantId: otherTenant.id, ok: false });
-            eventBus.publish('test.noTenant', { ok: false });
-            eventBus.publish('test.ok', { tenantId: tenant.id, ok: true });
+            eventBus.publish('test.ok', { ok: true });
           });
         });
 
@@ -108,10 +102,9 @@ describe('Eventos SSE', () => {
       });
 
       expect(received.eventType).toBe('test.ok');
-      expect(received.data).toEqual({ tenantId: tenant.id, ok: true });
+      expect(received.data).toEqual({ ok: true });
     } finally {
-      await new Promise(resolve => server.close(resolve));
+      await new Promise((resolve) => server.close(resolve));
     }
   });
 });
-

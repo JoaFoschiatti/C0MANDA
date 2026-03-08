@@ -2,7 +2,7 @@ const { z } = require('zod');
 const { positiveIntSchema, idParamSchema } = require('./common.schemas');
 
 const listarQuerySchema = z.object({
-  estado: z.enum(['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO', 'CANCELADO']).optional(),
+  estado: z.enum(['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO', 'CERRADO', 'CANCELADO']).optional(),
   tipo: z.enum(['MESA', 'DELIVERY', 'MOSTRADOR']).optional(),
   fecha: z.string().min(1).optional(),
   mesaId: positiveIntSchema.optional()
@@ -26,7 +26,7 @@ const crearPedidoBodySchema = z.object({
 }).strip();
 
 const cambiarEstadoBodySchema = z.object({
-  estado: z.enum(['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO', 'CANCELADO'])
+  estado: z.enum(['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO', 'CERRADO', 'CANCELADO'])
 }).strip();
 
 const agregarItemsBodySchema = z.object({
@@ -34,7 +34,7 @@ const agregarItemsBodySchema = z.object({
 }).strip();
 
 const cancelarBodySchema = z.object({
-  motivo: z.string().max(500).optional()
+  motivo: z.string().min(3).max(500)
 }).strip();
 
 module.exports = {

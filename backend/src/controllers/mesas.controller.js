@@ -1,5 +1,7 @@
 const { getPrisma } = require('../utils/get-prisma');
 const mesasService = require('../services/mesas.service');
+const pedidosService = require('../services/pedidos.service');
+const eventBus = require('../services/event-bus');
 
 const listar = async (req, res) => {
   const prisma = getPrisma(req);
@@ -37,11 +39,59 @@ const eliminar = async (req, res) => {
   res.json(resultado);
 };
 
+const precuenta = async (req, res) => {
+  const prisma = getPrisma(req);
+  const result = await pedidosService.precuentaMesa(prisma, {
+    mesaId: Number(req.params.id),
+    usuarioId: req.usuario.id
+  });
+  eventBus.publish('mesa.updated', {
+    mesaId: result.mesa.id,
+    estado: result.mesa.estado,
+    updatedAt: new Date().toISOString()
+  });
+  eventBus.publish('pedido.updated', {
+    id: result.pedido.id,
+    estado: result.pedido.estado,
+    estadoPago: result.pedido.estadoPago,
+    tipo: result.pedido.tipo,
+    mesaId: result.pedido.mesaId || null,
+    updatedAt: new Date().toISOString()
+  });
+  res.json(result);
+};
+
+const liberar = async (req, res) => {
+  const prisma = getPrisma(req);
+  const result = await pedidosService.liberarMesa(prisma, {
+    mesaId: Number(req.params.id),
+    usuarioId: req.usuario.id
+  });
+  eventBus.publish('mesa.updated', {
+    mesaId: result.mesa.id,
+    estado: result.mesa.estado,
+    updatedAt: new Date().toISOString()
+  });
+  if (result.pedido) {
+    eventBus.publish('pedido.updated', {
+      id: result.pedido.id,
+      estado: result.pedido.estado,
+      estadoPago: result.pedido.estadoPago,
+      tipo: result.pedido.tipo,
+      mesaId: result.pedido.mesaId || null,
+      updatedAt: new Date().toISOString()
+    });
+  }
+  res.json(result);
+};
+
 module.exports = {
   listar,
   obtener,
   crear,
   actualizar,
   cambiarEstado,
-  eliminar
+  eliminar,
+  precuenta,
+  liberar
 };

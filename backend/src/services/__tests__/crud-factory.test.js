@@ -1,23 +1,16 @@
 const { createCrudService } = require('../crud-factory.service');
 const { createHttpError } = require('../../utils/http-error');
-const { prisma } = require('../../db/prisma');
 const {
+  prisma,
   uniqueId,
-  createTenant,
-  cleanupTenantData
+  cleanupOperationalData
 } = require('../../__tests__/helpers/test-helpers');
 
 describe('CRUD Factory Service', () => {
-  let tenant;
   let testCrudService;
 
-  beforeAll(async () => {
-    tenant = await createTenant();
-  });
-
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   describe('Configuración básica', () => {
@@ -37,7 +30,6 @@ describe('CRUD Factory Service', () => {
       const numero = Math.floor(Math.random() * 1000) + 1;
 
       const result = await testCrudService.crear(prisma, {
-        tenantId: tenant.id,
         numero,
         capacidad: 4
       });
@@ -45,7 +37,6 @@ describe('CRUD Factory Service', () => {
       expect(result).toHaveProperty('id');
       expect(result.numero).toBe(numero);
       expect(result.capacidad).toBe(4);
-      expect(result.tenantId).toBe(tenant.id);
     });
 
     it('rechaza crear item con campo único duplicado', async () => {
@@ -53,7 +44,6 @@ describe('CRUD Factory Service', () => {
 
       // Crear primera mesa
       await testCrudService.crear(prisma, {
-        tenantId: tenant.id,
         numero,
         capacidad: 4
       });
@@ -61,7 +51,6 @@ describe('CRUD Factory Service', () => {
       // Intentar crear segunda mesa con mismo número
       await expect(
         testCrudService.crear(prisma, {
-          tenantId: tenant.id,
           numero,
           capacidad: 6
         })
@@ -73,20 +62,18 @@ describe('CRUD Factory Service', () => {
       const numero2 = Math.floor(Math.random() * 1000) + 3000;
 
       await testCrudService.crear(prisma, {
-        tenantId: tenant.id,
         numero: numero1,
         capacidad: 4,
         activa: true
       });
 
       await testCrudService.crear(prisma, {
-        tenantId: tenant.id,
         numero: numero2,
         capacidad: 6,
         activa: false
       });
 
-      const activas = await testCrudService.listar(prisma, { tenantId: tenant.id, activa: true });
+      const activas = await testCrudService.listar(prisma, { activa: true });
       const mesaActiva = activas.find(m => m.numero === numero1);
 
       expect(mesaActiva).toBeDefined();
@@ -97,7 +84,6 @@ describe('CRUD Factory Service', () => {
       const numero = Math.floor(Math.random() * 1000) + 4000;
 
       const created = await testCrudService.crear(prisma, {
-        tenantId: tenant.id,
         numero,
         capacidad: 4
       });
@@ -118,7 +104,6 @@ describe('CRUD Factory Service', () => {
       const numero = Math.floor(Math.random() * 1000) + 5000;
 
       const created = await testCrudService.crear(prisma, {
-        tenantId: tenant.id,
         numero,
         capacidad: 4
       });
@@ -142,13 +127,11 @@ describe('CRUD Factory Service', () => {
       const numero2 = Math.floor(Math.random() * 1000) + 7000;
 
       const mesa1 = await testCrudService.crear(prisma, {
-        tenantId: tenant.id,
         numero: numero1,
         capacidad: 4
       });
 
       const mesa2 = await testCrudService.crear(prisma, {
-        tenantId: tenant.id,
         numero: numero2,
         capacidad: 6
       });
@@ -163,7 +146,6 @@ describe('CRUD Factory Service', () => {
       const numero = Math.floor(Math.random() * 1000) + 8000;
 
       const created = await testCrudService.crear(prisma, {
-        tenantId: tenant.id,
         numero,
         capacidad: 4,
         activa: true
@@ -200,7 +182,6 @@ describe('CRUD Factory Service', () => {
       const numero = Math.floor(Math.random() * 1000) + 9000;
 
       const result = await serviceWithHook.crear(prisma, {
-        tenantId: tenant.id,
         numero,
         capacidad: 2
       });
@@ -219,7 +200,6 @@ describe('CRUD Factory Service', () => {
       const numero = Math.floor(Math.random() * 1000) + 10000;
 
       await serviceWithHook.crear(prisma, {
-        tenantId: tenant.id,
         numero,
         capacidad: 4
       });
@@ -242,7 +222,6 @@ describe('CRUD Factory Service', () => {
       const numero = Math.floor(Math.random() * 1000) + 11000;
 
       const created = await serviceWithHook.crear(prisma, {
-        tenantId: tenant.id,
         numero,
         capacidad: 4
       });
@@ -272,7 +251,6 @@ describe('CRUD Factory Service', () => {
       const numero = Math.floor(Math.random() * 1000) + 12000;
 
       const created = await serviceWithValidation.crear(prisma, {
-        tenantId: tenant.id,
         numero,
         capacidad: 6
       });
@@ -297,7 +275,6 @@ describe('CRUD Factory Service', () => {
       const nombre = `Test Categoria ${uniqueId('cat')}`;
 
       const created = await categoriaService.crear(prisma, {
-        tenantId: tenant.id,
         nombre,
         orden: 1,
         activa: true

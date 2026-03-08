@@ -3,21 +3,21 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
-  createUsuario,
+    createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Fichajes Endpoints', () => {
-  let tenant;
-  let token;
+    let token;
   let empleado;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+        await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
@@ -25,7 +25,6 @@ describe('Fichajes Endpoints', () => {
 
     empleado = await prisma.empleado.create({
       data: {
-        tenantId: tenant.id,
         nombre: 'Empleado',
         apellido: 'Test',
         dni: `DNI-${uniqueId('fichaje')}`,
@@ -37,8 +36,7 @@ describe('Fichajes Endpoints', () => {
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('POST /api/fichajes/entrada crea fichaje y evita doble entrada', async () => {

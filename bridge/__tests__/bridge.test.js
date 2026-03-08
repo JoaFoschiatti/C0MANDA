@@ -30,17 +30,16 @@ describe('bridge', () => {
     }
 
     assert.equal(caughtError, exitError);
-    assert.ok(errorCalls.includes('BRIDGE_TENANT_SLUG is required'));
     assert.ok(errorCalls.includes('PRINTER_NAME is required'));
     assert.equal(exitCalls[0], 1);
 
     process.exit = originalExit;
     console.error = originalError;
   });
+
   it('enforce minimo del intervalo de polling', () => {
     const bridge = createBridge({
       BRIDGE_TOKEN: 'token',
-      BRIDGE_TENANT_SLUG: 'demo',
       PRINTER_NAME: 'Printer',
       POLL_INTERVAL_MS: '10'
     }, {
@@ -53,7 +52,6 @@ describe('bridge', () => {
   it('normaliza adapter y usa api base por defecto', () => {
     const bridge = createBridge({
       BRIDGE_TOKEN: 'token',
-      BRIDGE_TENANT_SLUG: 'demo',
       PRINTER_NAME: 'Printer',
       PRINT_ADAPTER: 'SPOOLER'
     }, {
@@ -67,7 +65,6 @@ describe('bridge', () => {
   it('requestJson propaga error cuando la respuesta no es ok', async () => {
     const bridge = createBridge({
       BRIDGE_TOKEN: 'token',
-      BRIDGE_TENANT_SLUG: 'demo',
       PRINTER_NAME: 'Printer',
       REQUEST_TIMEOUT_MS: '100'
     }, {
@@ -87,7 +84,6 @@ describe('bridge', () => {
   it('requestJson respeta timeout', async () => {
     const bridge = createBridge({
       BRIDGE_TOKEN: 'token',
-      BRIDGE_TENANT_SLUG: 'demo',
       PRINTER_NAME: 'Printer',
       REQUEST_TIMEOUT_MS: '5'
     }, {
@@ -109,7 +105,6 @@ describe('bridge', () => {
   it('processJob falla si el adapter no esta soportado', async () => {
     const bridge = createBridge({
       BRIDGE_TOKEN: 'token',
-      BRIDGE_TENANT_SLUG: 'demo',
       PRINTER_NAME: 'Printer',
       PRINT_ADAPTER: 'raw'
     }, {

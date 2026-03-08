@@ -1,0 +1,9 @@
+/opt/comanda/backend/logs/*.log /var/log/comanda/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

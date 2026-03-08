@@ -1,137 +1,148 @@
-const path = require('path');
-const fs = require('fs');
-
-// Use Prisma Client from backend (already generated with schema)
-const { PrismaClient } = require(path.join(__dirname, '../backend/node_modules/@prisma/client'));
 const bcrypt = require('bcryptjs');
-
-const prisma = new PrismaClient();
-
-const E2E_TENANT_SLUG = 'e2e-test-tenant';
-const E2E_USER_EMAIL = 'admin@e2e-test.com';
-const E2E_USER_PASSWORD = 'password123';
+const {
+  FIXTURES,
+  createPrisma,
+  writeTestData,
+  cleanupE2EData,
+  resetArtifacts
+} = require('./support');
 
 async function globalSetup() {
-  console.log('\n[E2E Setup] Creating test data...');
+  const prisma = createPrisma();
 
-  // Cleanup any previous test data
-  const existingTenant = await prisma.tenant.findUnique({
-    where: { slug: E2E_TENANT_SLUG }
-  });
+  try {
+    console.log('\n[E2E Setup] Preparando instalacion unica de pruebas...');
 
-  if (existingTenant) {
-    console.log('[E2E Setup] Cleaning up previous test tenant...');
-    await cleanupTenant(existingTenant.id);
+    await cleanupE2EData(prisma);
+    resetArtifacts();
+
+    await prisma.negocio.upsert({
+      where: { id: 1 },
+      update: {
+        nombre: FIXTURES.negocioNombre,
+        email: FIXTURES.negocioEmail
+      },
+      create: {
+        id: 1,
+        nombre: FIXTURES.negocioNombre,
+        email: FIXTURES.negocioEmail
+      }
+    });
+
+    const usuariosBase = [
+      {
+        key: 'admin',
+        email: FIXTURES.adminEmail,
+        password: FIXTURES.adminPassword,
+        nombre: FIXTURES.adminNombre,
+        rol: 'ADMIN'
+      },
+      {
+        key: 'mozo',
+        email: FIXTURES.mozoEmail,
+        password: FIXTURES.mozoPassword,
+        nombre: FIXTURES.mozoNombre,
+        rol: 'MOZO'
+      },
+      {
+        key: 'cocinero',
+        email: FIXTURES.cocineroEmail,
+        password: FIXTURES.cocineroPassword,
+        nombre: FIXTURES.cocineroNombre,
+        rol: 'COCINERO'
+      },
+      {
+        key: 'cajero',
+        email: FIXTURES.cajeroEmail,
+        password: FIXTURES.cajeroPassword,
+        nombre: FIXTURES.cajeroNombre,
+        rol: 'CAJERO'
+      },
+      {
+        key: 'delivery',
+        email: FIXTURES.deliveryEmail,
+        password: FIXTURES.deliveryPassword,
+        nombre: FIXTURES.deliveryNombre,
+        rol: 'DELIVERY'
+      }
+    ];
+
+    const usuariosCreados = {};
+
+    for (const usuarioBase of usuariosBase) {
+      const passwordHash = await bcrypt.hash(usuarioBase.password, 10);
+      const usuario = await prisma.usuario.create({
+        data: {
+          email: usuarioBase.email,
+          password: passwordHash,
+          nombre: usuarioBase.nombre,
+          rol: usuarioBase.rol,
+          activo: true
+        }
+      });
+
+      usuariosCreados[usuarioBase.key] = {
+        id: usuario.id,
+        email: usuarioBase.email,
+        password: usuarioBase.password,
+        nombre: usuarioBase.nombre,
+        rol: usuarioBase.rol
+      };
+    }
+
+    const categoria = await prisma.categoria.create({
+      data: {
+        nombre: FIXTURES.baseCategoryName,
+        descripcion: 'Categoria base para E2E',
+        orden: 1,
+        activa: true
+      }
+    });
+
+    const producto = await prisma.producto.create({
+      data: {
+        nombre: FIXTURES.baseProductName,
+        descripcion: 'Producto base para pruebas E2E',
+        precio: 2500,
+        categoriaId: categoria.id,
+        disponible: true
+      }
+    });
+
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: FIXTURES.baseMesaNumber,
+        zona: 'Salon E2E',
+        capacidad: 4,
+        estado: 'LIBRE',
+        activa: true
+      }
+    });
+
+    writeTestData({
+      userId: usuariosCreados.admin.id,
+      userEmail: FIXTURES.adminEmail,
+      userPassword: FIXTURES.adminPassword,
+      userName: FIXTURES.adminNombre,
+      roles: usuariosCreados,
+      baseCategoryId: categoria.id,
+      baseCategoryName: FIXTURES.baseCategoryName,
+      createdCategoryName: FIXTURES.createdCategoryName,
+      productId: producto.id,
+      productName: FIXTURES.baseProductName,
+      baseMesaId: mesa.id,
+      baseMesaNumber: FIXTURES.baseMesaNumber,
+      baseMesaQrToken: mesa.qrToken,
+      extraMesaNumber: FIXTURES.extraMesaNumber,
+      reservationClientName: FIXTURES.reservationClientName,
+      orderClientName: FIXTURES.orderClientName,
+      cierreObservaciones: FIXTURES.cierreObservaciones
+    });
+
+    console.log('[E2E Setup] Datos listos.\n');
+  } finally {
+    await prisma.$disconnect();
   }
-
-  // Create tenant
-  const tenant = await prisma.tenant.create({
-    data: {
-      slug: E2E_TENANT_SLUG,
-      nombre: 'E2E Test Restaurant',
-      email: 'e2e@test.com',
-      activo: true
-    }
-  });
-  console.log(`[E2E Setup] Created tenant: ${tenant.slug}`);
-
-  // Create admin user
-  const passwordHash = await bcrypt.hash(E2E_USER_PASSWORD, 4);
-  const usuario = await prisma.usuario.create({
-    data: {
-      tenantId: tenant.id,
-      email: E2E_USER_EMAIL,
-      password: passwordHash,
-      nombre: 'Admin E2E',
-      rol: 'ADMIN',
-      activo: true
-    }
-  });
-  console.log(`[E2E Setup] Created user: ${usuario.email}`);
-
-  // Create category
-  const categoria = await prisma.categoria.create({
-    data: {
-      tenantId: tenant.id,
-      nombre: 'Hamburguesas',
-      orden: 1,
-      activa: true
-    }
-  });
-  console.log(`[E2E Setup] Created category: ${categoria.nombre}`);
-
-  // Create product
-  const producto = await prisma.producto.create({
-    data: {
-      tenantId: tenant.id,
-      nombre: 'Hamburguesa Test',
-      descripcion: 'Hamburguesa para E2E testing',
-      precio: 5500,
-      categoriaId: categoria.id,
-      disponible: true
-    }
-  });
-  console.log(`[E2E Setup] Created product: ${producto.nombre}`);
-
-  // Create table
-  const mesa = await prisma.mesa.create({
-    data: {
-      tenantId: tenant.id,
-      numero: 1,
-      capacidad: 4,
-      estado: 'LIBRE',
-      activa: true
-    }
-  });
-  console.log(`[E2E Setup] Created table: Mesa ${mesa.numero}`);
-
-  // Save test data for tests
-  const testData = {
-    tenantId: tenant.id,
-    tenantSlug: E2E_TENANT_SLUG,
-    userId: usuario.id,
-    userEmail: E2E_USER_EMAIL,
-    userPassword: E2E_USER_PASSWORD,
-    categoryId: categoria.id,
-    productId: producto.id,
-    productName: producto.nombre,
-    tableId: mesa.id,
-    tableNumber: mesa.numero
-  };
-
-  const dataPath = path.join(__dirname, '.e2e-test-data.json');
-  fs.writeFileSync(dataPath, JSON.stringify(testData, null, 2));
-  console.log(`[E2E Setup] Test data saved to ${dataPath}`);
-
-  await prisma.$disconnect();
-  console.log('[E2E Setup] Complete!\n');
-}
-
-async function cleanupTenant(tenantId) {
-  await prisma.pedidoItemModificador.deleteMany({ where: { tenantId } });
-  await prisma.productoModificador.deleteMany({ where: { tenantId } });
-  await prisma.productoIngrediente.deleteMany({ where: { tenantId } });
-  await prisma.transaccionMercadoPago.deleteMany({ where: { tenantId } });
-  await prisma.printJob.deleteMany({ where: { tenantId } });
-  await prisma.pago.deleteMany({ where: { tenantId } });
-  await prisma.pedidoItem.deleteMany({ where: { tenantId } });
-  await prisma.movimientoStock.deleteMany({ where: { tenantId } });
-  await prisma.pedido.deleteMany({ where: { tenantId } });
-  await prisma.reserva.deleteMany({ where: { tenantId } });
-  await prisma.mesa.deleteMany({ where: { tenantId } });
-  await prisma.cierreCaja.deleteMany({ where: { tenantId } });
-  await prisma.configuracion.deleteMany({ where: { tenantId } });
-  await prisma.mercadoPagoConfig.deleteMany({ where: { tenantId } });
-  await prisma.emailVerificacion.deleteMany({ where: { tenantId } });
-  await prisma.fichaje.deleteMany({ where: { tenantId } });
-  await prisma.liquidacion.deleteMany({ where: { tenantId } });
-  await prisma.empleado.deleteMany({ where: { tenantId } });
-  await prisma.usuario.deleteMany({ where: { tenantId } });
-  await prisma.producto.deleteMany({ where: { tenantId } });
-  await prisma.categoria.deleteMany({ where: { tenantId } });
-  await prisma.modificador.deleteMany({ where: { tenantId } });
-  await prisma.ingrediente.deleteMany({ where: { tenantId } });
-  await prisma.tenant.delete({ where: { id: tenantId } });
 }
 
 module.exports = globalSetup;

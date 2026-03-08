@@ -2,9 +2,6 @@ const request = require('supertest');
 const app = require('../app');
 const { prisma } = require('../db/prisma');
 
-afterAll(async () => {
-  await prisma.$disconnect();
-});
 
 describe('Auth Endpoints', () => {
   describe('POST /api/auth/login', () => {
@@ -17,7 +14,7 @@ describe('Auth Endpoints', () => {
         })
         .expect(401);
 
-      expect(response.body.error.message).toBe('Credenciales inválidas');
+      expect(response.body.error.message).toBe('Credenciales invalidas');
     });
 
     it('should return error for missing fields', async () => {
@@ -38,7 +35,6 @@ describe('Auth Endpoints', () => {
           password: 'test'
         });
 
-      // Verificar headers de rate limiting
       expect(response.headers['ratelimit-limit']).toBeDefined();
       expect(response.headers['ratelimit-remaining']).toBeDefined();
     });
@@ -59,7 +55,7 @@ describe('Auth Endpoints', () => {
         .set('Authorization', 'Bearer token_invalido')
         .expect(401);
 
-      expect(response.body.error.message).toBe('Token inválido');
+      expect(response.body.error.message).toBe('Token invalido');
     });
   });
 });

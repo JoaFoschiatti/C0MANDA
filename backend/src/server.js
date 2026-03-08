@@ -1,21 +1,30 @@
 const app = require('./app');
-const { prisma } = require('./db/prisma');
+const { prisma, assertNegocioBootstrap } = require('./db/prisma');
 const { logger } = require('./utils/logger');
 const { iniciarJobReservas, detenerJobReservas } = require('./jobs/reservas.job');
+const { iniciarJobLotesVencidos, detenerJobLotesVencidos } = require('./jobs/lotes-vencidos.job');
+const { ensureRuntimeDirectories, validateProductionEnvironment } = require('./config/runtime');
 
 const PORT = process.env.PORT || 3001;
 
 let server;
 let shuttingDown = false;
 
-const start = () => {
+const start = async () => {
+  validateProductionEnvironment();
+  const runtimePaths = ensureRuntimeDirectories();
+  await assertNegocioBootstrap();
+
   server = app.listen(PORT, () => {
-    logger.info(`🚀 GestioNeo API corriendo en http://localhost:${PORT}`, {
+    logger.info(`API corriendo en http://localhost:${PORT}`, {
       port: PORT,
-      environment: process.env.NODE_ENV || 'development'
+      environment: process.env.NODE_ENV || 'development',
+      uploadsDir: runtimePaths.uploadsDir,
+      logsDir: runtimePaths.logsDir
     });
 
     iniciarJobReservas();
+    iniciarJobLotesVencidos();
   });
 };
 
@@ -27,8 +36,14 @@ const shutdown = async (signal) => {
 
   try {
     detenerJobReservas();
-  } catch (e) {
-    logger.error('Error deteniendo job de reservas', e);
+  } catch (error) {
+    logger.error('Error deteniendo job de reservas', error);
+  }
+
+  try {
+    detenerJobLotesVencidos();
+  } catch (error) {
+    logger.error('Error deteniendo job de lotes vencidos', error);
   }
 
   await new Promise((resolve) => {
@@ -39,8 +54,8 @@ const shutdown = async (signal) => {
   try {
     await prisma.$disconnect();
     logger.info('Prisma desconectado correctamente');
-  } catch (e) {
-    logger.error('Error desconectando Prisma', e);
+  } catch (error) {
+    logger.error('Error desconectando Prisma', error);
   }
 
   process.exit(0);
@@ -49,4 +64,10 @@ const shutdown = async (signal) => {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-start();
+start().catch((error) => {
+  logger.error('No se pudo iniciar el servidor', {
+    message: error.message,
+    stack: error.stack
+  });
+  process.exit(1);
+});

@@ -31,17 +31,12 @@ vi.mock('../components/RedirectByRole', () => ({
 vi.mock('../pages/Login', () => ({
   default: () => <div>LoginPage</div>
 }))
-vi.mock('../pages/MenuPublico', async () => {
-  const { useParams } = await vi.importActual('react-router-dom')
-  return {
-    default: () => {
-      const { slug } = useParams()
-      return <div>MenuPublico:{slug}</div>
-    }
-  }
-})
-vi.mock('../pages/Registro', () => ({ default: () => <div>Registro</div> }))
-vi.mock('../pages/VerificarEmail', () => ({ default: () => <div>VerificarEmail</div> }))
+vi.mock('../pages/MenuPublico', () => ({
+  default: () => <div>MenuPublico</div>
+}))
+vi.mock('../pages/MenuMesaPublico', () => ({
+  default: () => <div>MenuMesaPublico</div>
+}))
 vi.mock('../pages/admin/Dashboard', () => ({ default: () => <div>Dashboard</div> }))
 vi.mock('../pages/admin/Empleados', () => ({ default: () => <div>Empleados</div> }))
 vi.mock('../pages/admin/Mesas', () => ({ default: () => <div>Mesas</div> }))
@@ -52,6 +47,7 @@ vi.mock('../pages/admin/Liquidaciones', () => ({ default: () => <div>Liquidacion
 vi.mock('../pages/admin/Reportes', () => ({ default: () => <div>Reportes</div> }))
 vi.mock('../pages/admin/Configuracion', () => ({ default: () => <div>Configuracion</div> }))
 vi.mock('../pages/admin/CierreCaja', () => ({ default: () => <div>CierreCaja</div> }))
+vi.mock('../pages/admin/Tareas', () => ({ default: () => <div>Tareas</div> }))
 vi.mock('../pages/admin/Reservas', () => ({ default: () => <div>Reservas</div> }))
 vi.mock('../pages/admin/Modificadores', () => ({ default: () => <div>Modificadores</div> }))
 vi.mock('../pages/admin/TransaccionesMercadoPago', () => ({ default: () => <div>TransaccionesMP</div> }))
@@ -62,7 +58,7 @@ vi.mock('../pages/cocina/Cocina', () => ({ default: () => <div>Cocina</div> }))
 vi.mock('../pages/delivery/DeliveryPedidos', () => ({ default: () => <div>DeliveryPedidos</div> }))
 
 describe('App routing', () => {
-  it('redirige /menu a /menu/default', () => {
+  it('renderiza /menu publico en modo restaurante unico', async () => {
     authState = { usuario: null, loading: false }
     render(
       <MemoryRouter initialEntries={['/menu']}>
@@ -70,10 +66,10 @@ describe('App routing', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByText('MenuPublico:default')).toBeInTheDocument()
+    expect(await screen.findByText('MenuPublico')).toBeInTheDocument()
   })
 
-  it('redirige a login cuando no hay usuario', () => {
+  it('redirige a login cuando no hay usuario', async () => {
     authState = { usuario: null, loading: false }
     render(
       <MemoryRouter initialEntries={['/dashboard']}>
@@ -81,10 +77,10 @@ describe('App routing', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByText('LoginPage')).toBeInTheDocument()
+    expect(await screen.findByText('LoginPage')).toBeInTheDocument()
   })
 
-  it('permite dashboard para ADMIN', () => {
+  it('permite dashboard para ADMIN', async () => {
     authState = { usuario: { rol: 'ADMIN' }, loading: false }
     render(
       <MemoryRouter initialEntries={['/dashboard']}>
@@ -92,6 +88,6 @@ describe('App routing', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByText('Dashboard')).toBeInTheDocument()
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument()
   })
 })

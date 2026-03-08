@@ -13,6 +13,7 @@ import toast from 'react-hot-toast'
 import usePolling from '../../hooks/usePolling'
 import useEventSource from '../../hooks/useEventSource'
 import useAsync from '../../hooks/useAsync'
+import { PageHeader, Spinner } from '../../components/ui'
 
 const estadoBadge = {
   PENDIENTE: 'badge-warning',
@@ -81,7 +82,7 @@ export default function DeliveryPedidos() {
   if (loading && pedidos.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="spinner spinner-lg" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -114,18 +115,18 @@ export default function DeliveryPedidos() {
           </button>
         </div>
       )}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-heading-1">Mis Entregas</h1>
-          <p className="text-text-secondary">Pedidos delivery pendientes de entrega</p>
-        </div>
-        <button
-          onClick={cargarPedidosAsync}
-          className="btn btn-secondary"
-        >
-          Actualizar
-        </button>
-      </div>
+      <PageHeader
+        title="Mis Entregas"
+        description="Pedidos delivery pendientes de entrega"
+        actions={
+          <button
+            onClick={cargarPedidosAsync}
+            className="btn btn-secondary"
+          >
+            Actualizar
+          </button>
+        }
+      />
 
       {pedidos.length === 0 ? (
         <div className="card text-center py-12">

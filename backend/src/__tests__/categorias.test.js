@@ -3,44 +3,31 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
   createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
-describe('Categorías Endpoints', () => {
-  let tenant;
+describe('Categorias Endpoints', () => {
   let token;
-  let tenantSecundario;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+    await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
     token = signTokenForUser(admin);
-
-    tenantSecundario = await createTenant();
-    await prisma.categoria.create({
-      data: {
-        tenantId: tenantSecundario.id,
-        nombre: 'Categoria Otro Tenant',
-        orden: 1,
-        activa: true
-      }
-    });
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await cleanupTenantData(tenantSecundario.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
-  it('POST /api/categorias crea una categoría', async () => {
+  it('POST /api/categorias crea una categoria', async () => {
     const response = await request(app)
       .post('/api/categorias')
       .set('Authorization', authHeader(token))
@@ -48,7 +35,6 @@ describe('Categorías Endpoints', () => {
       .expect(201);
 
     expect(response.body.id).toBeDefined();
-    expect(response.body.tenantId).toBe(tenant.id);
     expect(response.body.nombre).toBe('Burgers');
     expect(response.body.activa).toBe(true);
   });
@@ -69,10 +55,9 @@ describe('Categorías Endpoints', () => {
     expect(response.body.error.message).toBe('Ya existe una categoría con ese nombre');
   });
 
-  it('GET /api/categorias lista solo categorías del tenant', async () => {
+  it('GET /api/categorias lista categorias disponibles', async () => {
     await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: 'Bebidas',
         orden: 2,
         activa: true
@@ -84,15 +69,13 @@ describe('Categorías Endpoints', () => {
       .set('Authorization', authHeader(token))
       .expect(200);
 
-    const nombres = response.body.map(c => c.nombre);
+    const nombres = response.body.map((categoria) => categoria.nombre);
     expect(nombres).toContain('Bebidas');
-    expect(nombres).not.toContain('Categoria Otro Tenant');
   });
 
   it('DELETE /api/categorias falla si hay productos asociados', async () => {
     const categoria = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('prod')}`,
         orden: 3,
         activa: true
@@ -101,7 +84,6 @@ describe('Categorías Endpoints', () => {
 
     await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Producto-${uniqueId('p')}`,
         precio: 10,
         categoriaId: categoria.id,
@@ -120,7 +102,6 @@ describe('Categorías Endpoints', () => {
   it('GET /api/categorias/publicas devuelve solo activas y filtra productos disponibles', async () => {
     const categoriaActiva = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('pub')}`,
         orden: 1,
         activa: true
@@ -129,7 +110,6 @@ describe('Categorías Endpoints', () => {
 
     const categoriaInactiva = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('priv')}`,
         orden: 2,
         activa: false
@@ -138,7 +118,6 @@ describe('Categorías Endpoints', () => {
 
     const productoDisponible = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Producto-${uniqueId('disp')}`,
         precio: 10,
         categoriaId: categoriaActiva.id,
@@ -148,7 +127,6 @@ describe('Categorías Endpoints', () => {
 
     await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Producto-${uniqueId('nodisp')}`,
         precio: 10,
         categoriaId: categoriaActiva.id,
@@ -158,7 +136,6 @@ describe('Categorías Endpoints', () => {
 
     await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Producto-${uniqueId('inact')}`,
         precio: 10,
         categoriaId: categoriaInactiva.id,
@@ -171,12 +148,12 @@ describe('Categorías Endpoints', () => {
       .set('Authorization', authHeader(token))
       .expect(200);
 
-    const ids = response.body.map(c => c.id);
+    const ids = response.body.map((categoria) => categoria.id);
     expect(ids).toContain(categoriaActiva.id);
     expect(ids).not.toContain(categoriaInactiva.id);
 
-    const categoria = response.body.find(c => c.id === categoriaActiva.id);
-    expect(categoria.productos.map(p => p.id)).toContain(productoDisponible.id);
-    expect(categoria.productos.some(p => p.disponible === false)).toBe(false);
+    const categoria = response.body.find((item) => item.id === categoriaActiva.id);
+    expect(categoria.productos.map((producto) => producto.id)).toContain(productoDisponible.id);
+    expect(categoria.productos.some((producto) => producto.disponible === false)).toBe(false);
   });
 });

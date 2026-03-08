@@ -34,10 +34,9 @@ const baseCrud = createCrudService('modificador', {
     const precioFinal = data.tipo === 'EXCLUSION' ? 0 : precio;
 
     return {
-      nombre: nombre,
+      nombre,
       precio: precioFinal,
-      tipo: data.tipo,
-      tenantId: data.tenantId // Este viene filtrado por el factory si hay whitelist
+      tipo: data.tipo
     };
   },
 

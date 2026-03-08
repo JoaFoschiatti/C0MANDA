@@ -1,89 +1,45 @@
-# GestioNeo
+# Comanda
 
-Sistema de gestión integral para restaurantes y locales gastronómicos. Incluye punto de venta (POS), gestión de inventario, control de empleados y liquidación de sueldos.
+Sistema de gestion para un restaurante unico, desplegado como instalacion dedicada. La aplicacion opera mesas, cocina, caja, delivery/retiro, menu publico y configuracion del negocio sin logica SaaS en runtime.
 
-## Características
+## Alcance actual
 
-- **Punto de Venta (POS)**: Gestión de pedidos por mesa, delivery y mostrador
-- **Menú Público QR**: Los clientes pueden ver el menú y hacer pedidos desde su celular
-- **Gestión de Inventario**: Control de stock con alertas de bajo inventario
-- **Control de Empleados**: Fichaje de entrada/salida y liquidación de sueldos
-- **Reportes**: Ventas, productos más vendidos, ventas por mozo, inventario
-- **Pagos**: Efectivo, tarjeta y MercadoPago integrado
-- **Roles de Usuario**: Admin, Mozo, Cocinero, Cajero, Delivery
+- Restaurante unico sin multi-tenant ni propietarios por entidad.
+- Menu publico canonico en `/menu`.
+- QR por mesa en `/menu/mesa/:qrToken`.
+- Flujo de salon: `OCUPADA -> ESPERANDO_CUENTA -> CERRADA -> LIBRE`.
+- Pagos en caja, checkout web y QR presencial de Mercado Pago.
+- Facturacion electronica persistida en BD con configuracion de punto de venta y comprobantes pendientes hasta contar con credenciales ARCA del ambiente.
 
-## Stack Tecnológico
+## Abono mensual
 
-| Capa | Tecnología |
-|------|------------|
-| Frontend | React 19 + Vite + Tailwind CSS v4 |
-| Backend | Node.js + Express 5 |
-| ORM | Prisma |
-| Base de Datos | PostgreSQL |
-| Pagos | MercadoPago |
+El abono mensual de mantenimiento no se cobra ni se controla desde la app.
 
-## Arquitectura
+- Referencia contractual: equivalente en ARS a USD 60.
+- Inicio: 30 dias despues de la aceptacion escrita en produccion.
+- Calculo: cotizacion vendedor Banco Nacion del dia habil anterior.
+- Operacion: factura o link externo y registro administrativo fuera del runtime del restaurante.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         FRONTEND                             │
-│                   React + Vite + Tailwind v4                 │
-│                     http://localhost:5173                    │
-├─────────────────────────────────────────────────────────────┤
-│   ADMIN      │    MOZO     │  COCINERO  │   DELIVERY        │
-│  /dashboard  │ /mozo/mesas │  /cocina   │ /delivery/pedidos │
-│  /productos  │  /pedidos   │            │                   │
-│  /reportes   │             │            │     PUBLIC        │
-│  /config     │             │            │     /menu (QR)    │
-└──────────────┴─────────────┴────────────┴───────────────────┘
-                              │
-                              │ axios (HTTP + JWT)
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                          BACKEND                             │
-│                Node.js + Express + Prisma                    │
-│                    http://localhost:3001                     │
-├─────────────────────────────────────────────────────────────┤
-│  app.js ──▶ Middleware (JWT/Roles) ──▶ Routes ──▶ Controllers│
-│                                                              │
-│  /api/auth         /api/pedidos       /api/productos        │
-│  /api/empleados    /api/ingredientes  /api/liquidaciones    │
-│  /api/reportes     /api/pagos         /api/configuracion    │
-│  /api/publico      /api/impresion                           │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌──────────────────┐
-                    │    PostgreSQL    │
-                    └──────────────────┘
-```
+## Stack
 
-## Instalación
+- Frontend: React + Vite
+- Backend: Node.js + Express
+- Base de datos: PostgreSQL
+- ORM: Prisma
+- Pagos: Mercado Pago
+- Infraestructura objetivo: AWS EC2 + Nginx + systemd
 
-### Requisitos
-
-- Node.js 18+
-- PostgreSQL 14+
-- npm o yarn
+## Desarrollo local
 
 ### Backend
 
 ```bash
 cd backend
 npm install
-
-# Configurar variables de entorno
 cp .env.example .env
-# Editar .env con tus credenciales
-
-# Crear base de datos y ejecutar migraciones
-npx prisma migrate dev
-
-# Cargar datos de prueba
-node prisma/seed-ewald.js       # Productos de ejemplo
-node prisma/seed-test-data.js   # Usuarios y datos de prueba
-
-# Iniciar servidor
+npx prisma migrate reset --force --skip-seed
+npx prisma generate
+npm run db:seed
 npm run dev
 ```
 
@@ -95,107 +51,55 @@ npm install
 npm run dev
 ```
 
-## Variables de Entorno
+## Variables de entorno clave
 
-```bash
-# Backend (.env)
-PORT=3001
-NODE_ENV=development
-# Nota: usar 127.0.0.1 evita problemas de IPv6 (::1) en algunas instalaciones.
-DATABASE_URL="postgresql://usuario:password@127.0.0.1:5432/gestioneo?schema=public"
-DIRECT_URL="postgresql://usuario:password@127.0.0.1:5432/gestioneo?schema=public"
-JWT_SECRET="tu-secreto-jwt-muy-seguro"
-JWT_EXPIRES_IN="24h"
-MERCADOPAGO_ACCESS_TOKEN="TEST-xxxx"
-FRONTEND_URL="http://localhost:5173"
-```
+Ver [backend/.env.example](/C:/Programacion/Comanda/backend/.env.example).
 
-## Usuarios de Prueba
+Las mas importantes para un ambiente productivo son:
 
-| Email | Password | Rol | Acceso |
-|-------|----------|-----|--------|
-| admin@ewald.com | 123456 | ADMIN | Acceso completo |
-| mozo1@ewald.com | 123456 | MOZO | Mesas y pedidos |
-| cocina@ewald.com | 123456 | COCINERO | Pantalla de cocina |
-| caja@ewald.com | 123456 | CAJERO | Pagos y reportes |
-| delivery@ewald.com | 123456 | DELIVERY | Pedidos delivery |
+- `DATABASE_URL`
+- `DIRECT_URL`
+- `JWT_SECRET`
+- `FRONTEND_URL`
+- `BACKEND_URL`
+- `ENCRYPTION_KEY`
+- `MERCADOPAGO_WEBHOOK_SECRET`
+- `ARCA_CUIT`
+- `ARCA_CERT_PATH`
+- `ARCA_KEY_PATH`
+- `BRIDGE_TOKEN`
+- `S3_BACKUP_URI`
+- `AWS_REGION`
 
-## Estructura del Proyecto
+## Endpoints principales
 
-```
-GestioNeo/
-├── backend/
-│   ├── prisma/
-│   │   ├── schema.prisma         # Modelos de base de datos
-│   │   ├── seed-ewald.js         # Productos de ejemplo
-│   │   └── seed-test-data.js     # Datos de prueba
-│   ├── src/
-│   │   ├── app.js                # Entry point Express
-│   │   ├── controllers/          # Lógica de negocio
-│   │   ├── routes/               # Definición de rutas
-│   │   ├── middlewares/          # Auth, roles
-│   │   └── services/             # Email, etc.
-│   └── uploads/                  # Imágenes de productos
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx               # Router principal
-│   │   ├── context/              # AuthContext
-│   │   ├── pages/                # Vistas por rol
-│   │   ├── components/           # Componentes reutilizables
-│   │   └── services/             # API client
-│   └── public/
-├── docs/
-│   └── ARCHITECTURE.md           # Documentación técnica detallada
-└── DEPLOY.md                     # Guía de deploy a producción
-```
+- `GET /api/negocio`
+- `PUT /api/negocio`
+- `POST /api/mesas/:id/precuenta`
+- `POST /api/mesas/:id/liberar`
+- `POST /api/pedidos/:id/cerrar`
+- `GET /api/publico/menu`
+- `GET /api/publico/mesa/:qrToken`
+- `POST /api/publico/mesa/:qrToken/pedido`
+- `POST /api/pagos/qr/orden`
+- `POST /api/pagos/webhook/mercadopago`
+- `POST /api/facturacion/comprobantes`
+- `GET /api/facturacion/comprobantes/:id`
+- `PUT /api/facturacion/configuracion`
 
-## API Endpoints
+## Produccion
 
-### Autenticación
-- `POST /api/auth/login` - Iniciar sesión
-- `POST /api/auth/registrar` - Registrar usuario (admin)
-- `GET /api/auth/perfil` - Obtener perfil actual
+La guia operativa esta en [DEPLOY.md](/C:/Programacion/Comanda/DEPLOY.md). El pack ejecutable esta en [ops/ec2/README.md](/C:/Programacion/Comanda/ops/ec2/README.md). El handoff de entrega esta en [docs/entrega](/C:/Programacion/Comanda/docs/entrega). El escenario objetivo es:
 
-### Pedidos
-- `GET /api/pedidos` - Listar pedidos
-- `GET /api/pedidos/cocina` - Vista de cocina
-- `POST /api/pedidos` - Crear pedido
-- `PATCH /api/pedidos/:id/estado` - Cambiar estado
+- EC2 Linux como host principal.
+- Nginx sirviendo frontend y actuando como reverse proxy del backend.
+- Node.js administrado con systemd.
+- PostgreSQL del ambiente actual.
+- Backups diarios con `pg_dump` a S3 y prueba periodica de restore.
+- `openssl`, certificado y clave privada disponibles en el host para WSAA/WSFEv1.
 
-### Público (sin autenticación)
-- `GET /api/publico/menu` - Menú para clientes
-- `POST /api/publico/pedido` - Crear pedido desde menú QR
-- `POST /api/publico/pedido/:id/pagar` - Iniciar pago MercadoPago
+## Notas
 
-### Reportes
-- `GET /api/reportes/dashboard` - Métricas del día
-- `GET /api/reportes/ventas` - Reporte de ventas
-- `GET /api/reportes/productos-mas-vendidos` - Ranking de productos
-- `GET /api/reportes/ventas-por-mozo` - Ventas por empleado
-
-## Flujo de Pedidos
-
-```
-PENDIENTE ──▶ EN_PREPARACION ──▶ LISTO ──▶ ENTREGADO ──▶ COBRADO
-    │                                                        │
-    └────────────────────── CANCELADO ◀──────────────────────┘
-```
-
-## Deploy a Producción
-
-Ver [DEPLOY.md](./DEPLOY.md) para guía completa de deploy con:
-- **Supabase** - Base de datos PostgreSQL (gratis)
-- **Railway** - Backend Node.js (~$5/mes)
-- **Vercel** - Frontend React (gratis)
-
-## Impresion en Cloud
-
-Si el backend corre en cloud, necesitas un print bridge local en la PC del negocio para imprimir.
-Ver `bridge/README.md`.
-## Documentación
-
-Para documentación técnica detallada incluyendo diagramas de base de datos, flujos de datos y permisos por rol, ver [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
-
-## Licencia
-
-ISC
+- La facturacion electronica requiere credenciales WSAA/WSFEv1 reales del restaurante para emitir CAE.
+- El QR presencial requiere Access Token valido de Mercado Pago y `external_pos_id` configurado.
+- La entrega operativa incluye health `/api/health`, readiness `/api/ready`, pack EC2, checklist de release y manuales bajo `docs/entrega`.

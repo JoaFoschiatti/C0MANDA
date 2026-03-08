@@ -3,43 +3,37 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
-  createUsuario,
+    createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Productos Endpoints', () => {
-  let tenant;
-  let token;
-  let tenantSecundario;
+    let token;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+        await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
     token = signTokenForUser(admin);
-
-    tenantSecundario = await createTenant();
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await cleanupTenantData(tenantSecundario.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('POST /api/productos crea producto con ingredientes', async () => {
     const categoria = await prisma.categoria.create({
-      data: { tenantId: tenant.id, nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
+      data: { nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
     });
 
     const ingrediente = await prisma.ingrediente.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Ing-${uniqueId('ing')}`,
         unidad: 'u',
         stockActual: 100,
@@ -69,29 +63,16 @@ describe('Productos Endpoints', () => {
     expect(response.body.ingredientes[0].ingredienteId).toBe(ingrediente.id);
   });
 
-  it('GET /api/productos lista solo productos del tenant', async () => {
+  it('GET /api/productos lista productos disponibles', async () => {
     const categoria = await prisma.categoria.create({
-      data: { tenantId: tenant.id, nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
-    });
-    const categoriaOtroTenant = await prisma.categoria.create({
-      data: { tenantId: tenantSecundario.id, nombre: `Cat-${uniqueId('cat2')}`, orden: 1, activa: true }
+      data: { nombre: `Cat-${uniqueId('cat-list')}`, orden: 1, activa: true }
     });
 
     const producto = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
-        nombre: `Prod-${uniqueId('prod')}`,
+        nombre: `Prod-${uniqueId('prod-list')}`,
         precio: 10,
         categoriaId: categoria.id,
-        disponible: true
-      }
-    });
-    await prisma.producto.create({
-      data: {
-        tenantId: tenantSecundario.id,
-        nombre: `Prod-${uniqueId('prod2')}`,
-        precio: 10,
-        categoriaId: categoriaOtroTenant.id,
         disponible: true
       }
     });
@@ -101,19 +82,17 @@ describe('Productos Endpoints', () => {
       .set('Authorization', authHeader(token))
       .expect(200);
 
-    const ids = response.body.map(p => p.id);
+    const ids = response.body.map((item) => item.id);
     expect(ids).toContain(producto.id);
-    expect(response.body.every(p => p.tenantId === tenant.id)).toBe(true);
   });
 
   it('POST /api/productos/:id/variantes crea una variante y copia ingredientes', async () => {
     const categoria = await prisma.categoria.create({
-      data: { tenantId: tenant.id, nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
+      data: { nombre: `Cat-${uniqueId('cat-var')}`, orden: 1, activa: true }
     });
     const ingrediente = await prisma.ingrediente.create({
       data: {
-        tenantId: tenant.id,
-        nombre: `Ing-${uniqueId('ing')}`,
+        nombre: `Ing-${uniqueId('ing-var')}`,
         unidad: 'u',
         stockActual: 100,
         stockMinimo: 10,
@@ -123,7 +102,6 @@ describe('Productos Endpoints', () => {
 
     const productoBase = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('base')}`,
         precio: 100,
         categoriaId: categoria.id,
@@ -133,7 +111,6 @@ describe('Productos Endpoints', () => {
 
     await prisma.productoIngrediente.create({
       data: {
-        tenantId: tenant.id,
         productoId: productoBase.id,
         ingredienteId: ingrediente.id,
         cantidad: 1
@@ -162,57 +139,42 @@ describe('Productos Endpoints', () => {
       .set('Authorization', authHeader(token))
       .expect(200);
 
-    const baseEnRespuesta = listado.body.find(p => p.id === productoBase.id);
+    const baseEnRespuesta = listado.body.find((producto) => producto.id === productoBase.id);
     expect(baseEnRespuesta).toBeDefined();
-    expect(baseEnRespuesta.variantes.some(v => v.id === response.body.id)).toBe(true);
+    expect(baseEnRespuesta.variantes.some((variante) => variante.id === response.body.id)).toBe(true);
   });
 
-  it('Aislamiento multi-tenant: GET /api/productos/:id no devuelve producto de otro tenant', async () => {
-    const categoriaOtroTenant = await prisma.categoria.create({
-      data: { tenantId: tenantSecundario.id, nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
-    });
-    const productoOtroTenant = await prisma.producto.create({
-      data: {
-        tenantId: tenantSecundario.id,
-        nombre: `Prod-${uniqueId('otro')}`,
-        precio: 10,
-        categoriaId: categoriaOtroTenant.id,
-        disponible: true
-      }
-    });
-
-    const response = await request(app)
-      .get(`/api/productos/${productoOtroTenant.id}`)
-      .set('Authorization', authHeader(token))
-      .expect(404);
-
-    expect(response.body.error.message).toBe('Producto no encontrado');
-  });
-
-  it('POST /api/productos/agrupar-variantes rechaza ids de otro tenant', async () => {
+  it('GET /api/productos/:id devuelve el producto solicitado', async () => {
     const categoria = await prisma.categoria.create({
-      data: { tenantId: tenant.id, nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
+      data: { nombre: `Cat-${uniqueId('cat-id')}`, orden: 1, activa: true }
     });
-    const categoriaOtroTenant = await prisma.categoria.create({
-      data: { tenantId: tenantSecundario.id, nombre: `Cat-${uniqueId('cat2')}`, orden: 1, activa: true }
-    });
-
-    const productoBase = await prisma.producto.create({
+    const producto = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
-        nombre: `Prod-${uniqueId('base')}`,
+        nombre: `Prod-${uniqueId('single')}`,
         precio: 10,
         categoriaId: categoria.id,
         disponible: true
       }
     });
 
-    const productoOtroTenant = await prisma.producto.create({
+    const response = await request(app)
+      .get(`/api/productos/${producto.id}`)
+      .set('Authorization', authHeader(token))
+      .expect(200);
+
+    expect(response.body.id).toBe(producto.id);
+  });
+
+  it('POST /api/productos/agrupar-variantes rechaza ids inexistentes', async () => {
+    const categoria = await prisma.categoria.create({
+      data: { nombre: `Cat-${uniqueId('cat-group')}`, orden: 1, activa: true }
+    });
+
+    const productoBase = await prisma.producto.create({
       data: {
-        tenantId: tenantSecundario.id,
-        nombre: `Prod-${uniqueId('otro')}`,
+        nombre: `Prod-${uniqueId('base-group')}`,
         precio: 10,
-        categoriaId: categoriaOtroTenant.id,
+        categoriaId: categoria.id,
         disponible: true
       }
     });
@@ -224,7 +186,7 @@ describe('Productos Endpoints', () => {
         productoBaseId: productoBase.id,
         variantes: [
           {
-            productoId: productoOtroTenant.id,
+            productoId: 999999,
             nombreVariante: 'Otro',
             ordenVariante: 1
           }
@@ -232,6 +194,6 @@ describe('Productos Endpoints', () => {
       })
       .expect(400);
 
-    expect(response.body.error.message).toMatch(/Productos no válidos/);
+    expect(response.body.error.message).toMatch(/Productos no validos|Productos no válidos/);
   });
 });

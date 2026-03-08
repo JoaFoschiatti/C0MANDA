@@ -1,12 +1,8 @@
 const { createHttpError } = require('../utils/http-error');
 
-const obtenerTodas = async (prisma, tenantId) => {
-  if (!tenantId) {
-    throw createHttpError.badRequest('Tenant no identificado');
-  }
-
+const obtenerTodas = async (prisma) => {
   const configs = await prisma.configuracion.findMany({
-    where: { tenantId }
+    orderBy: { clave: 'asc' }
   });
 
   return configs.reduce((acc, config) => {
@@ -15,29 +11,19 @@ const obtenerTodas = async (prisma, tenantId) => {
   }, {});
 };
 
-const actualizar = async (prisma, tenantId, clave, valor) => {
-  if (!tenantId) {
-    throw createHttpError.badRequest('Tenant no identificado');
-  }
-
+const actualizar = async (prisma, clave, valor) => {
   if (!clave) {
     throw createHttpError.badRequest('Clave requerida');
   }
 
   return prisma.configuracion.upsert({
-    where: {
-      tenantId_clave: { tenantId, clave }
-    },
+    where: { clave },
     update: { valor: String(valor) },
-    create: { tenantId, clave, valor: String(valor) }
+    create: { clave, valor: String(valor) }
   });
 };
 
-const actualizarBulk = async (prisma, tenantId, configs) => {
-  if (!tenantId) {
-    throw createHttpError.badRequest('Tenant no identificado');
-  }
-
+const actualizarBulk = async (prisma, configs) => {
   const entries = Object.entries(configs || {});
 
   if (entries.length === 0) {
@@ -47,11 +33,9 @@ const actualizarBulk = async (prisma, tenantId, configs) => {
   const updates = await Promise.all(
     entries.map(([clave, valor]) =>
       prisma.configuracion.upsert({
-        where: {
-          tenantId_clave: { tenantId, clave }
-        },
+        where: { clave },
         update: { valor: String(valor) },
-        create: { tenantId, clave, valor: String(valor) }
+        create: { clave, valor: String(valor) }
       })
     )
   );
@@ -59,23 +43,17 @@ const actualizarBulk = async (prisma, tenantId, configs) => {
   return { message: 'Configuraciones actualizadas', count: updates.length };
 };
 
-const subirBanner = async (prisma, tenantId, file) => {
-  if (!tenantId) {
-    throw createHttpError.badRequest('Tenant no identificado');
-  }
-
+const subirBanner = async (prisma, file) => {
   if (!file) {
-    throw createHttpError.badRequest('No se subió ninguna imagen');
+    throw createHttpError.badRequest('No se subio ninguna imagen');
   }
 
   const bannerUrl = `/uploads/${file.filename}`;
 
   await prisma.configuracion.upsert({
-    where: {
-      tenantId_clave: { tenantId, clave: 'banner_imagen' }
-    },
+    where: { clave: 'banner_imagen' },
     update: { valor: bannerUrl },
-    create: { tenantId, clave: 'banner_imagen', valor: bannerUrl }
+    create: { clave: 'banner_imagen', valor: bannerUrl }
   });
 
   return { url: bannerUrl, message: 'Banner subido correctamente' };
@@ -87,4 +65,3 @@ module.exports = {
   actualizarBulk,
   subirBanner
 };
-

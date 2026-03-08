@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import Productos from '../pages/admin/Productos'
@@ -125,7 +125,7 @@ describe('Productos page', () => {
 
     api.post.mockResolvedValueOnce({ data: { id: 1 } })
 
-    const user = userEvent.setup()
+    const user = userEvent.setup({ applyAccept: false })
     render(<Productos />)
 
     await user.click(await screen.findByRole('button', { name: /Nuevo Producto/i }))
@@ -148,5 +148,25 @@ describe('Productos page', () => {
 
     expect(toast.success).toHaveBeenCalledWith('Producto creado')
   })
-})
 
+  it('rechaza una imagen con formato invalido antes de enviar el formulario', async () => {
+    const categoria = { id: 10, nombre: 'Platos' }
+
+    api.get
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({ data: [categoria] })
+
+    const user = userEvent.setup()
+    render(<Productos />)
+
+    await user.click(await screen.findByRole('button', { name: /Nuevo Producto/i }))
+
+    const invalidFile = new File(['contenido'], 'catalogo.txt', { type: 'text/plain' })
+    fireEvent.change(screen.getByLabelText('Imagen'), {
+      target: { files: [invalidFile] }
+    })
+
+    expect(toast.error).toHaveBeenCalledWith('Formato no permitido. Usa PNG, JPG o WebP.')
+    expect(api.post).not.toHaveBeenCalled()
+  })
+})

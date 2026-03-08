@@ -7,16 +7,10 @@ const loadModule = () => {
 };
 
 describe('getPrisma', () => {
-  it('retorna prisma del request si existe', () => {
-    const { getPrisma } = loadModule();
-    const reqPrisma = { marker: 'req' };
-
-    expect(getPrisma({ prisma: reqPrisma })).toBe(reqPrisma);
-  });
-
-  it('retorna prisma base si no hay prisma en request', () => {
+  it('retorna siempre el prisma base de la instalacion unica', () => {
     const { getPrisma, basePrisma } = loadModule();
 
+    expect(getPrisma({ prisma: { marker: 'req' } })).toBe(basePrisma);
     expect(getPrisma({})).toBe(basePrisma);
   });
 });

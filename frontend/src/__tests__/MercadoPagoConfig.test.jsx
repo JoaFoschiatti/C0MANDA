@@ -36,7 +36,6 @@ describe('MercadoPagoConfig', () => {
 
     expect(await screen.findByText('No hay cuenta conectada')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /Configuracion manual/i }))
     await user.type(screen.getByLabelText('Access Token'), 'APP_USR-123')
     await user.click(screen.getByRole('button', { name: /Guardar configuracion/i }))
 
@@ -52,4 +51,3 @@ describe('MercadoPagoConfig', () => {
     expect(onStatusChange).toHaveBeenCalledWith(true)
   })
 })
-

@@ -5,6 +5,7 @@ import { PlusIcon, CalendarDaysIcon, ExclamationCircleIcon } from '@heroicons/re
 import useAsync from '../../hooks/useAsync'
 import usePolling from '../../hooks/usePolling'
 import useEventSource from '../../hooks/useEventSource'
+import { PageHeader, Spinner } from '../../components/ui'
 
 export default function MozoMesas() {
   const [mesas, setMesas] = useState([])
@@ -74,6 +75,10 @@ export default function MozoMesas() {
         return 'bg-error-50 border-error-200 hover:bg-error-100'
       case 'RESERVADA':
         return 'bg-warning-50 border-warning-200 hover:bg-warning-100'
+      case 'ESPERANDO_CUENTA':
+        return 'bg-amber-50 border-amber-200 hover:bg-amber-100'
+      case 'CERRADA':
+        return 'bg-slate-50 border-slate-200 hover:bg-slate-100'
       default:
         return 'bg-surface-hover border-border-subtle'
     }
@@ -83,7 +88,7 @@ export default function MozoMesas() {
     if (mesa.estado === 'LIBRE') {
       // Ir a crear nuevo pedido para esta mesa
       navigate(`/mozo/nuevo-pedido/${mesa.id}`)
-    } else if (mesa.estado === 'OCUPADA') {
+    } else if (['OCUPADA', 'ESPERANDO_CUENTA', 'CERRADA'].includes(mesa.estado)) {
       // Ver pedido actual de la mesa
       if (mesa.pedidos?.[0]) {
         navigate(`/pedidos?mesaId=${mesa.id}`)
@@ -99,7 +104,7 @@ export default function MozoMesas() {
   if (loading && mesas.length === 0) {
     return (
       <div className="flex justify-center py-12">
-        <div className="spinner spinner-lg" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -153,16 +158,18 @@ export default function MozoMesas() {
           </button>
         </div>
       )}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-heading-1">Mesas</h1>
-        <button
-          onClick={() => navigate('/mozo/nuevo-pedido')}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          <PlusIcon className="w-5 h-5" />
-          Pedido Delivery/Mostrador
-        </button>
-      </div>
+      <PageHeader
+        title="Mesas"
+        actions={
+          <button
+            onClick={() => navigate('/mozo/nuevo-pedido')}
+            className="btn btn-primary flex items-center gap-2"
+          >
+            <PlusIcon className="w-5 h-5" />
+            Pedido Delivery/Mostrador
+          </button>
+        }
+      />
 
       {/* Leyenda */}
       <div className="flex gap-4 mb-6 text-sm text-text-secondary">
@@ -177,6 +184,14 @@ export default function MozoMesas() {
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 rounded bg-warning-100 border border-warning-200"></div>
           <span>Reservada</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 rounded bg-amber-100 border border-amber-200"></div>
+          <span>Esperando cuenta</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 rounded bg-slate-100 border border-slate-200"></div>
+          <span>Cerrada</span>
         </div>
       </div>
 
@@ -203,7 +218,7 @@ export default function MozoMesas() {
                   <div className="text-xs text-text-secondary">
                     {mesa.capacidad} personas
                   </div>
-                  {mesa.estado === 'OCUPADA' && mesa.pedidos?.[0] && (
+                  {['OCUPADA', 'ESPERANDO_CUENTA', 'CERRADA'].includes(mesa.estado) && mesa.pedidos?.[0] && (
                     <div className="text-xs text-text-tertiary mt-2">
                       Pedido #{mesa.pedidos[0].id}
                     </div>

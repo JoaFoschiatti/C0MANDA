@@ -1,0 +1,101 @@
+[
+  {
+    "route": "/login",
+    "role": "anon",
+    "state": "formulario-visible",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\desktop-login.png",
+    "capturedAt": "2026-03-08T02:30:41.057Z"
+  },
+  {
+    "route": "/dashboard",
+    "role": "ADMIN",
+    "state": "cards-cargadas",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\desktop-dashboard.png",
+    "capturedAt": "2026-03-08T02:30:43.259Z"
+  },
+  {
+    "route": "/reservas",
+    "role": "ADMIN",
+    "state": "vacio",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\desktop-reservas-empty.png",
+    "capturedAt": "2026-03-08T02:30:43.906Z"
+  },
+  {
+    "route": "/reservas",
+    "role": "ADMIN",
+    "state": "con-reserva-visible",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\desktop-reservas-populated.png",
+    "capturedAt": "2026-03-08T02:30:44.094Z"
+  },
+  {
+    "route": "/ingredientes",
+    "role": "ADMIN",
+    "state": "tabla-cargada",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\desktop-ingredientes.png",
+    "capturedAt": "2026-03-08T02:30:44.760Z"
+  },
+  {
+    "route": "/tareas",
+    "role": "ADMIN",
+    "state": "resumen-visible",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\desktop-tareas.png",
+    "capturedAt": "2026-03-08T02:30:45.481Z"
+  },
+  {
+    "route": "/menu",
+    "role": "publico",
+    "state": "catalogo-visible",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\desktop-menu-empty.png",
+    "capturedAt": "2026-03-08T02:30:46.277Z"
+  },
+  {
+    "route": "/menu",
+    "role": "publico",
+    "state": "carrito-con-item",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\desktop-menu-cart.png",
+    "capturedAt": "2026-03-08T02:30:46.640Z"
+  },
+  {
+    "route": "/menu",
+    "role": "publico",
+    "state": "catalogo-mobile",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\mobile-menu.png",
+    "capturedAt": "2026-03-08T02:30:47.665Z"
+  },
+  {
+    "route": "/menu",
+    "role": "publico",
+    "state": "carrito-mobile",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\mobile-menu-cart.png",
+    "capturedAt": "2026-03-08T02:30:47.891Z"
+  },
+  {
+    "route": "/menu/mesa/d2c6bdb7-0b62-4763-8bbb-a3d5e154e6c0",
+    "role": "publico",
+    "state": "mesa-qr-con-cta",
+    "result": "PASS",
+    "defect": null,
+    "screenshot": "C:\\Programacion\\Comanda\\e2e\\artifacts\\release\\2026-03-07\\screenshots\\mobile-menu-mesa.png",
+    "capturedAt": "2026-03-08T02:30:48.715Z"
+  }
+]

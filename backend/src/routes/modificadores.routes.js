@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const modificadoresController = require('../controllers/modificadores.controller');
 const { verificarToken, esAdmin } = require('../middlewares/auth.middleware');
-const { setTenantFromAuth, bloquearSiSoloLectura } = require('../middlewares/tenant.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const { asyncHandler } = require('../utils/async-handler');
 const {
@@ -16,7 +15,6 @@ const {
 
 // Todas las rutas requieren autenticación
 router.use(verificarToken);
-router.use(setTenantFromAuth);
 
 // GET /api/modificadores - Listar modificadores
 router.get('/', validate({ query: listarQuerySchema }), asyncHandler(modificadoresController.listar));
@@ -28,21 +26,21 @@ router.get('/:id', validate({ params: idParamSchema }), asyncHandler(modificador
 router.get('/producto/:productoId', validate({ params: productoIdParamSchema }), asyncHandler(modificadoresController.modificadoresDeProducto));
 
 // POST /api/modificadores - Crear modificador (solo admin)
-router.post('/', bloquearSiSoloLectura, esAdmin, validate({ body: crearModificadorBodySchema }), asyncHandler(modificadoresController.crear));
+router.post('/', esAdmin, validate({ body: crearModificadorBodySchema }), asyncHandler(modificadoresController.crear));
 
 // PUT /api/modificadores/:id - Actualizar modificador (solo admin)
-router.put('/:id', bloquearSiSoloLectura, esAdmin, validate({ params: idParamSchema, body: actualizarModificadorBodySchema }), asyncHandler(modificadoresController.actualizar));
+router.put('/:id', esAdmin, validate({ params: idParamSchema, body: actualizarModificadorBodySchema }), asyncHandler(modificadoresController.actualizar));
 
 // DELETE /api/modificadores/:id - Eliminar modificador (solo admin)
-router.delete('/:id', bloquearSiSoloLectura, esAdmin, validate({ params: idParamSchema }), asyncHandler(modificadoresController.eliminar));
+router.delete('/:id', esAdmin, validate({ params: idParamSchema }), asyncHandler(modificadoresController.eliminar));
 
 // PUT /api/modificadores/producto/:productoId - Asignar modificadores a producto (solo admin)
 router.put(
   '/producto/:productoId',
-  bloquearSiSoloLectura,
   esAdmin,
   validate({ params: productoIdParamSchema, body: asignarAProductoBodySchema }),
   asyncHandler(modificadoresController.asignarAProducto)
 );
 
 module.exports = router;
+

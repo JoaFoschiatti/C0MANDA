@@ -4,124 +4,108 @@ const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
 
+async function upsertConfig(clave, valor) {
+  return prisma.configuracion.upsert({
+    where: { clave },
+    update: { valor: String(valor) },
+    create: { clave, valor: String(valor) }
+  });
+}
+
 async function main() {
-  console.log('Iniciando seed de la base de datos...');
+  const negocioNombre = process.env.SEED_NEGOCIO_NOMBRE || 'Comanda Demo';
+  const negocioEmail = process.env.SEED_NEGOCIO_EMAIL || 'admin@comanda.local';
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@comanda.local';
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'admin123';
 
-  const tenantSlug = process.env.SEED_TENANT_SLUG || 'default';
-  const tenantNombre = process.env.SEED_TENANT_NOMBRE || 'GestioNeo Burger';
-  const tenantEmail = process.env.SEED_TENANT_EMAIL || 'admin@gestioneo.com';
-
-  const tenant = await prisma.tenant.upsert({
-    where: { slug: tenantSlug },
-    update: { nombre: tenantNombre, email: tenantEmail, activo: true },
-    create: { slug: tenantSlug, nombre: tenantNombre, email: tenantEmail, activo: true }
-  });
-
-  const tenantId = tenant.id;
-
-  // Crear usuario admin
-  const passwordHash = await bcrypt.hash('admin123', 10);
-
-  const admin = await prisma.usuario.upsert({
-    where: { tenantId_email: { tenantId, email: 'admin@gestioneo.com' } },
-    update: {},
+  await prisma.negocio.upsert({
+    where: { id: 1 },
+    update: {
+      nombre: negocioNombre,
+      email: negocioEmail,
+      telefono: process.env.SEED_NEGOCIO_TELEFONO || '11-5555-0000',
+      direccion: process.env.SEED_NEGOCIO_DIRECCION || 'Av. Principal 123',
+      colorPrimario: '#3B82F6',
+      colorSecundario: '#1E40AF'
+    },
     create: {
-      tenantId,
-      email: 'admin@gestioneo.com',
-      password: passwordHash,
-      nombre: 'Administrador',
-      rol: 'ADMIN'
+      id: 1,
+      nombre: negocioNombre,
+      email: negocioEmail,
+      telefono: process.env.SEED_NEGOCIO_TELEFONO || '11-5555-0000',
+      direccion: process.env.SEED_NEGOCIO_DIRECCION || 'Av. Principal 123',
+      colorPrimario: '#3B82F6',
+      colorSecundario: '#1E40AF'
     }
   });
-  console.log('Usuario admin creado:', admin.email);
 
-  // Crear usuario mozo de prueba
-  const mozo = await prisma.usuario.upsert({
-    where: { tenantId_email: { tenantId, email: 'mozo@gestioneo.com' } },
-    update: {},
-    create: {
-      tenantId,
-      email: 'mozo@gestioneo.com',
-      password: await bcrypt.hash('mozo123', 10),
-      nombre: 'Juan Mozo',
-      rol: 'MOZO'
-    }
-  });
-  console.log('Usuario mozo creado:', mozo.email);
+  const passwordHash = await bcrypt.hash(adminPassword, 10);
 
-  // Crear usuario cocinero de prueba
-  const cocinero = await prisma.usuario.upsert({
-    where: { tenantId_email: { tenantId, email: 'cocinero@gestioneo.com' } },
-    update: {},
-    create: {
-      tenantId,
-      email: 'cocinero@gestioneo.com',
-      password: await bcrypt.hash('cocinero123', 10),
-      nombre: 'Pedro Cocinero',
-      rol: 'COCINERO'
-    }
-  });
-  console.log('Usuario cocinero creado:', cocinero.email);
-
-  // Crear empleados
-  const empleados = [
-    { nombre: 'Juan', apellido: 'Pérez', dni: '30123456', telefono: '1155551234', rol: 'MOZO', tarifaHora: 1500 },
-    { nombre: 'María', apellido: 'García', dni: '31234567', telefono: '1155552345', rol: 'MOZO', tarifaHora: 1500 },
-    { nombre: 'Pedro', apellido: 'López', dni: '32345678', telefono: '1155553456', rol: 'COCINERO', tarifaHora: 1800 },
-    { nombre: 'Ana', apellido: 'Martínez', dni: '33456789', telefono: '1155554567', rol: 'COCINERO', tarifaHora: 1800 }
+  const usuarios = [
+    { email: adminEmail, password: passwordHash, nombre: 'Administrador', rol: 'ADMIN' },
+    { email: 'mozo@comanda.local', password: await bcrypt.hash('mozo123', 10), nombre: 'Juan Mozo', rol: 'MOZO' },
+    { email: 'cocinero@comanda.local', password: await bcrypt.hash('cocinero123', 10), nombre: 'Pedro Cocinero', rol: 'COCINERO' },
+    { email: 'cajero@comanda.local', password: await bcrypt.hash('cajero123', 10), nombre: 'Carla Caja', rol: 'CAJERO' },
+    { email: 'delivery@comanda.local', password: await bcrypt.hash('delivery123', 10), nombre: 'Diego Delivery', rol: 'DELIVERY' }
   ];
 
-  for (const emp of empleados) {
-    await prisma.empleado.upsert({
-      where: { tenantId_dni: { tenantId, dni: emp.dni } },
-      update: {},
-      create: { tenantId, ...emp }
+  for (const usuario of usuarios) {
+    await prisma.usuario.upsert({
+      where: { email: usuario.email },
+      update: usuario,
+      create: usuario
     });
   }
-  console.log('Empleados creados:', empleados.length);
 
-  // Crear mesas
+  const empleados = [
+    { nombre: 'Juan', apellido: 'Perez', dni: '30123456', telefono: '1155551234', rol: 'MOZO', tarifaHora: 1500 },
+    { nombre: 'Maria', apellido: 'Garcia', dni: '31234567', telefono: '1155552345', rol: 'MOZO', tarifaHora: 1500 },
+    { nombre: 'Pedro', apellido: 'Lopez', dni: '32345678', telefono: '1155553456', rol: 'COCINERO', tarifaHora: 1800 },
+    { nombre: 'Carla', apellido: 'Suarez', dni: '33456789', telefono: '1155554567', rol: 'CAJERO', tarifaHora: 1700 }
+  ];
+
+  for (const empleado of empleados) {
+    await prisma.empleado.upsert({
+      where: { dni: empleado.dni },
+      update: empleado,
+      create: empleado
+    });
+  }
+
   const mesas = [
-    { numero: 1, zona: 'Interior', capacidad: 4 },
-    { numero: 2, zona: 'Interior', capacidad: 4 },
-    { numero: 3, zona: 'Interior', capacidad: 6 },
-    { numero: 4, zona: 'Interior', capacidad: 2 },
-    { numero: 5, zona: 'Terraza', capacidad: 4 },
-    { numero: 6, zona: 'Terraza', capacidad: 4 },
-    { numero: 7, zona: 'Terraza', capacidad: 6 },
-    { numero: 8, zona: 'Barra', capacidad: 2 }
+    { numero: 1, zona: 'Interior', capacidad: 4, posX: 40, posY: 40 },
+    { numero: 2, zona: 'Interior', capacidad: 4, posX: 180, posY: 40 },
+    { numero: 3, zona: 'Interior', capacidad: 6, posX: 320, posY: 40 },
+    { numero: 4, zona: 'Terraza', capacidad: 2, posX: 40, posY: 180 },
+    { numero: 5, zona: 'Terraza', capacidad: 4, posX: 180, posY: 180 },
+    { numero: 6, zona: 'Barra', capacidad: 2, posX: 320, posY: 180 }
   ];
 
   for (const mesa of mesas) {
     await prisma.mesa.upsert({
-      where: { tenantId_numero: { tenantId, numero: mesa.numero } },
-      update: {},
-      create: { tenantId, ...mesa }
+      where: { numero: mesa.numero },
+      update: mesa,
+      create: mesa
     });
   }
-  console.log('Mesas creadas:', mesas.length);
 
-  // Crear categorías
   const categorias = [
-    { nombre: 'Hamburguesas', descripcion: 'Nuestras deliciosas hamburguesas', orden: 1 },
-    { nombre: 'Papas y Acompañamientos', descripcion: 'Papas fritas y más', orden: 2 },
-    { nombre: 'Bebidas', descripcion: 'Gaseosas, jugos y más', orden: 3 },
-    { nombre: 'Postres', descripcion: 'Para los golosos', orden: 4 },
-    { nombre: 'Combos', descripcion: 'Las mejores combinaciones', orden: 5 }
+    { nombre: 'Hamburguesas', descripcion: 'Hamburguesas de la casa', orden: 1 },
+    { nombre: 'Papas', descripcion: 'Guarniciones y papas', orden: 2 },
+    { nombre: 'Bebidas', descripcion: 'Bebidas frias', orden: 3 },
+    { nombre: 'Postres', descripcion: 'Postres y cafe', orden: 4 }
   ];
 
-  const categoriasCreadas = {};
-  for (const cat of categorias) {
+  const categoriasMap = {};
+  for (const categoria of categorias) {
     const created = await prisma.categoria.upsert({
-      where: { tenantId_nombre: { tenantId, nombre: cat.nombre } },
-      update: {},
-      create: { tenantId, ...cat }
+      where: { nombre: categoria.nombre },
+      update: categoria,
+      create: categoria
     });
-    categoriasCreadas[cat.nombre] = created.id;
+    categoriasMap[categoria.nombre] = created.id;
   }
-  console.log('Categorías creadas:', categorias.length);
 
-  // Crear ingredientes
   const ingredientes = [
     { nombre: 'Carne de hamburguesa', unidad: 'unidades', stockActual: 100, stockMinimo: 20, costo: 800 },
     { nombre: 'Pan de hamburguesa', unidad: 'unidades', stockActual: 150, stockMinimo: 30, costo: 200 },
@@ -129,157 +113,139 @@ async function main() {
     { nombre: 'Bacon', unidad: 'fetas', stockActual: 100, stockMinimo: 25, costo: 150 },
     { nombre: 'Lechuga', unidad: 'hojas', stockActual: 80, stockMinimo: 20, costo: 30 },
     { nombre: 'Tomate', unidad: 'rodajas', stockActual: 100, stockMinimo: 30, costo: 50 },
-    { nombre: 'Cebolla', unidad: 'aros', stockActual: 80, stockMinimo: 20, costo: 30 },
-    { nombre: 'Papas', unidad: 'kg', stockActual: 30, stockMinimo: 10, costo: 500 },
-    { nombre: 'Coca-Cola', unidad: 'unidades', stockActual: 48, stockMinimo: 12, costo: 400 },
-    { nombre: 'Sprite', unidad: 'unidades', stockActual: 24, stockMinimo: 12, costo: 400 },
-    { nombre: 'Agua mineral', unidad: 'unidades', stockActual: 36, stockMinimo: 12, costo: 200 }
+    { nombre: 'Papas congeladas', unidad: 'kg', stockActual: 30, stockMinimo: 10, costo: 500 },
+    { nombre: 'Coca-Cola', unidad: 'unidades', stockActual: 48, stockMinimo: 12, costo: 400 }
   ];
 
-  const ingredientesCreados = {};
-  for (const ing of ingredientes) {
+  const ingredientesMap = {};
+  for (const ingrediente of ingredientes) {
     const created = await prisma.ingrediente.upsert({
-      where: { tenantId_nombre: { tenantId, nombre: ing.nombre } },
-      update: {},
-      create: { tenantId, ...ing }
+      where: { nombre: ingrediente.nombre },
+      update: ingrediente,
+      create: ingrediente
     });
-    ingredientesCreados[ing.nombre] = created.id;
+    ingredientesMap[ingrediente.nombre] = created.id;
   }
-  console.log('Ingredientes creados:', ingredientes.length);
 
-  // Crear productos
   const productos = [
     {
-      nombre: 'Hamburguesa Clásica',
-      descripcion: 'Carne, lechuga, tomate, cebolla y mayonesa',
-      precio: 4500,
-      categoriaId: categoriasCreadas['Hamburguesas'],
-      destacado: true
+      data: {
+        nombre: 'Hamburguesa Clasica',
+        descripcion: 'Carne, lechuga, tomate y mayonesa',
+        precio: 4500,
+        categoriaId: categoriasMap.Hamburguesas,
+        destacado: true
+      },
+      ingredientes: [
+        { ingredienteId: ingredientesMap['Carne de hamburguesa'], cantidad: 1 },
+        { ingredienteId: ingredientesMap['Pan de hamburguesa'], cantidad: 1 },
+        { ingredienteId: ingredientesMap.Lechuga, cantidad: 1 },
+        { ingredienteId: ingredientesMap.Tomate, cantidad: 2 }
+      ]
     },
     {
-      nombre: 'Hamburguesa con Queso',
-      descripcion: 'Carne, queso cheddar, lechuga, tomate y mayonesa',
-      precio: 5000,
-      categoriaId: categoriasCreadas['Hamburguesas'],
-      destacado: true
+      data: {
+        nombre: 'Hamburguesa con Queso',
+        descripcion: 'Carne, cheddar, lechuga y tomate',
+        precio: 5000,
+        categoriaId: categoriasMap.Hamburguesas,
+        destacado: true
+      },
+      ingredientes: [
+        { ingredienteId: ingredientesMap['Carne de hamburguesa'], cantidad: 1 },
+        { ingredienteId: ingredientesMap['Pan de hamburguesa'], cantidad: 1 },
+        { ingredienteId: ingredientesMap['Queso cheddar'], cantidad: 2 }
+      ]
     },
     {
-      nombre: 'Hamburguesa Doble',
-      descripcion: 'Doble carne, doble queso, bacon, lechuga y salsa especial',
-      precio: 6500,
-      categoriaId: categoriasCreadas['Hamburguesas'],
-      destacado: true
+      data: {
+        nombre: 'Papas Fritas',
+        descripcion: 'Porcion de papas crocantes',
+        precio: 1800,
+        categoriaId: categoriasMap.Papas
+      },
+      ingredientes: [
+        { ingredienteId: ingredientesMap['Papas congeladas'], cantidad: 0.25 }
+      ]
     },
     {
-      nombre: 'Hamburguesa Bacon',
-      descripcion: 'Carne, bacon crocante, queso, cebolla caramelizada',
-      precio: 5500,
-      categoriaId: categoriasCreadas['Hamburguesas']
-    },
-    {
-      nombre: 'Papas Fritas',
-      descripcion: 'Porción de papas fritas crocantes',
-      precio: 1800,
-      categoriaId: categoriasCreadas['Papas y Acompañamientos']
-    },
-    {
-      nombre: 'Papas con Cheddar',
-      descripcion: 'Papas fritas con salsa cheddar y bacon',
-      precio: 2500,
-      categoriaId: categoriasCreadas['Papas y Acompañamientos']
-    },
-    {
-      nombre: 'Aros de Cebolla',
-      descripcion: 'Porción de aros de cebolla rebozados',
-      precio: 2000,
-      categoriaId: categoriasCreadas['Papas y Acompañamientos']
-    },
-    {
-      nombre: 'Coca-Cola 500ml',
-      descripcion: 'Gaseosa Coca-Cola',
-      precio: 1200,
-      categoriaId: categoriasCreadas['Bebidas']
-    },
-    {
-      nombre: 'Sprite 500ml',
-      descripcion: 'Gaseosa Sprite',
-      precio: 1200,
-      categoriaId: categoriasCreadas['Bebidas']
-    },
-    {
-      nombre: 'Agua Mineral 500ml',
-      descripcion: 'Agua mineral sin gas',
-      precio: 800,
-      categoriaId: categoriasCreadas['Bebidas']
-    },
-    {
-      nombre: 'Brownie con Helado',
-      descripcion: 'Brownie de chocolate con helado de vainilla',
-      precio: 2500,
-      categoriaId: categoriasCreadas['Postres']
-    },
-    {
-      nombre: 'Combo Clásico',
-      descripcion: 'Hamburguesa clásica + Papas + Gaseosa',
-      precio: 6800,
-      categoriaId: categoriasCreadas['Combos'],
-      destacado: true
-    },
-    {
-      nombre: 'Combo Doble',
-      descripcion: 'Hamburguesa doble + Papas con cheddar + Gaseosa',
-      precio: 9500,
-      categoriaId: categoriasCreadas['Combos'],
-      destacado: true
+      data: {
+        nombre: 'Coca-Cola 500ml',
+        descripcion: 'Gaseosa linea Coca-Cola',
+        precio: 1200,
+        categoriaId: categoriasMap.Bebidas
+      },
+      ingredientes: [
+        { ingredienteId: ingredientesMap['Coca-Cola'], cantidad: 1 }
+      ]
     }
   ];
 
-  for (const prod of productos) {
+  for (const producto of productos) {
     const existente = await prisma.producto.findFirst({
-      where: { tenantId, nombre: prod.nombre }
+      where: { nombre: producto.data.nombre }
     });
 
-    if (existente) {
-      await prisma.producto.update({
-        where: { id: existente.id },
-        data: prod
+    const saved = existente
+      ? await prisma.producto.update({
+          where: { id: existente.id },
+          data: producto.data
+        })
+      : await prisma.producto.create({ data: producto.data });
+
+    await prisma.productoIngrediente.deleteMany({
+      where: { productoId: saved.id }
+    });
+
+    if (producto.ingredientes.length > 0) {
+      await prisma.productoIngrediente.createMany({
+        data: producto.ingredientes.map((item) => ({
+          productoId: saved.id,
+          ingredienteId: item.ingredienteId,
+          cantidad: item.cantidad
+        }))
       });
-      continue;
     }
-
-    await prisma.producto.create({
-      data: { tenantId, ...prod }
-    });
   }
-  console.log('Productos creados:', productos.length);
 
-  // Configuraciones iniciales
-  const configs = [
-    { clave: 'nombre_local', valor: 'GestioNeo Burger' },
-    { clave: 'direccion', valor: 'Av. Principal 123' },
-    { clave: 'telefono', valor: '11-5555-0000' },
-    { clave: 'moneda', valor: 'ARS' }
-  ];
+  await upsertConfig('tienda_abierta', true);
+  await upsertConfig('horario_apertura', '11:00');
+  await upsertConfig('horario_cierre', '23:00');
+  await upsertConfig('costo_delivery', 0);
+  await upsertConfig('delivery_habilitado', true);
+  await upsertConfig('efectivo_enabled', true);
+  await upsertConfig('mercadopago_enabled', false);
+  await upsertConfig('nombre_negocio', negocioNombre);
+  await upsertConfig('tagline_negocio', 'Pedidos, caja y cocina en un solo lugar');
+  await upsertConfig('facturacion_habilitada', false);
+  await upsertConfig('facturacion_ambiente', 'homologacion');
+  await upsertConfig('facturacion_punto_venta', 1);
+  await upsertConfig('facturacion_cuit_emisor', '');
+  await upsertConfig('facturacion_descripcion', '');
+  await upsertConfig('facturacion_alicuota_iva', 21);
 
-  for (const config of configs) {
-    await prisma.configuracion.upsert({
-      where: { tenantId_clave: { tenantId, clave: config.clave } },
-      update: { valor: config.valor },
-      create: { tenantId, ...config }
-    });
-  }
-  console.log('Configuraciones creadas:', configs.length);
+  await prisma.puntoVentaFiscal.upsert({
+    where: { puntoVenta: 1 },
+    update: {
+      descripcion: 'Punto de venta principal',
+      ambiente: 'homologacion',
+      activo: true
+    },
+    create: {
+      puntoVenta: 1,
+      descripcion: 'Punto de venta principal',
+      ambiente: 'homologacion',
+      activo: true
+    }
+  });
 
-  console.log('\n✅ Seed completado exitosamente!');
-  console.log('\nUsuarios de prueba:');
-  console.log('  Admin: admin@gestioneo.com / admin123');
-  console.log('  Mozo: mozo@gestioneo.com / mozo123');
-  console.log('  Cocinero: cocinero@gestioneo.com / cocinero123');
+  console.log('Seed completado.');
+  console.log(`Admin: ${adminEmail} / ${adminPassword}`);
 }
 
 main()
-  .catch((e) => {
-    console.error('Error en seed:', e);
+  .catch((error) => {
+    console.error('Error en seed:', error);
     process.exit(1);
   })
   .finally(async () => {

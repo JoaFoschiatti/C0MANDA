@@ -1,55 +1,59 @@
+import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
+import { Spinner } from './components/ui'
 
-// Layouts
 import AdminLayout from './components/layouts/AdminLayout'
 import PublicLayout from './components/layouts/PublicLayout'
-
-// Componentes
 import RedirectByRole from './components/RedirectByRole'
 
-// Páginas públicas
-import Login from './pages/Login'
-import MenuPublico from './pages/MenuPublico'
-import Registro from './pages/Registro'
-import VerificarEmail from './pages/VerificarEmail'
+const Login = lazy(() => import('./pages/Login'))
+const MenuPublico = lazy(() => import('./pages/MenuPublico'))
+const MenuMesaPublico = lazy(() => import('./pages/MenuMesaPublico'))
 
-// Páginas admin
-import Dashboard from './pages/admin/Dashboard'
-import Empleados from './pages/admin/Empleados'
-import Mesas from './pages/admin/Mesas'
-import Categorias from './pages/admin/Categorias'
-import Productos from './pages/admin/Productos'
-import Ingredientes from './pages/admin/Ingredientes'
-import Liquidaciones from './pages/admin/Liquidaciones'
-import Reportes from './pages/admin/Reportes'
-import Configuracion from './pages/admin/Configuracion'
-import CierreCaja from './pages/admin/CierreCaja'
-import Reservas from './pages/admin/Reservas'
-import Modificadores from './pages/admin/Modificadores'
-import TransaccionesMercadoPago from './pages/admin/TransaccionesMercadoPago'
-import Suscripcion from './pages/admin/Suscripcion'
+const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
+const Empleados = lazy(() => import('./pages/admin/Empleados'))
+const Mesas = lazy(() => import('./pages/admin/Mesas'))
+const Categorias = lazy(() => import('./pages/admin/Categorias'))
+const Productos = lazy(() => import('./pages/admin/Productos'))
+const Ingredientes = lazy(() => import('./pages/admin/Ingredientes'))
+const Liquidaciones = lazy(() => import('./pages/admin/Liquidaciones'))
+const Reportes = lazy(() => import('./pages/admin/Reportes'))
+const Configuracion = lazy(() => import('./pages/admin/Configuracion'))
+const CierreCaja = lazy(() => import('./pages/admin/CierreCaja'))
+const Reservas = lazy(() => import('./pages/admin/Reservas'))
+const Modificadores = lazy(() => import('./pages/admin/Modificadores'))
+const TransaccionesMercadoPago = lazy(() => import('./pages/admin/TransaccionesMercadoPago'))
+const Pedidos = lazy(() => import('./pages/admin/Pedidos'))
+const Tareas = lazy(() => import('./pages/admin/Tareas'))
 
-// Páginas mozo
-import MozoMesas from './pages/mozo/MozoMesas'
-import NuevoPedido from './pages/mozo/NuevoPedido'
-import Pedidos from './pages/admin/Pedidos'
+const MozoMesas = lazy(() => import('./pages/mozo/MozoMesas'))
+const NuevoPedido = lazy(() => import('./pages/mozo/NuevoPedido'))
 
-// Páginas cocinero
-import Cocina from './pages/cocina/Cocina'
+const Cocina = lazy(() => import('./pages/cocina/Cocina'))
+const DeliveryPedidos = lazy(() => import('./pages/delivery/DeliveryPedidos'))
 
-// Páginas delivery
-import DeliveryPedidos from './pages/delivery/DeliveryPedidos'
+function RouteFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-canvas">
+      <Spinner size="lg" label="Cargando interfaz..." />
+    </div>
+  )
+}
+
+function LazyScreen({ children }) {
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      {children}
+    </Suspense>
+  )
+}
 
 function ProtectedRoute({ children, roles }) {
   const { usuario, loading } = useAuth()
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500"></div>
-      </div>
-    )
+    return <RouteFallback />
   }
 
   if (!usuario) {
@@ -66,129 +70,46 @@ function ProtectedRoute({ children, roles }) {
 export default function App() {
   return (
     <Routes>
-      {/* Rutas públicas */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/login/:slug" element={<Login />} />
-      <Route path="/registro" element={<Registro />} />
-      <Route path="/verificar-email/:token" element={<VerificarEmail />} />
-      <Route path="/menu/:slug" element={
-        <PublicLayout>
-          <MenuPublico />
-        </PublicLayout>
-      } />
-      {/* Backwards compatibility - redirect to default tenant */}
-      <Route path="/menu" element={<Navigate to="/menu/default" replace />} />
-
-      {/* Rutas protegidas */}
-      <Route path="/" element={
-        <ProtectedRoute>
-          <AdminLayout />
-        </ProtectedRoute>
-      }>
+      <Route path="/login" element={<LazyScreen><Login /></LazyScreen>} />
+      <Route
+        path="/menu"
+        element={<PublicLayout><LazyScreen><MenuPublico /></LazyScreen></PublicLayout>}
+      />
+      <Route
+        path="/menu/mesa/:qrToken"
+        element={<PublicLayout><LazyScreen><MenuMesaPublico /></LazyScreen></PublicLayout>}
+      />
+      <Route
+        path="/"
+        element={(
+          <ProtectedRoute>
+            <AdminLayout />
+          </ProtectedRoute>
+        )}
+      >
         <Route index element={<RedirectByRole />} />
-        <Route path="dashboard" element={
-          <ProtectedRoute roles={['ADMIN', 'COCINERO', 'CAJERO']}>
-            <Dashboard />
-          </ProtectedRoute>
-        } />
-
-        {/* Admin */}
-        <Route path="empleados" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <Empleados />
-          </ProtectedRoute>
-        } />
-        <Route path="mesas" element={<Mesas />} />
-        <Route path="categorias" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <Categorias />
-          </ProtectedRoute>
-        } />
-        <Route path="productos" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <Productos />
-          </ProtectedRoute>
-        } />
-        <Route path="ingredientes" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <Ingredientes />
-          </ProtectedRoute>
-        } />
-        <Route path="liquidaciones" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <Liquidaciones />
-          </ProtectedRoute>
-        } />
-        <Route path="reportes" element={
-          <ProtectedRoute roles={['ADMIN', 'CAJERO']}>
-            <Reportes />
-          </ProtectedRoute>
-        } />
-        <Route path="configuracion" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <Configuracion />
-          </ProtectedRoute>
-        } />
-        <Route path="cierre-caja" element={
-          <ProtectedRoute roles={['ADMIN', 'CAJERO']}>
-            <CierreCaja />
-          </ProtectedRoute>
-        } />
-        <Route path="reservas" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <Reservas />
-          </ProtectedRoute>
-        } />
-        <Route path="modificadores" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <Modificadores />
-          </ProtectedRoute>
-        } />
-        <Route path="transacciones-mp" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <TransaccionesMercadoPago />
-          </ProtectedRoute>
-        } />
-        <Route path="suscripcion" element={
-          <ProtectedRoute roles={['ADMIN']}>
-            <Suscripcion />
-          </ProtectedRoute>
-        } />
-        <Route path="pedidos" element={<Pedidos />} />
-
-        {/* Mozo */}
-        <Route path="mozo/mesas" element={
-          <ProtectedRoute roles={['ADMIN', 'MOZO']}>
-            <MozoMesas />
-          </ProtectedRoute>
-        } />
-        <Route path="mozo/nuevo-pedido" element={
-          <ProtectedRoute roles={['ADMIN', 'MOZO']}>
-            <NuevoPedido />
-          </ProtectedRoute>
-        } />
-        <Route path="mozo/nuevo-pedido/:mesaId" element={
-          <ProtectedRoute roles={['ADMIN', 'MOZO']}>
-            <NuevoPedido />
-          </ProtectedRoute>
-        } />
-
-        {/* Cocina */}
-        <Route path="cocina" element={
-          <ProtectedRoute roles={['ADMIN', 'COCINERO']}>
-            <Cocina />
-          </ProtectedRoute>
-        } />
-
-        {/* Delivery */}
-        <Route path="delivery/pedidos" element={
-          <ProtectedRoute roles={['ADMIN', 'DELIVERY']}>
-            <DeliveryPedidos />
-          </ProtectedRoute>
-        } />
+        <Route path="dashboard" element={<ProtectedRoute roles={['ADMIN', 'COCINERO', 'CAJERO']}><LazyScreen><Dashboard /></LazyScreen></ProtectedRoute>} />
+        <Route path="empleados" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Empleados /></LazyScreen></ProtectedRoute>} />
+        <Route path="mesas" element={<LazyScreen><Mesas /></LazyScreen>} />
+        <Route path="categorias" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Categorias /></LazyScreen></ProtectedRoute>} />
+        <Route path="productos" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Productos /></LazyScreen></ProtectedRoute>} />
+        <Route path="ingredientes" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Ingredientes /></LazyScreen></ProtectedRoute>} />
+        <Route path="liquidaciones" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Liquidaciones /></LazyScreen></ProtectedRoute>} />
+        <Route path="reportes" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><Reportes /></LazyScreen></ProtectedRoute>} />
+        <Route path="configuracion" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Configuracion /></LazyScreen></ProtectedRoute>} />
+        <Route path="cierre-caja" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><CierreCaja /></LazyScreen></ProtectedRoute>} />
+        <Route path="tareas" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><Tareas /></LazyScreen></ProtectedRoute>} />
+        <Route path="reservas" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Reservas /></LazyScreen></ProtectedRoute>} />
+        <Route path="modificadores" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Modificadores /></LazyScreen></ProtectedRoute>} />
+        <Route path="transacciones-mp" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><TransaccionesMercadoPago /></LazyScreen></ProtectedRoute>} />
+        <Route path="pedidos" element={<LazyScreen><Pedidos /></LazyScreen>} />
+        <Route path="mozo/mesas" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><MozoMesas /></LazyScreen></ProtectedRoute>} />
+        <Route path="mozo/nuevo-pedido" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><NuevoPedido /></LazyScreen></ProtectedRoute>} />
+        <Route path="mozo/nuevo-pedido/:mesaId" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><NuevoPedido /></LazyScreen></ProtectedRoute>} />
+        <Route path="cocina" element={<ProtectedRoute roles={['ADMIN', 'COCINERO']}><LazyScreen><Cocina /></LazyScreen></ProtectedRoute>} />
+        <Route path="delivery/pedidos" element={<ProtectedRoute roles={['ADMIN', 'DELIVERY']}><LazyScreen><DeliveryPedidos /></LazyScreen></ProtectedRoute>} />
       </Route>
 
-      {/* Fallback */}
       <Route path="*" element={<RedirectByRole />} />
     </Routes>
   )

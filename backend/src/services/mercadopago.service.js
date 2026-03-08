@@ -1,19 +1,15 @@
-/**
- * Servicio de MercadoPago Multi-Tenant
- * Obtiene credenciales del tenant y crea clientes de MercadoPago dinámicamente
- */
-
 const { MercadoPagoConfig, Preference, Payment } = require('mercadopago');
 const { prisma } = require('../db/prisma');
 const { decrypt, encrypt } = require('./crypto.service');
+const { logger } = require('../utils/logger');
 
-const refreshOAuthToken = async (tenantId, config) => {
+const refreshOAuthToken = async (config) => {
   if (!config?.refreshToken) {
     return null;
   }
 
   if (!process.env.MP_APP_ID || !process.env.MP_APP_SECRET) {
-    console.warn('MercadoPago OAuth no configurado para refresco de token');
+    logger.warn('MercadoPago OAuth no configurado para refresco de token');
     return null;
   }
 
@@ -21,7 +17,7 @@ const refreshOAuthToken = async (tenantId, config) => {
   try {
     refreshToken = decrypt(config.refreshToken);
   } catch (error) {
-    console.error(`Error al desencriptar refresh token de MP para tenant ${tenantId}:`, error);
+    logger.error('Error al desencriptar refresh token de MP:', error);
     return null;
   }
 
@@ -37,9 +33,8 @@ const refreshOAuthToken = async (tenantId, config) => {
   });
 
   const tokenData = await tokenResponse.json().catch(() => ({}));
-
   if (!tokenResponse.ok || tokenData.error) {
-    console.warn('Error al refrescar token de MP:', tokenData);
+    logger.warn('Error al refrescar token de MP:', tokenData);
     return null;
   }
 
@@ -48,7 +43,7 @@ const refreshOAuthToken = async (tenantId, config) => {
     : null;
 
   await prisma.mercadoPagoConfig.update({
-    where: { tenantId },
+    where: { id: 1 },
     data: {
       accessToken: encrypt(tokenData.access_token),
       refreshToken: tokenData.refresh_token ? encrypt(tokenData.refresh_token) : config.refreshToken,
@@ -61,25 +56,23 @@ const refreshOAuthToken = async (tenantId, config) => {
   return tokenData.access_token;
 };
 
-/**
- * Obtiene un cliente de MercadoPago configurado para un tenant específico
- * @param {number} tenantId - ID del tenant
- * @returns {MercadoPagoConfig|null} - Cliente configurado o null si no hay configuración
- */
-async function getMercadoPagoClient(tenantId) {
-  const config = await prisma.mercadoPagoConfig.findUnique({
-    where: { tenantId }
+async function getMercadoPagoConfigRecord() {
+  return prisma.mercadoPagoConfig.findUnique({
+    where: { id: 1 }
   });
+}
+
+async function getMercadoPagoClient() {
+  const config = await getMercadoPagoConfigRecord();
 
   if (!config || !config.isActive) {
     return null;
   }
 
-  // Verificar si el token expiró (para OAuth)
   if (config.isOAuth && config.expiresAt && new Date() > config.expiresAt) {
-    const refreshedToken = await refreshOAuthToken(tenantId, config);
+    const refreshedToken = await refreshOAuthToken(config);
     if (!refreshedToken) {
-      console.warn(`Token de MercadoPago expirado para tenant ${tenantId}`);
+      logger.warn('Token de MercadoPago expirado');
       return null;
     }
     return new MercadoPagoConfig({ accessToken: refreshedToken });
@@ -89,19 +82,33 @@ async function getMercadoPagoClient(tenantId) {
     const accessToken = decrypt(config.accessToken);
     return new MercadoPagoConfig({ accessToken });
   } catch (error) {
-    console.error(`Error al desencriptar token de MP para tenant ${tenantId}:`, error);
+    logger.error('Error al desencriptar token de MP:', error);
     return null;
   }
 }
 
-/**
- * Verifica si un tenant tiene MercadoPago configurado y activo
- * @param {number} tenantId - ID del tenant
- * @returns {boolean}
- */
-async function isMercadoPagoConfigured(tenantId) {
+async function getMercadoPagoAccessToken() {
+  const config = await getMercadoPagoConfigRecord();
+
+  if (!config || !config.isActive) {
+    return null;
+  }
+
+  if (config.isOAuth && config.expiresAt && new Date() > config.expiresAt) {
+    return refreshOAuthToken(config);
+  }
+
+  try {
+    return decrypt(config.accessToken);
+  } catch (error) {
+    logger.error('Error al desencriptar token de MP:', error);
+    return null;
+  }
+}
+
+async function isMercadoPagoConfigured() {
   const config = await prisma.mercadoPagoConfig.findUnique({
-    where: { tenantId },
+    where: { id: 1 },
     select: { isActive: true, expiresAt: true, isOAuth: true }
   });
 
@@ -109,7 +116,6 @@ async function isMercadoPagoConfigured(tenantId) {
     return false;
   }
 
-  // Si es OAuth y expiró, no está disponible
   if (config.isOAuth && config.expiresAt && new Date() > config.expiresAt) {
     return false;
   }
@@ -117,14 +123,9 @@ async function isMercadoPagoConfigured(tenantId) {
   return true;
 }
 
-/**
- * Obtiene información de la configuración de MP de un tenant (sin exponer el token)
- * @param {number} tenantId - ID del tenant
- * @returns {object|null} - Info de configuración o null
- */
-async function getMercadoPagoConfigInfo(tenantId) {
+async function getMercadoPagoConfigInfo() {
   const config = await prisma.mercadoPagoConfig.findUnique({
-    where: { tenantId },
+    where: { id: 1 },
     select: {
       email: true,
       userId: true,
@@ -142,53 +143,76 @@ async function getMercadoPagoConfigInfo(tenantId) {
 
   return {
     ...config,
-    isExpired: config.isOAuth && config.expiresAt && new Date() > config.expiresAt
+    isExpired: Boolean(config.isOAuth && config.expiresAt && new Date() > config.expiresAt)
   };
 }
 
-/**
- * Crea una preferencia de pago en MercadoPago
- * @param {number} tenantId - ID del tenant
- * @param {object} preferenceData - Datos de la preferencia
- * @returns {Promise<object>} - Respuesta de MercadoPago
- */
-async function createPreference(tenantId, preferenceData) {
-  const client = await getMercadoPagoClient(tenantId);
-
+async function createPreference(preferenceData) {
+  const client = await getMercadoPagoClient();
   if (!client) {
-    throw new Error('MercadoPago no está configurado para este negocio');
+    throw new Error('MercadoPago no esta configurado para este negocio');
   }
 
   const preference = new Preference(client);
   return preference.create({ body: preferenceData });
 }
 
-/**
- * Obtiene información de un pago desde MercadoPago
- * @param {number} tenantId - ID del tenant
- * @param {string} paymentId - ID del pago en MercadoPago
- * @returns {Promise<object>} - Información del pago
- */
-async function getPayment(tenantId, paymentId) {
-  const client = await getMercadoPagoClient(tenantId);
-
+async function getPayment(paymentId) {
+  const client = await getMercadoPagoClient();
   if (!client) {
-    throw new Error('MercadoPago no está configurado para este negocio');
+    throw new Error('MercadoPago no esta configurado para este negocio');
   }
 
   const payment = new Payment(client);
   return payment.get({ id: paymentId });
 }
 
-/**
- * Busca pagos por external_reference en MercadoPago
- * @param {number} tenantId - ID del tenant
- * @param {string} externalReference - Referencia externa (formato: tenantId-pedidoId)
- * @returns {Promise<object|null>} - Pago aprobado si existe, null si no
- */
-async function searchPaymentByReference(tenantId, externalReference) {
-  const client = await getMercadoPagoClient(tenantId);
+async function createQrOrder(orderData, idempotencyKey) {
+  const accessToken = await getMercadoPagoAccessToken();
+  if (!accessToken) {
+    throw new Error('MercadoPago no esta configurado para este negocio');
+  }
 
+  const response = await fetch('https://api.mercadopago.com/v1/orders', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-Idempotency-Key': idempotencyKey
+    },
+    body: JSON.stringify(orderData)
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    logger.error('Error creando orden QR en MercadoPago:', data);
+    throw new Error(data.message || data.error || 'No se pudo crear la orden QR en MercadoPago');
+  }
+
+  return data;
+}
+
+async function getQrOrder(orderId) {
+  const accessToken = await getMercadoPagoAccessToken();
+  if (!accessToken) {
+    throw new Error('MercadoPago no esta configurado para este negocio');
+  }
+
+  const response = await fetch(`https://api.mercadopago.com/v1/orders/${orderId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    logger.error('Error consultando orden QR en MercadoPago:', data);
+    throw new Error(data.message || data.error || 'No se pudo consultar la orden QR en MercadoPago');
+  }
+
+  return data;
+}
+
+async function searchPaymentByReference(externalReference) {
+  const client = await getMercadoPagoClient();
   if (!client) {
     return null;
   }
@@ -203,63 +227,42 @@ async function searchPaymentByReference(tenantId, externalReference) {
       }
     });
 
-    // Buscar pago aprobado
-    const pagoAprobado = result.results?.find(p => p.status === 'approved');
-    return pagoAprobado || null;
+    return result.results?.find((item) => item.status === 'approved') || null;
   } catch (error) {
-    console.error(`Error buscando pago por referencia ${externalReference}:`, error);
+    logger.error(`Error buscando pago por referencia ${externalReference}:`, error);
     return null;
   }
 }
 
-/**
- * Guarda una transacción de MercadoPago en el historial
- * @param {number} tenantId - ID del tenant
- * @param {object} paymentInfo - Información del pago de MercadoPago
- * @param {number|null} pagoId - ID del pago local (opcional)
- * @returns {Promise<object>} - Transacción creada
- */
-async function saveTransaction(tenantId, paymentInfo, pagoId = null) {
-  // Usar transacción con nivel de aislamiento serializable para evitar race conditions
-  return prisma.$transaction(async (tx) => {
-    return tx.transaccionMercadoPago.upsert({
-      where: { mpPaymentId: paymentInfo.id.toString() },
-      update: {
-        status: paymentInfo.status,
-        statusDetail: paymentInfo.status_detail,
-        pagoId
-      },
-      create: {
-        tenantId,
-        pagoId,
-        mpPaymentId: paymentInfo.id.toString(),
-        mpPreferenceId: paymentInfo.preference_id || null,
-        status: paymentInfo.status,
-        statusDetail: paymentInfo.status_detail,
-        amount: paymentInfo.transaction_amount,
-        currency: paymentInfo.currency_id || 'ARS',
-        payerEmail: paymentInfo.payer?.email || null,
-        paymentMethod: paymentInfo.payment_method_id || null,
-        paymentTypeId: paymentInfo.payment_type_id || null,
-        installments: paymentInfo.installments || null,
-        fee: paymentInfo.fee_details?.reduce((sum, f) => sum + f.amount, 0) || null,
-        netAmount: paymentInfo.transaction_details?.net_received_amount || null,
-        externalReference: paymentInfo.external_reference || null,
-        rawData: paymentInfo
-      }
-    });
-  }, {
-    isolationLevel: 'Serializable'
+async function saveTransaction(paymentInfo, pagoId = null) {
+  return prisma.transaccionMercadoPago.upsert({
+    where: { mpPaymentId: paymentInfo.id.toString() },
+    update: {
+      status: paymentInfo.status,
+      statusDetail: paymentInfo.status_detail,
+      pagoId
+    },
+    create: {
+      pagoId,
+      mpPaymentId: paymentInfo.id.toString(),
+      mpPreferenceId: paymentInfo.preference_id || null,
+      status: paymentInfo.status,
+      statusDetail: paymentInfo.status_detail,
+      amount: paymentInfo.transaction_amount,
+      currency: paymentInfo.currency_id || 'ARS',
+      payerEmail: paymentInfo.payer?.email || null,
+      paymentMethod: paymentInfo.payment_method_id || null,
+      paymentTypeId: paymentInfo.payment_type_id || null,
+      installments: paymentInfo.installments || null,
+      fee: paymentInfo.fee_details?.reduce((sum, detail) => sum + detail.amount, 0) || null,
+      netAmount: paymentInfo.transaction_details?.net_received_amount || null,
+      externalReference: paymentInfo.external_reference || null,
+      rawData: paymentInfo
+    }
   });
 }
 
-/**
- * Obtiene el historial de transacciones de un tenant
- * @param {number} tenantId - ID del tenant
- * @param {object} options - Opciones de filtrado y paginación
- * @returns {Promise<object>} - Transacciones y metadata
- */
-async function getTransactionHistory(tenantId, options = {}) {
+async function getTransactionHistory(options = {}) {
   const {
     page = 1,
     limit = 20,
@@ -268,7 +271,7 @@ async function getTransactionHistory(tenantId, options = {}) {
     status = null
   } = options;
 
-  const where = { tenantId };
+  const where = {};
 
   if (desde || hasta) {
     where.createdAt = {};
@@ -285,7 +288,7 @@ async function getTransactionHistory(tenantId, options = {}) {
       where,
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * limit,
-      take: parseInt(limit),
+      take: parseInt(limit, 10),
       include: {
         pago: {
           include: {
@@ -304,10 +307,8 @@ async function getTransactionHistory(tenantId, options = {}) {
     prisma.transaccionMercadoPago.count({ where })
   ]);
 
-  // Calcular totales de transacciones aprobadas
-  const totalesWhere = { ...where, status: 'approved' };
   const totales = await prisma.transaccionMercadoPago.aggregate({
-    where: totalesWhere,
+    where: { ...where, status: 'approved' },
     _sum: {
       amount: true,
       fee: true,
@@ -319,8 +320,8 @@ async function getTransactionHistory(tenantId, options = {}) {
   return {
     transacciones,
     pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
       total,
       pages: Math.ceil(total / limit)
     },
@@ -335,10 +336,13 @@ async function getTransactionHistory(tenantId, options = {}) {
 
 module.exports = {
   getMercadoPagoClient,
+  getMercadoPagoAccessToken,
   isMercadoPagoConfigured,
   getMercadoPagoConfigInfo,
   createPreference,
+  createQrOrder,
   getPayment,
+  getQrOrder,
   searchPaymentByReference,
   saveTransaction,
   getTransactionHistory

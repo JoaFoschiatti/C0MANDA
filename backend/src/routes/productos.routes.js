@@ -4,7 +4,6 @@ const multer = require('multer');
 const path = require('path');
 const productosController = require('../controllers/productos.controller');
 const { verificarToken, esAdmin } = require('../middlewares/auth.middleware');
-const { setTenantFromAuth, bloquearSiSoloLectura } = require('../middlewares/tenant.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const { asyncHandler } = require('../utils/async-handler');
 const {
@@ -46,7 +45,6 @@ const upload = multer({
 });
 
 router.use(verificarToken);
-router.use(setTenantFromAuth);
 
 // Rutas para productos
 router.get('/', validate({ query: listarQuerySchema }), asyncHandler(productosController.listar));
@@ -54,7 +52,6 @@ router.get('/con-variantes', validate({ query: listarQuerySchema }), asyncHandle
 router.get('/:id', validate({ params: idParamSchema }), asyncHandler(productosController.obtener));
 router.post(
   '/',
-  bloquearSiSoloLectura,
   esAdmin,
   upload.single('imagen'),
   validate({ body: crearProductoBodySchema }),
@@ -62,7 +59,6 @@ router.post(
 );
 router.put(
   '/:id',
-  bloquearSiSoloLectura,
   esAdmin,
   upload.single('imagen'),
   validate({ params: idParamSchema, body: actualizarProductoBodySchema }),
@@ -70,41 +66,37 @@ router.put(
 );
 router.patch(
   '/:id/disponibilidad',
-  bloquearSiSoloLectura,
   esAdmin,
   validate({ params: idParamSchema, body: cambiarDisponibilidadBodySchema }),
   asyncHandler(productosController.cambiarDisponibilidad)
 );
-router.delete('/:id', bloquearSiSoloLectura, esAdmin, validate({ params: idParamSchema }), asyncHandler(productosController.eliminar));
+router.delete('/:id', esAdmin, validate({ params: idParamSchema }), asyncHandler(productosController.eliminar));
 
 // Rutas para variantes de productos
 router.post(
   '/:id/variantes',
-  bloquearSiSoloLectura,
   esAdmin,
   validate({ params: idParamSchema, body: crearVarianteBodySchema }),
   asyncHandler(productosController.crearVariante)
 );
 router.put(
   '/:id/variante',
-  bloquearSiSoloLectura,
   esAdmin,
   validate({ params: idParamSchema, body: actualizarVarianteBodySchema }),
   asyncHandler(productosController.actualizarVariante)
 );
 router.delete(
   '/:id/desagrupar',
-  bloquearSiSoloLectura,
   esAdmin,
   validate({ params: idParamSchema }),
   asyncHandler(productosController.desagruparVariante)
 );
 router.post(
   '/agrupar-variantes',
-  bloquearSiSoloLectura,
   esAdmin,
   validate({ body: agruparVariantesBodySchema }),
   asyncHandler(productosController.agruparComoVariantes)
 );
 
 module.exports = router;
+

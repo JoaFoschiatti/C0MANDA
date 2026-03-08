@@ -1,0 +1,11 @@
+[Unit]
+Description=Comanda maintenance jobs
+After=network.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/comanda/backend
+EnvironmentFile=/opt/comanda/backend/.env
+ExecStart=/bin/bash -lc "cd /opt/comanda/backend && node scripts/maintenance/cleanup-expired-tokens.js && node scripts/maintenance/release-stale-print-jobs.js"

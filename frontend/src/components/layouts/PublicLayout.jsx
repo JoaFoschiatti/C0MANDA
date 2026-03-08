@@ -1,22 +1,25 @@
 export default function PublicLayout({ children }) {
   return (
-    <div className="min-h-screen bg-canvas">
-      {/* Header */}
-      <header className="bg-surface border-b border-border-subtle">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <h1 className="text-xl font-semibold text-text-primary tracking-tight">GestioNeo</h1>
+    <div className="public-shell">
+      <header className="public-shell__header">
+        <div className="public-shell__header-inner">
+          <div className="public-shell__brand">
+            <div className="public-shell__brand-mark">C</div>
+            <div>
+              <p className="public-shell__brand-label">Pedido online</p>
+              <h1 className="public-shell__brand-title">Comanda</h1>
+            </div>
+          </div>
         </div>
       </header>
 
-      {/* Content */}
-      <main>
+      <main className="flex-1">
         {children}
       </main>
 
-      {/* Footer */}
-      <footer className="bg-surface border-t border-border-subtle mt-12">
-        <div className="max-w-7xl mx-auto px-4 py-6 text-center text-text-tertiary text-sm">
-          GestioNeo - Sistema de Gestion
+      <footer className="public-shell__footer">
+        <div className="public-shell__footer-inner">
+          <span>Comanda - carta digital y pedidos del local</span>
         </div>
       </footer>
     </div>

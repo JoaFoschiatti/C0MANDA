@@ -1,0 +1,10 @@
+[Unit]
+Description=Timer diario de backup Comanda
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+Unit=comanda-backup.service
+
+[Install]
+WantedBy=timers.target

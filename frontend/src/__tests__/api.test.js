@@ -29,7 +29,7 @@ describe('api interceptor', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.removeItem.mockReset()
-    window.location.href = ''
+    window.location.assign.mockReset()
   })
 
   it('redirige y limpia sesion en 401', async () => {
@@ -40,10 +40,11 @@ describe('api interceptor', () => {
 
     await expect(handlerRef.current(error)).rejects.toBe(error)
 
-    // Token NO se guarda en localStorage (httpOnly cookie), solo se limpian usuario y tenant
+    // Token NO se guarda en localStorage (httpOnly cookie), solo se limpian usuario y negocio
     expect(localStorage.removeItem).not.toHaveBeenCalledWith('token')
     expect(localStorage.removeItem).toHaveBeenCalledWith('usuario')
-    expect(window.location.href).toBe('/login')
+    expect(localStorage.removeItem).toHaveBeenCalledWith('negocio')
+    expect(window.location.assign).toHaveBeenCalledWith('/login')
     expect(toast.error).not.toHaveBeenCalled()
   })
 

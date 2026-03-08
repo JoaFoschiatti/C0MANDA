@@ -2,22 +2,21 @@ const { procesarReservas } = require('../jobs/reservas.job');
 const eventBus = require('../services/event-bus');
 const {
   prisma,
-  createTenant,
-  cleanupTenantData,
+  cleanupOperationalData,
+  ensureNegocio,
   uniqueId
 } = require('./helpers/test-helpers');
 
 describe('reservas.job', () => {
-  let tenant;
   let mesa;
   let mesaVencida;
 
   beforeAll(async () => {
-    tenant = await createTenant();
+    await cleanupOperationalData();
+    await ensureNegocio();
 
     mesa = await prisma.mesa.create({
       data: {
-        tenantId: tenant.id,
         numero: 1,
         capacidad: 4,
         estado: 'LIBRE'
@@ -26,7 +25,6 @@ describe('reservas.job', () => {
 
     mesaVencida = await prisma.mesa.create({
       data: {
-        tenantId: tenant.id,
         numero: 2,
         capacidad: 4,
         estado: 'RESERVADA'
@@ -35,10 +33,7 @@ describe('reservas.job', () => {
   });
 
   afterAll(async () => {
-    if (tenant?.id) {
-      await cleanupTenantData(tenant.id);
-    }
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('marca mesas reservadas y reservas vencidas', async () => {
@@ -46,7 +41,6 @@ describe('reservas.job', () => {
 
     const reservaProxima = await prisma.reserva.create({
       data: {
-        tenantId: tenant.id,
         mesaId: mesa.id,
         clienteNombre: `Cliente ${uniqueId('cliente')}`,
         clienteTelefono: '123',
@@ -58,7 +52,6 @@ describe('reservas.job', () => {
 
     const reservaVencida = await prisma.reserva.create({
       data: {
-        tenantId: tenant.id,
         mesaId: mesaVencida.id,
         clienteNombre: `Cliente ${uniqueId('cliente')}`,
         clienteTelefono: '321',

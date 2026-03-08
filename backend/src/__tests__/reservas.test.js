@@ -4,28 +4,28 @@ const { procesarReservas } = require('../jobs/reservas.job');
 const {
   prisma,
   uniqueId,
-  createTenant,
   createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Reservas Endpoints', () => {
-  let tenant;
   let tokenAdmin;
   let tokenMozo;
 
   beforeAll(async () => {
-    tenant = await createTenant();
+    await cleanupOperationalData();
+    await ensureNegocio();
 
-    const admin = await createUsuario(tenant.id, {
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
     tokenAdmin = signTokenForUser(admin);
 
-    const mozo = await createUsuario(tenant.id, {
+    const mozo = await createUsuario({
       email: `${uniqueId('mozo')}@example.com`,
       rol: 'MOZO'
     });
@@ -33,13 +33,12 @@ describe('Reservas Endpoints', () => {
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('POST /api/reservas crea una reserva (ADMIN) y GET /api/reservas/:id la devuelve', async () => {
     const mesa = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 10, capacidad: 4, estado: 'LIBRE', activa: true }
+      data: { numero: 10, capacidad: 4, estado: 'LIBRE', activa: true }
     });
 
     const fechaHora = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -72,7 +71,7 @@ describe('Reservas Endpoints', () => {
 
   it('POST /api/reservas rechaza si no es ADMIN', async () => {
     const mesa = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 11, capacidad: 4, estado: 'LIBRE', activa: true }
+      data: { numero: 11, capacidad: 4, estado: 'LIBRE', activa: true }
     });
 
     const response = await request(app)
@@ -86,12 +85,12 @@ describe('Reservas Endpoints', () => {
       })
       .expect(403);
 
-    expect(response.body.error.message).toBe('No tienes permisos para realizar esta acción');
+    expect(response.body.error.message).toBe('No tienes permisos para realizar esta accion');
   });
 
   it('POST /api/reservas valida capacidad de mesa', async () => {
     const mesa = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 12, capacidad: 2, estado: 'LIBRE', activa: true }
+      data: { numero: 12, capacidad: 2, estado: 'LIBRE', activa: true }
     });
 
     const response = await request(app)
@@ -108,9 +107,9 @@ describe('Reservas Endpoints', () => {
     expect(response.body.error.message).toMatch(/capacidad/);
   });
 
-  it('POST /api/reservas evita conflicto de reserva cercana (±2h)', async () => {
+  it('POST /api/reservas evita conflicto de reserva cercana (+/-2h)', async () => {
     const mesa = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 13, capacidad: 4, estado: 'LIBRE', activa: true }
+      data: { numero: 13, capacidad: 4, estado: 'LIBRE', activa: true }
     });
 
     const base = new Date(Date.now() + 48 * 60 * 60 * 1000);
@@ -142,7 +141,7 @@ describe('Reservas Endpoints', () => {
 
   it('PUT /api/reservas/:id solo permite modificar reservas CONFIRMADAS', async () => {
     const mesa = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 14, capacidad: 4, estado: 'LIBRE', activa: true }
+      data: { numero: 14, capacidad: 4, estado: 'LIBRE', activa: true }
     });
 
     const creada = await request(app)
@@ -171,9 +170,9 @@ describe('Reservas Endpoints', () => {
     expect(response.body.error.message).toBe('Solo se pueden modificar reservas confirmadas');
   });
 
-  it('PATCH /api/reservas/:id/estado actualiza mesa si está RESERVADA', async () => {
+  it('PATCH /api/reservas/:id/estado actualiza mesa si esta RESERVADA', async () => {
     const mesa = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 15, capacidad: 4, estado: 'RESERVADA', activa: true }
+      data: { numero: 15, capacidad: 4, estado: 'RESERVADA', activa: true }
     });
 
     const creada = await request(app)
@@ -197,7 +196,7 @@ describe('Reservas Endpoints', () => {
     expect(mesaActualizada.estado).toBe('OCUPADA');
 
     const mesa2 = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 16, capacidad: 4, estado: 'RESERVADA', activa: true }
+      data: { numero: 16, capacidad: 4, estado: 'RESERVADA', activa: true }
     });
 
     const creada2 = await request(app)
@@ -223,7 +222,7 @@ describe('Reservas Endpoints', () => {
 
   it('DELETE /api/reservas/:id libera mesa si estaba RESERVADA', async () => {
     const mesa = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 17, capacidad: 4, estado: 'RESERVADA', activa: true }
+      data: { numero: 17, capacidad: 4, estado: 'RESERVADA', activa: true }
     });
 
     const creada = await request(app)
@@ -248,9 +247,9 @@ describe('Reservas Endpoints', () => {
     expect(mesaActualizada.estado).toBe('LIBRE');
   });
 
-  it('GET /api/reservas/proximas devuelve reservas confirmadas en los próximos 30 min', async () => {
+  it('GET /api/reservas/proximas devuelve reservas confirmadas en los proximos 30 min', async () => {
     const mesa = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 18, capacidad: 4, estado: 'LIBRE', activa: true }
+      data: { numero: 18, capacidad: 4, estado: 'LIBRE', activa: true }
     });
 
     const fechaHora = new Date(Date.now() + 10 * 60 * 1000).toISOString();
@@ -271,18 +270,17 @@ describe('Reservas Endpoints', () => {
       .set('Authorization', authHeader(tokenMozo))
       .expect(200);
 
-    const ids = response.body.map(r => r.id);
+    const ids = response.body.map((r) => r.id);
     expect(ids).toContain(reserva.body.id);
   });
 
   it('Job reservas: marca mesa RESERVADA 15 min antes y NO_LLEGO luego de 30 min', async () => {
     const mesa = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 19, capacidad: 4, estado: 'LIBRE', activa: true }
+      data: { numero: 19, capacidad: 4, estado: 'LIBRE', activa: true }
     });
 
     await prisma.reserva.create({
       data: {
-        tenantId: tenant.id,
         mesaId: mesa.id,
         clienteNombre: 'Cliente Job',
         fechaHora: new Date(Date.now() + 10 * 60 * 1000),
@@ -297,12 +295,11 @@ describe('Reservas Endpoints', () => {
     expect(mesaReservada.estado).toBe('RESERVADA');
 
     const mesa2 = await prisma.mesa.create({
-      data: { tenantId: tenant.id, numero: 20, capacidad: 4, estado: 'RESERVADA', activa: true }
+      data: { numero: 20, capacidad: 4, estado: 'RESERVADA', activa: true }
     });
 
     const reservaVencida = await prisma.reserva.create({
       data: {
-        tenantId: tenant.id,
         mesaId: mesa2.id,
         clienteNombre: 'Cliente Job 2',
         fechaHora: new Date(Date.now() - 31 * 60 * 1000),
@@ -320,4 +317,3 @@ describe('Reservas Endpoints', () => {
     expect(mesaLiberada.estado).toBe('LIBRE');
   });
 });
-

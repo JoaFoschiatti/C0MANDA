@@ -3,44 +3,34 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
-  createUsuario,
+    createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Impresion Endpoints', () => {
-  let tenant;
-  let token;
-  let tenantSecundario;
-  let tokenSecundario;
+    let token;
   let pedido;
   let producto;
 
   beforeAll(async () => {
     process.env.BRIDGE_TOKEN = 'test-bridge-token';
 
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+        await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
     token = signTokenForUser(admin);
 
-    tenantSecundario = await createTenant();
-    const admin2 = await createUsuario(tenantSecundario.id, {
-      email: `${uniqueId('admin2')}@example.com`,
-      rol: 'ADMIN'
-    });
-    tokenSecundario = signTokenForUser(admin2);
-
     const categoria = await prisma.categoria.create({
-      data: { tenantId: tenant.id, nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
+      data: { nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
     });
     producto = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('prod')}`,
         precio: 10,
         categoriaId: categoria.id,
@@ -49,7 +39,6 @@ describe('Impresion Endpoints', () => {
     });
     pedido = await prisma.pedido.create({
       data: {
-        tenantId: tenant.id,
         tipo: 'MOSTRADOR',
         subtotal: 10,
         total: 10
@@ -57,7 +46,6 @@ describe('Impresion Endpoints', () => {
     });
     await prisma.pedidoItem.create({
       data: {
-        tenantId: tenant.id,
         pedidoId: pedido.id,
         productoId: producto.id,
         cantidad: 1,
@@ -65,52 +53,13 @@ describe('Impresion Endpoints', () => {
         subtotal: 10
       }
     });
-
-    const categoria2 = await prisma.categoria.create({
-      data: { tenantId: tenantSecundario.id, nombre: `Cat-${uniqueId('cat2')}`, orden: 1, activa: true }
-    });
-    const producto2 = await prisma.producto.create({
-      data: {
-        tenantId: tenantSecundario.id,
-        nombre: `Prod-${uniqueId('prod2')}`,
-        precio: 10,
-        categoriaId: categoria2.id,
-        disponible: true
-      }
-    });
-    const pedido2 = await prisma.pedido.create({
-      data: {
-        tenantId: tenantSecundario.id,
-        tipo: 'MOSTRADOR',
-        subtotal: 10,
-        total: 10
-      }
-    });
-    await prisma.pedidoItem.create({
-      data: {
-        tenantId: tenantSecundario.id,
-        pedidoId: pedido2.id,
-        productoId: producto2.id,
-        cantidad: 1,
-        precioUnitario: 10,
-        subtotal: 10
-      }
-    });
-
-    await request(app)
-      .post(`/api/impresion/comanda/${pedido2.id}`)
-      .set('Authorization', authHeader(tokenSecundario))
-      .send({})
-      .expect(200);
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await cleanupTenantData(tenantSecundario.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
-  it('POST /api/impresion/comanda/:pedidoId encola jobs (tenant scoped)', async () => {
+  it('POST /api/impresion/comanda/:pedidoId encola jobs', async () => {
     const response = await request(app)
       .post(`/api/impresion/comanda/${pedido.id}`)
       .set('Authorization', authHeader(token))
@@ -122,7 +71,7 @@ describe('Impresion Endpoints', () => {
     expect(response.body.batchId).toBeDefined();
 
     const jobs = await prisma.printJob.findMany({
-      where: { tenantId: tenant.id, pedidoId: pedido.id }
+      where: { pedidoId: pedido.id }
     });
     expect(jobs.length).toBe(3);
   });
@@ -138,27 +87,26 @@ describe('Impresion Endpoints', () => {
     expect(response.text).toContain(producto.nombre);
   });
 
-  it('Bridge: POST /api/impresion/jobs/claim requiere x-tenant-slug', async () => {
+  it('Bridge: POST /api/impresion/jobs/claim devuelve trabajos globales', async () => {
     const response = await request(app)
       .post('/api/impresion/jobs/claim')
       .set('x-bridge-token', process.env.BRIDGE_TOKEN)
       .send({ bridgeId: 'bridge-test', limit: 1 })
-      .expect(400);
+      .expect(200);
 
-    expect(response.body.error.message).toBe('Slug de restaurante requerido');
+    expect(response.body.jobs).toHaveLength(1);
+    expect(response.body.jobs[0].pedidoId).toBe(pedido.id);
   });
 
-  it('Bridge: claim/ack/fail opera solo sobre jobs del tenant', async () => {
+  it('Bridge: claim/ack/fail opera en instalacion unica', async () => {
     const claimed = await request(app)
       .post('/api/impresion/jobs/claim')
       .set('x-bridge-token', process.env.BRIDGE_TOKEN)
-      .set('x-tenant-slug', tenant.slug)
       .send({ bridgeId: 'bridge-test', limit: 3 })
       .expect(200);
 
     expect(claimed.body.jobs.length).toBeGreaterThan(0);
     expect(claimed.body.jobs.length).toBeLessThanOrEqual(3);
-    expect(claimed.body.jobs.every(j => j.tenantId === tenant.id)).toBe(true);
 
     const [jobA, jobB] = claimed.body.jobs;
     expect(jobA).toBeDefined();
@@ -167,7 +115,6 @@ describe('Impresion Endpoints', () => {
     await request(app)
       .post(`/api/impresion/jobs/${jobA.id}/ack`)
       .set('x-bridge-token', process.env.BRIDGE_TOKEN)
-      .set('x-tenant-slug', tenant.slug)
       .send({ bridgeId: 'bridge-test' })
       .expect(200);
 
@@ -177,7 +124,6 @@ describe('Impresion Endpoints', () => {
     await request(app)
       .post(`/api/impresion/jobs/${jobB.id}/fail`)
       .set('x-bridge-token', process.env.BRIDGE_TOKEN)
-      .set('x-tenant-slug', tenant.slug)
       .send({ bridgeId: 'bridge-test', error: 'Printer error' })
       .expect(200);
 
@@ -185,4 +131,3 @@ describe('Impresion Endpoints', () => {
     expect(['PENDIENTE', 'ERROR']).toContain(jobBUpdated.status);
   });
 });
-

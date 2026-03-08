@@ -29,15 +29,21 @@ const actualizar = async (req, res) => {
 const registrarMovimiento = async (req, res) => {
   const prisma = getPrisma(req);
   const { ingrediente, events } = await ingredientesService.registrarMovimiento(prisma, req.params.id, req.body);
-  events.forEach(event => eventBus.publish(event.topic, { tenantId: req.tenantId, ...event.payload }));
+  events.forEach((event) => eventBus.publish(event.topic, event.payload));
   res.json(ingrediente);
 };
 
 const ajustarStock = async (req, res) => {
   const prisma = getPrisma(req);
   const { ingrediente, events } = await ingredientesService.ajustarStock(prisma, req.params.id, req.body);
-  events.forEach(event => eventBus.publish(event.topic, { tenantId: req.tenantId, ...event.payload }));
+  events.forEach((event) => eventBus.publish(event.topic, event.payload));
   res.json(ingrediente);
+};
+
+const descartarLote = async (req, res) => {
+  const prisma = getPrisma(req);
+  const { ingrediente, lote, movimiento } = await ingredientesService.descartarLote(prisma, req.params.id, req.body);
+  res.json({ ingrediente, lote, movimiento });
 };
 
 const alertasStock = async (req, res) => {
@@ -53,5 +59,6 @@ module.exports = {
   actualizar,
   registrarMovimiento,
   ajustarStock,
+  descartarLote,
   alertasStock
 };

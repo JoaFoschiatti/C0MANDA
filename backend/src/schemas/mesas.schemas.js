@@ -1,7 +1,7 @@
 const { z } = require('zod');
 const { booleanOptionalFromString, positiveIntSchema, idParamSchema } = require('./common.schemas');
 
-const estadoMesaSchema = z.enum(['LIBRE', 'OCUPADA', 'RESERVADA']);
+const estadoMesaSchema = z.enum(['LIBRE', 'OCUPADA', 'RESERVADA', 'ESPERANDO_CUENTA', 'CERRADA']);
 
 const listarQuerySchema = z.object({
   estado: estadoMesaSchema.optional(),

@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import AdminLayout from '../components/layouts/AdminLayout'
+import { ThemeProvider } from '../context/ThemeContext'
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -22,18 +23,27 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: () => mocks.authState
 }))
 
+const renderLayout = () => render(
+  <ThemeProvider>
+    <AdminLayout />
+  </ThemeProvider>,
+  { wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter> }
+)
+
 describe('AdminLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    })
   })
 
   it('muestra solo items permitidos para MOZO', () => {
     mocks.authState = { usuario: { rol: 'MOZO', nombre: 'Juan' }, logout: mocks.logout }
 
-    render(
-      <AdminLayout />,
-      { wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter> }
-    )
+    renderLayout()
 
     expect(screen.getAllByText('Mesas').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Pedidos').length).toBeGreaterThan(0)
@@ -43,12 +53,9 @@ describe('AdminLayout', () => {
   it('llama logout y navega al cerrar sesion', async () => {
     mocks.authState = { usuario: { rol: 'ADMIN', nombre: 'Admin' }, logout: mocks.logout }
 
-    render(
-      <AdminLayout />,
-      { wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter> }
-    )
+    renderLayout()
 
-    await userEvent.click(screen.getAllByText('Cerrar sesión')[0])
+    await userEvent.click(screen.getAllByText('Cerrar sesion')[0])
 
     expect(mocks.logout).toHaveBeenCalled()
     expect(mocks.navigate).toHaveBeenCalledWith('/login')

@@ -4,12 +4,9 @@ const { logger } = require('../utils/logger');
 
 let intervalId = null;
 
-// Procesar reservas cada minuto
 const procesarReservas = async () => {
   try {
     const ahora = new Date();
-
-    // 1. Marcar mesas como RESERVADA 15 minutos antes de la reserva
     const en15Min = new Date(ahora.getTime() + 15 * 60 * 1000);
 
     const reservasProximas = await prisma.reserva.findMany({
@@ -28,7 +25,6 @@ const procesarReservas = async () => {
         });
 
         eventBus.publish('mesa.updated', {
-          tenantId: reserva.tenantId,
           mesaId: reserva.mesaId,
           estado: 'RESERVADA',
           reservaId: reserva.id,
@@ -39,7 +35,6 @@ const procesarReservas = async () => {
       }
     }
 
-    // 2. Marcar reservas como NO_LLEGO si pasaron 30 minutos sin que llegue el cliente
     const hace30Min = new Date(ahora.getTime() - 30 * 60 * 1000);
 
     const reservasVencidas = await prisma.reserva.findMany({
@@ -56,7 +51,6 @@ const procesarReservas = async () => {
         data: { estado: 'NO_LLEGO' }
       });
 
-      // Liberar la mesa si estaba RESERVADA
       if (reserva.mesa.estado === 'RESERVADA') {
         await prisma.mesa.update({
           where: { id: reserva.mesaId },
@@ -64,7 +58,6 @@ const procesarReservas = async () => {
         });
 
         eventBus.publish('mesa.updated', {
-          tenantId: reserva.tenantId,
           mesaId: reserva.mesaId,
           estado: 'LIBRE',
           updatedAt: new Date().toISOString()
@@ -72,20 +65,18 @@ const procesarReservas = async () => {
       }
 
       eventBus.publish('reserva.updated', {
-        tenantId: reserva.tenantId,
         id: reserva.id,
         estado: 'NO_LLEGO',
         mesaId: reserva.mesaId
       });
 
-      logger.info(`Reserva #${reserva.id} marcada como NO_LLEGO (cliente no llegó)`);
+      logger.info(`Reserva #${reserva.id} marcada como NO_LLEGO (cliente no llego)`);
     }
   } catch (error) {
     logger.error('Error procesando reservas:', error);
   }
 };
 
-// Iniciar el job (ejecutar cada minuto)
 const iniciarJobReservas = () => {
   if (process.env.NODE_ENV === 'test') {
     return null;
@@ -95,12 +86,8 @@ const iniciarJobReservas = () => {
     return intervalId;
   }
 
-  logger.info('🗓️  Job de reservas iniciado');
-
-  // Ejecutar inmediatamente al iniciar
+  logger.info('Job de reservas iniciado');
   procesarReservas();
-
-  // Ejecutar cada minuto
   intervalId = setInterval(procesarReservas, 60 * 1000);
   return intervalId;
 };

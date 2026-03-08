@@ -3,21 +3,21 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
-  createUsuario,
+    createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Liquidaciones Endpoints', () => {
-  let tenant;
-  let token;
+    let token;
   let empleado;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+        await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
@@ -25,7 +25,6 @@ describe('Liquidaciones Endpoints', () => {
 
     empleado = await prisma.empleado.create({
       data: {
-        tenantId: tenant.id,
         nombre: 'Empleado',
         apellido: 'Liquidacion',
         dni: `DNI-${uniqueId('liq')}`,
@@ -37,8 +36,7 @@ describe('Liquidaciones Endpoints', () => {
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('POST /api/liquidaciones/calcular calcula preview con fichajes', async () => {
@@ -53,7 +51,6 @@ describe('Liquidaciones Endpoints', () => {
 
     await prisma.fichaje.create({
       data: {
-        tenantId: tenant.id,
         empleadoId: empleado.id,
         entrada,
         salida,
@@ -116,7 +113,6 @@ describe('Liquidaciones Endpoints', () => {
 
     const creado = await prisma.liquidacion.create({
       data: {
-        tenantId: tenant.id,
         empleadoId: empleado.id,
         periodoDesde: new Date(yyyymmdd),
         periodoHasta: new Date(yyyymmdd),

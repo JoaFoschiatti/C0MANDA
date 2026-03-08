@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { PlusIcon, MinusIcon, TrashIcon, PrinterIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import usePedidoConModificadores from '../../hooks/usePedidoConModificadores'
 import useAsync from '../../hooks/useAsync'
+import { Spinner } from '../../components/ui'
 
 export default function NuevoPedido() {
   const { mesaId } = useParams()
@@ -110,7 +111,7 @@ export default function NuevoPedido() {
   if (loading && categorias.length === 0) {
     return (
       <div className="flex justify-center py-12">
-        <div className="spinner spinner-lg" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -147,7 +148,7 @@ export default function NuevoPedido() {
             <button
               key={cat.id}
               onClick={() => setCategoriaActiva(cat.id)}
-              className={`tab whitespace-nowrap ${categoriaActiva === cat.id ? 'tab-active' : ''}`}
+              className={`tab whitespace-nowrap ${categoriaActiva === cat.id ? 'active' : ''}`}
             >
               {cat.nombre}
             </button>

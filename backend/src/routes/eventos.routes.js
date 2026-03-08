@@ -12,9 +12,7 @@ router.get('/', (req, res, next) => {
   }
   return verificarToken(req, res, next);
 }, (req, res) => {
-  const userTenantId = req.usuario?.tenantId;
-  const isSuperAdmin = req.usuario?.rol === 'SUPER_ADMIN';
-  logger.info(`[SSE] Cliente conectado - Usuario: ${req.usuario?.email}, Tenant: ${userTenantId}`);
+  logger.info(`[SSE] Cliente conectado - Usuario: ${req.usuario?.email}`);
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -22,18 +20,7 @@ router.get('/', (req, res, next) => {
   res.flushHeaders();
 
   const sendEvent = (event) => {
-    // Filtrar eventos por tenant - solo enviar eventos del mismo tenant
-    const eventTenantId = event.payload?.tenantId;
-    if (!isSuperAdmin) {
-      if (!eventTenantId) {
-        return; // Nunca enviar eventos sin tenantId (evita leaks multi-tenant)
-      }
-      if (eventTenantId !== userTenantId) {
-        return; // No enviar eventos de otros tenants
-      }
-    }
-
-    logger.info(`[SSE] Enviando evento: ${event.type} a tenant: ${userTenantId}`);
+    logger.info(`[SSE] Enviando evento: ${event.type}`);
     res.write(`event: ${event.type}\n`);
     res.write(`data: ${JSON.stringify(event.payload)}\n\n`);
   };
@@ -44,7 +31,7 @@ router.get('/', (req, res, next) => {
   }, 15000);
 
   req.on('close', () => {
-    logger.info(`[SSE] Cliente desconectado - Tenant: ${userTenantId}`);
+    logger.info('[SSE] Cliente desconectado');
     clearInterval(keepAlive);
     unsubscribe();
   });

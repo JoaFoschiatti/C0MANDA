@@ -38,12 +38,12 @@ describe('mercadopago.service', () => {
     global.fetch = originalFetch;
   });
 
-  it('refresca tokens OAuth expirados', async () => {
+  it('refresca tokens OAuth expirados usando la configuracion global', async () => {
     const accessToken = encrypt('old-access');
     const refreshToken = encrypt('refresh-token');
 
     prisma.mercadoPagoConfig.findUnique.mockResolvedValueOnce({
-      tenantId: 1,
+      id: 1,
       isActive: true,
       isOAuth: true,
       expiresAt: new Date(Date.now() - 1000),
@@ -60,7 +60,7 @@ describe('mercadopago.service', () => {
       })
     });
 
-    const client = await getMercadoPagoClient(1);
+    const client = await getMercadoPagoClient();
 
     expect(global.fetch).toHaveBeenCalledWith(
       'https://api.mercadopago.com/oauth/token',
@@ -68,7 +68,7 @@ describe('mercadopago.service', () => {
     );
     expect(prisma.mercadoPagoConfig.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { tenantId: 1 },
+        where: { id: 1 },
         data: expect.objectContaining({
           accessToken: expect.any(String),
           refreshToken: expect.any(String),
@@ -80,12 +80,12 @@ describe('mercadopago.service', () => {
     expect(client).toBeInstanceOf(MercadoPagoConfig);
   });
 
-  it('retorna null si el refresco falla', async () => {
+  it('retorna null si el refresco global falla', async () => {
     const accessToken = encrypt('old-access');
     const refreshToken = encrypt('refresh-token');
 
     prisma.mercadoPagoConfig.findUnique.mockResolvedValueOnce({
-      tenantId: 1,
+      id: 1,
       isActive: true,
       isOAuth: true,
       expiresAt: new Date(Date.now() - 1000),
@@ -98,7 +98,7 @@ describe('mercadopago.service', () => {
       json: async () => ({ error: 'invalid_grant' })
     });
 
-    const client = await getMercadoPagoClient(1);
+    const client = await getMercadoPagoClient();
     expect(client).toBeNull();
   });
 });

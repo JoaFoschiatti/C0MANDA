@@ -32,7 +32,7 @@ describe('EmailService', () => {
     expect(nodemailer.createTransport).not.toHaveBeenCalled();
   });
 
-  it('sendOrderConfirmation crea transporter y envía email cuando hay SMTP_* configuradas', async () => {
+  it('sendOrderConfirmation crea transporter y envia email cuando hay SMTP_* configuradas', async () => {
     process.env.SMTP_HOST = 'smtp.example.com';
     process.env.SMTP_PORT = '587';
     process.env.SMTP_USER = 'smtp-user';
@@ -58,7 +58,7 @@ describe('EmailService', () => {
       ]
     };
 
-    const info = await emailService.sendOrderConfirmation(pedido, { nombre: 'Test Tenant' });
+    const info = await emailService.sendOrderConfirmation(pedido, { nombre: 'Test Negocio' });
 
     expect(nodemailer.createTransport).toHaveBeenCalledWith(expect.objectContaining({
       host: 'smtp.example.com',
@@ -67,26 +67,5 @@ describe('EmailService', () => {
       auth: { user: 'smtp-user', pass: 'smtp-pass' }
     }));
     expect(info).toEqual({ messageId: 'test-message-id' });
-  });
-
-  it('sendVerificationEmail usa FRONTEND_URL y envía email', async () => {
-    process.env.SMTP_HOST = 'smtp.example.com';
-    process.env.SMTP_PORT = '587';
-    process.env.SMTP_USER = 'smtp-user';
-    process.env.SMTP_PASS = 'smtp-pass';
-    process.env.FRONTEND_URL = 'http://frontend.test';
-
-    const emailService = require('../services/email.service');
-
-    await emailService.sendVerificationEmail('test@example.com', 'Juan', 'token-123', 'Mi Restaurante');
-
-    const transporter = nodemailer.createTransport.mock.results[0].value;
-    expect(transporter.sendMail).toHaveBeenCalledWith(expect.objectContaining({
-      to: 'test@example.com',
-      subject: expect.stringContaining('Mi Restaurante')
-    }));
-
-    const html = transporter.sendMail.mock.calls[0][0].html;
-    expect(html).toContain('http://frontend.test/verificar-email/token-123');
   });
 });

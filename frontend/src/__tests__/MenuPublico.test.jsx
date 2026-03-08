@@ -5,10 +5,10 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
 import MenuPublico from '../pages/MenuPublico'
 
-const API_URL = 'http://localhost:3001/api'
+const API_URL = '/api'
 
 const configData = {
-  tenant: {
+  negocio: {
     nombre_negocio: 'La Casa'
   },
   config: {
@@ -35,11 +35,11 @@ const menuData = [
   }
 ]
 
-const renderMenu = (initialEntry = '/menu/demo') => {
+const renderMenu = (initialEntry = '/menu') => {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
-        <Route path="/menu/:slug" element={<MenuPublico />} />
+        <Route path="/menu" element={<MenuPublico />} />
       </Routes>
     </MemoryRouter>
   )
@@ -62,8 +62,8 @@ describe('MenuPublico page', () => {
     expect(await screen.findByText('La Casa')).toBeInTheDocument()
     expect(screen.getByText('Pizzas')).toBeInTheDocument()
     expect(screen.getByText('Muzzarella')).toBeInTheDocument()
-    expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/demo/config`, {})
-    expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/demo/menu`, {})
+    expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/config`, {})
+    expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/menu`, {})
   })
 
   it('muestra error de carga y permite reintentar', async () => {
@@ -93,7 +93,7 @@ describe('MenuPublico page', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => configData })
       .mockResolvedValueOnce({ ok: true, json: async () => menuData })
 
-    renderMenu('/menu/demo?pago=error&pedido=123')
+    renderMenu('/menu?pago=error&pedido=123')
 
     expect(await screen.findByText(/El pago no pudo ser procesado/i)).toBeInTheDocument()
   })

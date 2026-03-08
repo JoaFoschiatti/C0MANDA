@@ -7,7 +7,7 @@ const baseCrud = createCrudService('mesa', {
   defaultOrderBy: { numero: 'asc' },
   defaultInclude: {
     pedidos: {
-      where: { estado: { notIn: ['COBRADO', 'CANCELADO'] } },
+      where: { estado: { notIn: ['COBRADO', 'CERRADO', 'CANCELADO'] } },
       take: 1
     }
   },
@@ -18,8 +18,8 @@ const baseCrud = createCrudService('mesa', {
 
   // Protección mass assignment
   allowedFilterFields: ['activa', 'estado', 'capacidad'],
-  allowedCreateFields: ['numero', 'capacidad', 'activa'],
-  allowedUpdateFields: ['capacidad', 'activa', 'estado']
+  allowedCreateFields: ['numero', 'capacidad', 'activa', 'zona', 'posX', 'posY', 'rotacion', 'grupoMesaId'],
+  allowedUpdateFields: ['capacidad', 'activa', 'estado', 'zona', 'posX', 'posY', 'rotacion', 'grupoMesaId']
 });
 
 // Sobrescribir obtener para usar include más detallado
@@ -28,7 +28,7 @@ const obtener = async (prisma, id) => {
     where: { id },
     include: {
       pedidos: {
-        where: { estado: { notIn: ['COBRADO', 'CANCELADO'] } },
+        where: { estado: { notIn: ['COBRADO', 'CERRADO', 'CANCELADO'] } },
         include: { items: { include: { producto: true } } }
       }
     }

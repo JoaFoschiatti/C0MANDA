@@ -3,21 +3,21 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
-  createUsuario,
+    createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Cierres (Caja) Endpoints', () => {
-  let tenant;
-  let token;
+    let token;
   let usuario;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    usuario = await createUsuario(tenant.id, {
+        await cleanupOperationalData();
+    await ensureNegocio();
+    usuario = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
@@ -25,8 +25,7 @@ describe('Cierres (Caja) Endpoints', () => {
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('GET /api/cierres/actual devuelve no hay caja abierta', async () => {
@@ -61,7 +60,7 @@ describe('Cierres (Caja) Endpoints', () => {
 
   it('GET /api/cierres/resumen incluye ventas aprobadas por metodo desde apertura', async () => {
     const cajaActual = await prisma.cierreCaja.findFirst({
-      where: { tenantId: tenant.id, estado: 'ABIERTO' },
+      where: { estado: 'ABIERTO' },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -69,7 +68,6 @@ describe('Cierres (Caja) Endpoints', () => {
 
     const pedido = await prisma.pedido.create({
       data: {
-        tenantId: tenant.id,
         tipo: 'MOSTRADOR',
         subtotal: 1000,
         total: 1000,
@@ -82,9 +80,9 @@ describe('Cierres (Caja) Endpoints', () => {
 
     await prisma.pago.createMany({
       data: [
-        { tenantId: tenant.id, pedidoId: pedido.id, monto: 500, metodo: 'EFECTIVO', estado: 'APROBADO', createdAt },
-        { tenantId: tenant.id, pedidoId: pedido.id, monto: 200, metodo: 'TARJETA', estado: 'APROBADO', createdAt },
-        { tenantId: tenant.id, pedidoId: pedido.id, monto: 300, metodo: 'MERCADOPAGO', estado: 'APROBADO', createdAt }
+        { pedidoId: pedido.id, monto: 500, metodo: 'EFECTIVO', estado: 'APROBADO', createdAt },
+        { pedidoId: pedido.id, monto: 200, metodo: 'TARJETA', estado: 'APROBADO', createdAt },
+        { pedidoId: pedido.id, monto: 300, metodo: 'MERCADOPAGO', estado: 'APROBADO', createdAt }
       ]
     });
 
@@ -102,7 +100,7 @@ describe('Cierres (Caja) Endpoints', () => {
 
   it('PATCH /api/cierres/:id/cerrar cierra caja y deja resumen con diferencia', async () => {
     const cajaActual = await prisma.cierreCaja.findFirst({
-      where: { tenantId: tenant.id, estado: 'ABIERTO' },
+      where: { estado: 'ABIERTO' },
       orderBy: { createdAt: 'desc' }
     });
 

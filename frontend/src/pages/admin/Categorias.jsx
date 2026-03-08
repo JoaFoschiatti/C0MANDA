@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { PageHeader, Button, Spinner } from '../../components/ui'
 import useAsync from '../../hooks/useAsync'
 
 export default function Categorias() {
@@ -73,23 +74,21 @@ export default function Categorias() {
   if (loading && categorias.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="spinner spinner-lg" />
+        <Spinner size="lg" label="Cargando categorías..." />
       </div>
     )
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-heading-1">Categorías</h1>
-        <button
-          onClick={() => { resetForm(); setShowModal(true) }}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          <PlusIcon className="w-5 h-5" />
-          Nueva Categoría
-        </button>
-      </div>
+      <PageHeader
+        title="Categorías"
+        actions={
+          <Button onClick={() => { resetForm(); setShowModal(true) }} icon={PlusIcon}>
+            Nueva Categoría
+          </Button>
+        }
+      />
 
       <div className="card overflow-hidden">
         <table className="table">

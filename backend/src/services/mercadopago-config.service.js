@@ -3,18 +3,16 @@ const { encrypt } = require('./crypto.service');
 const { createHttpError } = require('../utils/http-error');
 const { getMercadoPagoConfigInfo, getTransactionHistory } = require('./mercadopago.service');
 
-const buildOAuthAuthorizationUrl = (tenantId) => {
+const buildOAuthAuthorizationUrl = () => {
   if (!process.env.MP_APP_ID) {
-    throw createHttpError.internal('OAuth de MercadoPago no está configurado en el servidor');
+    throw createHttpError.internal('OAuth de MercadoPago no esta configurado en el servidor');
   }
 
   const state = Buffer.from(JSON.stringify({
-    tenantId,
     timestamp: Date.now()
   })).toString('base64url');
 
   const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
-
   const authUrl = new URL('https://auth.mercadopago.com/authorization');
   authUrl.searchParams.set('client_id', process.env.MP_APP_ID);
   authUrl.searchParams.set('response_type', 'code');
@@ -25,14 +23,20 @@ const buildOAuthAuthorizationUrl = (tenantId) => {
   return authUrl.toString();
 };
 
-const guardarOAuthConfig = async (tenantId, tokenData, userEmail) => {
+const setMercadoPagoEnabled = (valor) => prisma.configuracion.upsert({
+  where: { clave: 'mercadopago_enabled' },
+  update: { valor: valor ? 'true' : 'false' },
+  create: { clave: 'mercadopago_enabled', valor: valor ? 'true' : 'false' }
+});
+
+const guardarOAuthConfig = async (tokenData, userEmail) => {
   const expiresAt = tokenData.expires_in
     ? new Date(Date.now() + tokenData.expires_in * 1000)
     : null;
 
   await prisma.$transaction([
     prisma.mercadoPagoConfig.upsert({
-      where: { tenantId },
+      where: { id: 1 },
       update: {
         accessToken: encrypt(tokenData.access_token),
         refreshToken: tokenData.refresh_token ? encrypt(tokenData.refresh_token) : null,
@@ -45,7 +49,7 @@ const guardarOAuthConfig = async (tenantId, tokenData, userEmail) => {
         updatedAt: new Date()
       },
       create: {
-        tenantId,
+        id: 1,
         accessToken: encrypt(tokenData.access_token),
         refreshToken: tokenData.refresh_token ? encrypt(tokenData.refresh_token) : null,
         publicKey: tokenData.public_key || null,
@@ -56,19 +60,13 @@ const guardarOAuthConfig = async (tenantId, tokenData, userEmail) => {
         isActive: true
       }
     }),
-    prisma.configuracion.upsert({
-      where: {
-        tenantId_clave: { tenantId, clave: 'mercadopago_enabled' }
-      },
-      update: { valor: 'true' },
-      create: { tenantId, clave: 'mercadopago_enabled', valor: 'true' }
-    })
+    setMercadoPagoEnabled(true)
   ]);
 };
 
-const desconectar = async (tenantId) => {
+const desconectar = async () => {
   const config = await prisma.mercadoPagoConfig.findUnique({
-    where: { tenantId }
+    where: { id: 1 }
   });
 
   if (!config) {
@@ -77,21 +75,15 @@ const desconectar = async (tenantId) => {
 
   await prisma.$transaction([
     prisma.mercadoPagoConfig.update({
-      where: { tenantId },
+      where: { id: 1 },
       data: { isActive: false }
     }),
-    prisma.configuracion.upsert({
-      where: {
-        tenantId_clave: { tenantId, clave: 'mercadopago_enabled' }
-      },
-      update: { valor: 'false' },
-      create: { tenantId, clave: 'mercadopago_enabled', valor: 'false' }
-    })
+    setMercadoPagoEnabled(false)
   ]);
 };
 
-const obtenerEstado = async (tenantId) => {
-  const configInfo = await getMercadoPagoConfigInfo(tenantId);
+const obtenerEstado = async () => {
+  const configInfo = await getMercadoPagoConfigInfo();
 
   if (!configInfo) {
     return { connected: false, config: null };
@@ -110,25 +102,23 @@ const obtenerEstado = async (tenantId) => {
   };
 };
 
-const configurarManual = async (tenantId, payload) => {
-  const { accessToken, publicKey } = payload;
-
+const configurarManual = async ({ accessToken, publicKey }) => {
   const userResponse = await fetch('https://api.mercadopago.com/users/me', {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
 
   if (!userResponse.ok) {
-    throw createHttpError.badRequest('Access Token inválido o expirado');
+    throw createHttpError.badRequest('Access Token invalido o expirado');
   }
 
   const userData = await userResponse.json();
   if (userData.error) {
-    throw createHttpError.badRequest('Access Token inválido');
+    throw createHttpError.badRequest('Access Token invalido');
   }
 
   await prisma.$transaction([
     prisma.mercadoPagoConfig.upsert({
-      where: { tenantId },
+      where: { id: 1 },
       update: {
         accessToken: encrypt(accessToken),
         publicKey: publicKey || null,
@@ -141,7 +131,7 @@ const configurarManual = async (tenantId, payload) => {
         updatedAt: new Date()
       },
       create: {
-        tenantId,
+        id: 1,
         accessToken: encrypt(accessToken),
         publicKey: publicKey || null,
         userId: userData.id?.toString() || null,
@@ -150,13 +140,7 @@ const configurarManual = async (tenantId, payload) => {
         isActive: true
       }
     }),
-    prisma.configuracion.upsert({
-      where: {
-        tenantId_clave: { tenantId, clave: 'mercadopago_enabled' }
-      },
-      update: { valor: 'true' },
-      create: { tenantId, clave: 'mercadopago_enabled', valor: 'true' }
-    })
+    setMercadoPagoEnabled(true)
   ]);
 
   return {
@@ -165,9 +149,7 @@ const configurarManual = async (tenantId, payload) => {
   };
 };
 
-const listarTransacciones = async (tenantId, options) => {
-  return getTransactionHistory(tenantId, options);
-};
+const listarTransacciones = async (options) => getTransactionHistory(options);
 
 module.exports = {
   buildOAuthAuthorizationUrl,
@@ -177,4 +159,3 @@ module.exports = {
   configurarManual,
   listarTransacciones
 };
-

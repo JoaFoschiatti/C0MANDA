@@ -13,22 +13,24 @@ const ensureTestEnv = () => {
   if (!process.env.JWT_EXPIRES_IN) process.env.JWT_EXPIRES_IN = '1h';
 };
 
-const createTenant = async (overrides = {}) => {
-  const slug = overrides.slug || uniqueId('tenant');
-
-  return prisma.tenant.create({
-    data: {
-      slug,
-      nombre: overrides.nombre || `Tenant ${slug}`,
-      email: overrides.email || `${slug}@example.com`,
-      activo: overrides.activo ?? true,
-      ...overrides
+const ensureNegocio = async () => {
+  await prisma.negocio.upsert({
+    where: { id: 1 },
+    update: {
+      nombre: 'Comanda Test',
+      email: 'tests@comanda.local'
+    },
+    create: {
+      id: 1,
+      nombre: 'Comanda Test',
+      email: 'tests@comanda.local'
     }
   });
 };
 
-const createUsuario = async (tenantId, overrides = {}) => {
+const createUsuario = async (overrides = {}) => {
   ensureTestEnv();
+  await ensureNegocio();
 
   const email = overrides.email || `${uniqueId('user')}@example.com`;
   const passwordPlano = overrides.passwordPlano || 'password';
@@ -36,7 +38,6 @@ const createUsuario = async (tenantId, overrides = {}) => {
 
   return prisma.usuario.create({
     data: {
-      tenantId,
       email,
       password: passwordHash,
       nombre: overrides.nombre || 'Usuario Test',
@@ -61,44 +62,52 @@ const signTokenForUser = (usuario, overrides = {}) => {
 
 const authHeader = (token) => `Bearer ${token}`;
 
-const cleanupTenantData = async (tenantId) => {
-  if (!tenantId) return;
+const cleanupOperationalData = async () => {
+  await ensureNegocio();
 
-  await prisma.pedidoItemModificador.deleteMany({ where: { tenantId } });
-  await prisma.productoModificador.deleteMany({ where: { tenantId } });
-  await prisma.productoIngrediente.deleteMany({ where: { tenantId } });
-  await prisma.transaccionMercadoPago.deleteMany({ where: { tenantId } });
-  await prisma.printJob.deleteMany({ where: { tenantId } });
-  await prisma.pago.deleteMany({ where: { tenantId } });
-  await prisma.pedidoItem.deleteMany({ where: { tenantId } });
-  await prisma.movimientoStock.deleteMany({ where: { tenantId } });
-  await prisma.pedido.deleteMany({ where: { tenantId } });
-  await prisma.reserva.deleteMany({ where: { tenantId } });
-  await prisma.mesa.deleteMany({ where: { tenantId } });
-  await prisma.cierreCaja.deleteMany({ where: { tenantId } });
-  await prisma.configuracion.deleteMany({ where: { tenantId } });
-  await prisma.mercadoPagoConfig.deleteMany({ where: { tenantId } });
-  await prisma.emailVerificacion.deleteMany({ where: { tenantId } });
-  await prisma.fichaje.deleteMany({ where: { tenantId } });
-  await prisma.liquidacion.deleteMany({ where: { tenantId } });
-  await prisma.empleado.deleteMany({ where: { tenantId } });
-  await prisma.usuario.deleteMany({ where: { tenantId } });
-  await prisma.producto.deleteMany({ where: { tenantId } });
-  await prisma.categoria.deleteMany({ where: { tenantId } });
-  await prisma.modificador.deleteMany({ where: { tenantId } });
-  await prisma.ingrediente.deleteMany({ where: { tenantId } });
-
-  await prisma.tenant.delete({ where: { id: tenantId } });
+  await prisma.pedidoItemModificador.deleteMany();
+  await prisma.productoModificador.deleteMany();
+  await prisma.productoIngrediente.deleteMany();
+  await prisma.transaccionMercadoPago.deleteMany();
+  await prisma.comprobanteFiscal.deleteMany();
+  await prisma.printJob.deleteMany();
+  await prisma.movimientoStock.deleteMany();
+  await prisma.pago.deleteMany();
+  await prisma.pedidoAuditoria.deleteMany();
+  await prisma.pedidoItem.deleteMany();
+  await prisma.pedido.deleteMany();
+  await prisma.reserva.deleteMany();
+  await prisma.loteStock.deleteMany();
+  await prisma.cierreCaja.deleteMany();
+  await prisma.fichaje.deleteMany();
+  await prisma.liquidacion.deleteMany();
+  await prisma.refreshToken.deleteMany();
+  await prisma.empleado.deleteMany();
+  await prisma.usuario.deleteMany({
+    where: {
+      email: {
+        not: 'admin@comanda.local'
+      }
+    }
+  });
+  await prisma.producto.deleteMany();
+  await prisma.categoria.deleteMany();
+  await prisma.modificador.deleteMany();
+  await prisma.ingrediente.deleteMany();
+  await prisma.mesa.deleteMany();
+  await prisma.configuracion.deleteMany();
+  await prisma.mercadoPagoConfig.deleteMany();
+  await prisma.clienteFiscal.deleteMany();
+  await prisma.puntoVentaFiscal.deleteMany();
 };
 
 module.exports = {
   prisma,
   uniqueId,
   ensureTestEnv,
-  createTenant,
+  ensureNegocio,
   createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData
 };
-

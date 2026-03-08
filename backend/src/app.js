@@ -24,20 +24,22 @@ const publicoRoutes = require('./routes/publico.routes');
 const cierresRoutes = require('./routes/cierres.routes');
 const reservasRoutes = require('./routes/reservas.routes');
 const modificadoresRoutes = require('./routes/modificadores.routes');
-const registroRoutes = require('./routes/registro.routes');
-const superadminRoutes = require('./routes/superadmin.routes');
 const mercadopagoRoutes = require('./routes/mercadopago.routes');
-const tenantRoutes = require('./routes/tenant.routes');
-const suscripcionRoutes = require('./routes/suscripcion.routes');
+const negocioRoutes = require('./routes/negocio.routes');
+const facturacionRoutes = require('./routes/facturacion.routes');
+const planoRoutes = require('./routes/plano.routes');
 
 const { errorMiddleware } = require('./middlewares/error.middleware');
 const { createHttpError } = require('./utils/http-error');
 const { logger } = require('./utils/logger');
+const { getReadinessStatus } = require('./services/health.service');
 
 const app = express();
 
 // HTTPS redirect in production
 if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+
   app.use((req, res, next) => {
     // Check if request came through HTTPS (works with proxies like nginx, Railway, Vercel)
     const forwardedProto = req.header('x-forwarded-proto');
@@ -59,19 +61,21 @@ app.use(helmet({
 }));
 
 // CORS - Strict configuration for production
-const allowedOrigins = process.env.FRONTEND_URL
-  ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
-  : [];
+const allowedOrigins = new Set(
+  process.env.FRONTEND_URL
+    ? process.env.FRONTEND_URL.split(',').map((url) => url.trim()).filter(Boolean)
+    : []
+);
 
-// In production, FRONTEND_URL must be explicitly set
-if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
-  logger.error('FRONTEND_URL environment variable must be set in production');
-  process.exit(1);
+// In production, startup validation should reject a missing FRONTEND_URL.
+if (process.env.NODE_ENV === 'production' && allowedOrigins.size === 0) {
+  logger.warn('FRONTEND_URL no esta configurado. CORS rechazara requests desde navegador en produccion.');
 }
 
-// In development, allow localhost if FRONTEND_URL not set
-if (allowedOrigins.length === 0) {
-  allowedOrigins.push('http://localhost:5173');
+// In development/test, allow the local Vite hosts used by frontend and Playwright.
+if (process.env.NODE_ENV !== 'production') {
+  allowedOrigins.add('http://localhost:5173');
+  allowedOrigins.add('http://127.0.0.1:5173');
 }
 
 app.use(cors({
@@ -79,7 +83,7 @@ app.use(cors({
     // Allow requests with no origin (like mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.has(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -115,15 +119,19 @@ app.use('/api/publico', publicoRoutes);
 app.use('/api/cierres', cierresRoutes);
 app.use('/api/reservas', reservasRoutes);
 app.use('/api/modificadores', modificadoresRoutes);
-app.use('/api/registro', registroRoutes);
-app.use('/api/super-admin', superadminRoutes);
 app.use('/api/mercadopago', mercadopagoRoutes);
-app.use('/api/tenant', tenantRoutes);
-app.use('/api/suscripcion', suscripcionRoutes);
+app.use('/api/negocio', negocioRoutes);
+app.use('/api/facturacion', facturacionRoutes);
+app.use('/api/plano', planoRoutes);
 
 // Ruta de salud
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/ready', async (_req, res) => {
+  const readiness = await getReadinessStatus();
+  res.status(readiness.status === 'ready' ? 200 : 503).json(readiness);
 });
 
 // Ruta 404

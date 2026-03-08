@@ -1,458 +1,196 @@
-import { useState, useEffect, useCallback } from 'react'
-import api from '../../services/api'
 import {
-  Cog6ToothIcon,
   PhotoIcon,
   TruckIcon,
   CreditCardIcon,
   ClockIcon,
-  CheckCircleIcon,
-  XCircleIcon,
   BanknotesIcon,
   BuildingStorefrontIcon,
   LinkIcon,
-  ExclamationTriangleIcon
+  QrCodeIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline'
+
 import MercadoPagoConfig from '../../components/configuracion/MercadoPagoConfig'
-import useTimeout from '../../hooks/useTimeout'
-import useAsync from '../../hooks/useAsync'
+import ConfigSection from '../../components/configuracion/ConfigSection'
+import ConfigMessageBanner from '../../components/configuracion/ConfigMessageBanner'
+import { PageHeader, Spinner } from '../../components/ui'
+import useConfiguracionPage from '../../hooks/useConfiguracionPage'
 
 export default function Configuracion() {
-  // Estado del tenant (datos del negocio)
-  const [tenant, setTenant] = useState({
-    slug: '',
-    nombre: '',
-    email: '',
-    telefono: '',
-    direccion: '',
-    colorPrimario: '#3B82F6',
-    colorSecundario: '#1E40AF'
-  })
-  const [slugError, setSlugError] = useState(null)
-  const [slugChecking, setSlugChecking] = useState(false)
-  const [savingTenant, setSavingTenant] = useState(false)
-
-  // Estado de configuracion
-  const [config, setConfig] = useState({
-    tienda_abierta: true,
-    horario_apertura: '11:00',
-    horario_cierre: '23:00',
-    nombre_negocio: '',
-    tagline_negocio: '',
-    banner_imagen: '',
-    costo_delivery: 0,
-    delivery_habilitado: true,
-    direccion_retiro: '',
-    mercadopago_enabled: false,
-    efectivo_enabled: true,
-    whatsapp_numero: ''
-  })
-  const [saving, setSaving] = useState(false)
-  const [uploadingBanner, setUploadingBanner] = useState(false)
-  const [message, setMessage] = useState(null)
-  const { set: setMessageTimeout } = useTimeout()
-
-  const mostrarMensaje = useCallback((texto, tipo = 'success') => {
-    setMessage({ texto, tipo })
-    setMessageTimeout(() => setMessage(null), 3000)
-  }, [setMessageTimeout])
-
-  const cargarDatos = useCallback(async () => {
-    // Cargar tenant y configuracion en paralelo
-    const [tenantRes, configRes] = await Promise.all([
-      api.get('/tenant', { skipToast: true }),
-      api.get('/configuracion', { skipToast: true })
-    ])
-
-    // Procesar tenant
-    setTenant({
-      slug: tenantRes.data.slug || '',
-      nombre: tenantRes.data.nombre || '',
-      email: tenantRes.data.email || '',
-      telefono: tenantRes.data.telefono || '',
-      direccion: tenantRes.data.direccion || '',
-      colorPrimario: tenantRes.data.colorPrimario || '#3B82F6',
-      colorSecundario: tenantRes.data.colorSecundario || '#1E40AF'
-    })
-
-    // Procesar configuracion
-    const configData = {}
-    Object.entries(configRes.data).forEach(([key, value]) => {
-      if (value === 'true') configData[key] = true
-      else if (value === 'false') configData[key] = false
-      else if (!isNaN(value) && value !== '') configData[key] = parseFloat(value)
-      else configData[key] = value
-    })
-    setConfig(prev => ({ ...prev, ...configData }))
-  }, [])
-
-  const handleLoadError = useCallback((error) => {
-    console.error('Error al cargar datos:', error)
-    mostrarMensaje('Error al cargar configuracion', 'error')
-  }, [mostrarMensaje])
-
-  const cargarDatosRequest = useCallback(async (_ctx) => (
-    cargarDatos()
-  ), [cargarDatos])
-
-  const { loading, execute: cargarDatosAsync } = useAsync(
-    cargarDatosRequest,
-    { immediate: false, onError: handleLoadError }
-  )
-
-  useEffect(() => {
-    cargarDatosAsync()
-      .catch(() => {})
-  }, [cargarDatosAsync])
-
-
-  // Funciones de tenant
-  const handleTenantChange = (key, value) => {
-    setTenant(prev => ({ ...prev, [key]: value }))
-    if (key === 'slug') {
-      setSlugError(null)
-    }
-  }
-
-  const validateSlugFormat = (slug) => {
-    if (!slug || slug.length < 3) return 'El slug debe tener al menos 3 caracteres'
-    if (slug.length > 50) return 'El slug no puede tener mas de 50 caracteres'
-    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(slug) && slug.length > 2) {
-      return 'Solo minusculas, numeros y guiones (no al inicio ni al final)'
-    }
-    if (/--/.test(slug)) return 'No puede tener guiones consecutivos'
-    return null
-  }
-
-  const checkSlugAvailability = async (slug) => {
-    const formatError = validateSlugFormat(slug)
-    if (formatError) {
-      setSlugError(formatError)
-      return
-    }
-
-    setSlugChecking(true)
-    try {
-      const response = await api.get(`/tenant/verificar-slug/${slug}`, { skipToast: true })
-      if (!response.data.disponible) {
-        setSlugError(response.data.error || 'Este slug no esta disponible')
-      } else {
-        setSlugError(null)
-      }
-    } catch (error) {
-      console.error('Error al verificar slug:', error)
-    } finally {
-      setSlugChecking(false)
-    }
-  }
-
-  const handleSlugBlur = () => {
-    if (tenant.slug) {
-      checkSlugAvailability(tenant.slug)
-    }
-  }
-
-  const guardarTenant = async () => {
-    // Validar slug
-    const formatError = validateSlugFormat(tenant.slug)
-    if (formatError) {
-      setSlugError(formatError)
-      return
-    }
-
-    setSavingTenant(true)
-    try {
-      const response = await api.put('/tenant', tenant, { skipToast: true })
-      setTenant(prev => ({ ...prev, ...response.data.tenant }))
-
-      if (response.data.slugChanged) {
-        mostrarMensaje('Datos guardados. La URL del menu cambio a: /menu/' + response.data.tenant.slug)
-      } else {
-        mostrarMensaje('Datos del negocio guardados')
-      }
-    } catch (error) {
-      console.error('Error al guardar tenant:', error)
-      mostrarMensaje(error.response?.data?.error?.message || 'Error al guardar', 'error')
-    } finally {
-      setSavingTenant(false)
-    }
-  }
-
-  // Funciones de configuracion
-  const guardarConfiguracion = async () => {
-    setSaving(true)
-    try {
-      await api.put('/configuracion', config, { skipToast: true })
-      mostrarMensaje('Configuracion guardada correctamente')
-    } catch (error) {
-      console.error('Error al guardar:', error)
-      mostrarMensaje('Error al guardar configuracion', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleChange = (key, value) => {
-    setConfig(prev => ({ ...prev, [key]: value }))
-  }
-
-  const handleBannerUpload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    const formData = new FormData()
-    formData.append('banner', file)
-
-    setUploadingBanner(true)
-    try {
-      const response = await api.post('/configuracion/banner', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        skipToast: true
-      })
-      setConfig(prev => ({ ...prev, banner_imagen: response.data.url }))
-      mostrarMensaje('Banner subido correctamente')
-    } catch (error) {
-      console.error('Error al subir banner:', error)
-      mostrarMensaje('Error al subir banner', 'error')
-    } finally {
-      setUploadingBanner(false)
-    }
-  }
-
-  const toggleTiendaAbierta = async () => {
-    const nuevoEstado = !config.tienda_abierta
-    handleChange('tienda_abierta', nuevoEstado)
-
-    try {
-      await api.put('/configuracion/tienda_abierta', { valor: nuevoEstado }, { skipToast: true })
-      mostrarMensaje(nuevoEstado ? 'Tienda ABIERTA' : 'Tienda CERRADA')
-    } catch (error) {
-      console.error('Error al cambiar estado:', error)
-      handleChange('tienda_abierta', !nuevoEstado)
-      mostrarMensaje('Error al cambiar estado', 'error')
-    }
-  }
+  const {
+    backendUrl,
+    config,
+    frontendUrl,
+    guardarConfiguracion,
+    guardarNegocio,
+    handleBannerUpload,
+    handleConfigChange,
+    handleNegocioChange,
+    loading,
+    message,
+    negocio,
+    saving,
+    savingNegocio,
+    toggleTiendaAbierta,
+    uploadingBanner,
+  } = useConfiguracionPage()
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="spinner spinner-lg" />
+        <Spinner size="lg" />
       </div>
     )
   }
 
-  const backendUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:3001'
-  const frontendUrl = import.meta.env.VITE_FRONTEND_URL || window.location.origin
-
   return (
     <div className="max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-heading-1 flex items-center gap-2">
-          <Cog6ToothIcon className="w-7 h-7" />
-          Configuracion del Negocio
-        </h1>
+      <PageHeader
+        title="Configuracion del Negocio"
+        eyebrow="Setup"
+        description="Marca, operaciones, pagos y parametros fiscales del restaurante."
+        actions={<ConfigMessageBanner message={message} />}
+      />
 
-        {message && (
-          <div className={`alert ${message.tipo === 'error' ? 'alert-error' : 'alert-success'}`}>
-            {message.tipo === 'error' ? (
-              <XCircleIcon className="w-5 h-5" />
-            ) : (
-              <CheckCircleIcon className="w-5 h-5" />
-            )}
-            {message.texto}
-          </div>
-        )}
-      </div>
-
-      {/* Datos del Negocio (Tenant) */}
-      <div className="card mb-6">
-        <h2 className="text-heading-3 mb-4 flex items-center gap-2">
-          <BuildingStorefrontIcon className="w-5 h-5" />
-          Datos del Negocio
-        </h2>
-
+      <ConfigSection icon={BuildingStorefrontIcon} title="Datos del Negocio">
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="label" htmlFor="tenant-nombre">
+              <label className="label" htmlFor="negocio-nombre">
                 Nombre del Negocio *
               </label>
               <input
-                id="tenant-nombre"
+                id="negocio-nombre"
                 type="text"
-                value={tenant.nombre}
-                onChange={(e) => handleTenantChange('nombre', e.target.value)}
+                value={negocio.nombre}
+                onChange={(event) => handleNegocioChange('nombre', event.target.value)}
                 className="input"
-                placeholder="Mi Restaurante"
               />
             </div>
-
             <div>
-              <label className="label" htmlFor="tenant-slug">
-                URL del Menu (slug) *
+              <label className="label" htmlFor="negocio-email">
+                Email de Contacto
               </label>
-              <div className="flex">
-                <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-border-default bg-surface-hover text-text-tertiary text-sm">
-                  {frontendUrl}/menu/
-                </span>
-                <input
-                  id="tenant-slug"
-                  type="text"
-                  value={tenant.slug}
-                  onChange={(e) => handleTenantChange('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  onBlur={handleSlugBlur}
-                  className={`input rounded-l-none flex-1 ${slugError ? 'border-error-500 focus:ring-error-500' : ''}`}
-                  placeholder="mi-restaurante"
-                />
-              </div>
-              {slugChecking && (
-                <p className="input-hint">Verificando disponibilidad...</p>
-              )}
-              {slugError && (
-                <p className="text-xs text-error-600 mt-1 flex items-center gap-1">
-                  <ExclamationTriangleIcon className="w-3 h-3" />
-                  {slugError}
-                </p>
-              )}
-              {!slugError && tenant.slug && !slugChecking && (
-                <p className="text-xs text-success-600 mt-1 flex items-center gap-1">
-                  <CheckCircleIcon className="w-3 h-3" />
-                  URL disponible
-                </p>
-              )}
+              <input
+                id="negocio-email"
+                type="email"
+                value={negocio.email}
+                onChange={(event) => handleNegocioChange('email', event.target.value)}
+                className="input"
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="label" htmlFor="tenant-email">
-                Email de Contacto
-              </label>
-              <input
-                id="tenant-email"
-                type="email"
-                value={tenant.email}
-                onChange={(e) => handleTenantChange('email', e.target.value)}
-                className="input"
-                placeholder="contacto@mirestaurante.com"
-              />
-            </div>
-
-            <div>
-              <label className="label" htmlFor="tenant-telefono">
+              <label className="label" htmlFor="negocio-telefono">
                 Telefono
               </label>
               <input
-                id="tenant-telefono"
+                id="negocio-telefono"
                 type="text"
-                value={tenant.telefono}
-                onChange={(e) => handleTenantChange('telefono', e.target.value)}
+                value={negocio.telefono}
+                onChange={(event) => handleNegocioChange('telefono', event.target.value)}
                 className="input"
-                placeholder="+54 11 1234-5678"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="label" htmlFor="tenant-direccion">
-              Direccion
-            </label>
-            <input
-              id="tenant-direccion"
-              type="text"
-              value={tenant.direccion}
-              onChange={(e) => handleTenantChange('direccion', e.target.value)}
-              className="input"
-              placeholder="Av. Principal 123, Ciudad"
-            />
+            <div>
+              <label className="label" htmlFor="negocio-direccion">
+                Direccion
+              </label>
+              <input
+                id="negocio-direccion"
+                type="text"
+                value={negocio.direccion}
+                onChange={(event) => handleNegocioChange('direccion', event.target.value)}
+                className="input"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="label" htmlFor="tenant-color-primario">
+              <label className="label" htmlFor="negocio-color-primario">
                 Color Primario
               </label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
-                  value={tenant.colorPrimario}
-                  onChange={(e) => handleTenantChange('colorPrimario', e.target.value)}
+                  value={negocio.colorPrimario}
+                  onChange={(event) => handleNegocioChange('colorPrimario', event.target.value)}
                   className="w-12 h-10 rounded border cursor-pointer"
                   aria-label="Seleccionar color primario"
                 />
                 <input
-                  id="tenant-color-primario"
+                  id="negocio-color-primario"
                   type="text"
-                  value={tenant.colorPrimario}
-                  onChange={(e) => handleTenantChange('colorPrimario', e.target.value)}
+                  value={negocio.colorPrimario}
+                  onChange={(event) => handleNegocioChange('colorPrimario', event.target.value)}
                   className="input flex-1"
-                  placeholder="#3B82F6"
                 />
               </div>
             </div>
-
             <div>
-              <label className="label" htmlFor="tenant-color-secundario">
+              <label className="label" htmlFor="negocio-color-secundario">
                 Color Secundario
               </label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
-                  value={tenant.colorSecundario}
-                  onChange={(e) => handleTenantChange('colorSecundario', e.target.value)}
+                  value={negocio.colorSecundario}
+                  onChange={(event) =>
+                    handleNegocioChange('colorSecundario', event.target.value)
+                  }
                   className="w-12 h-10 rounded border cursor-pointer"
                   aria-label="Seleccionar color secundario"
                 />
                 <input
-                  id="tenant-color-secundario"
+                  id="negocio-color-secundario"
                   type="text"
-                  value={tenant.colorSecundario}
-                  onChange={(e) => handleTenantChange('colorSecundario', e.target.value)}
+                  value={negocio.colorSecundario}
+                  onChange={(event) =>
+                    handleNegocioChange('colorSecundario', event.target.value)
+                  }
                   className="input flex-1"
-                  placeholder="#1E40AF"
                 />
               </div>
             </div>
           </div>
 
-          {/* Link al menu publico */}
           <div className="bg-info-50 p-4 rounded-xl">
             <div className="flex items-center gap-2 text-info-700">
               <LinkIcon className="w-5 h-5" />
-              <span className="font-medium">Link del Menu Publico:</span>
+              <span className="font-medium">Link del Menu Publico</span>
             </div>
             <a
-              href={`${frontendUrl}/menu/${tenant.slug}`}
+              href={`${frontendUrl}/menu`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-info-600 hover:underline text-sm mt-1 block"
             >
-              {frontendUrl}/menu/{tenant.slug}
+              {frontendUrl}/menu
             </a>
             <p className="text-xs text-info-600 mt-2">
-              Comparte este link con tus clientes para que vean el menu y hagan pedidos
+              Usa este link como version canonica. Los QR de mesa deben apuntar a
+              `/menu/mesa/:qrToken`.
             </p>
           </div>
 
           <div className="flex justify-end">
             <button
-              onClick={guardarTenant}
-              disabled={savingTenant || !!slugError}
-              className={`btn btn-primary px-6 ${(savingTenant || !!slugError) ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={guardarNegocio}
+              disabled={savingNegocio}
+              className={`btn btn-primary px-6 ${
+                savingNegocio ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
-              {savingTenant ? 'Guardando...' : 'Guardar Datos del Negocio'}
+              {savingNegocio ? 'Guardando...' : 'Guardar Datos del Negocio'}
             </button>
           </div>
         </div>
-      </div>
+      </ConfigSection>
 
-      {/* Estado del Local */}
-      <div className="card mb-6">
-        <h2 className="text-heading-3 mb-4 flex items-center gap-2">
-          <ClockIcon className="w-5 h-5" />
-          Estado del Local
-        </h2>
-
+      <ConfigSection icon={ClockIcon} title="Estado del Local">
         <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
           <button
             onClick={toggleTiendaAbierta}
@@ -475,7 +213,7 @@ export default function Configuracion() {
               id="config-horario-apertura"
               type="time"
               value={config.horario_apertura}
-              onChange={(e) => handleChange('horario_apertura', e.target.value)}
+              onChange={(event) => handleConfigChange('horario_apertura', event.target.value)}
               className="input"
             />
           </div>
@@ -487,36 +225,26 @@ export default function Configuracion() {
               id="config-horario-cierre"
               type="time"
               value={config.horario_cierre}
-              onChange={(e) => handleChange('horario_cierre', e.target.value)}
+              onChange={(event) => handleConfigChange('horario_cierre', event.target.value)}
               className="input"
             />
           </div>
         </div>
-      </div>
+      </ConfigSection>
 
-      {/* Branding */}
-      <div className="card mb-6">
-        <h2 className="text-heading-3 mb-4 flex items-center gap-2">
-          <PhotoIcon className="w-5 h-5" />
-          Branding
-        </h2>
-
+      <ConfigSection icon={PhotoIcon} title="Branding">
         <div className="space-y-4">
           <div>
             <label className="label" htmlFor="config-nombre-negocio">
-              Nombre para mostrar en el Menu
+              Nombre visible en el menu
             </label>
             <input
               id="config-nombre-negocio"
               type="text"
               value={config.nombre_negocio}
-              onChange={(e) => handleChange('nombre_negocio', e.target.value)}
+              onChange={(event) => handleConfigChange('nombre_negocio', event.target.value)}
               className="input"
-              placeholder="Mi Restaurante"
             />
-            <p className="input-hint">
-              Se muestra en el menu publico. Si esta vacio, se usa el nombre del negocio.
-            </p>
           </div>
 
           <div>
@@ -527,9 +255,8 @@ export default function Configuracion() {
               id="config-tagline"
               type="text"
               value={config.tagline_negocio}
-              onChange={(e) => handleChange('tagline_negocio', e.target.value)}
+              onChange={(event) => handleConfigChange('tagline_negocio', event.target.value)}
               className="input"
-              placeholder="Los mejores sabores"
             />
           </div>
 
@@ -559,7 +286,7 @@ export default function Configuracion() {
                     className="h-16 w-32 object-cover rounded-xl border border-border-default"
                   />
                   <button
-                    onClick={() => handleChange('banner_imagen', '')}
+                    onClick={() => handleConfigChange('banner_imagen', '')}
                     className="text-error-500 hover:text-error-600 text-sm transition-colors"
                   >
                     Quitar
@@ -567,26 +294,19 @@ export default function Configuracion() {
                 </div>
               )}
             </div>
-            <p className="input-hint">
-              Recomendado: 1200x400 px, JPG o PNG, max 10MB
-            </p>
           </div>
         </div>
-      </div>
+      </ConfigSection>
 
-      {/* Delivery */}
-      <div className="card mb-6">
-        <h2 className="text-heading-3 mb-4 flex items-center gap-2">
-          <TruckIcon className="w-5 h-5" />
-          Delivery
-        </h2>
-
+      <ConfigSection icon={TruckIcon} title="Delivery">
         <div className="space-y-4">
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"
               checked={config.delivery_habilitado}
-              onChange={(e) => handleChange('delivery_habilitado', e.target.checked)}
+              onChange={(event) =>
+                handleConfigChange('delivery_habilitado', event.target.checked)
+              }
               className="w-5 h-5 rounded text-primary-500 focus:ring-primary-500"
             />
             <span className="font-medium text-text-primary">Delivery habilitado</span>
@@ -600,7 +320,9 @@ export default function Configuracion() {
               id="config-costo-delivery"
               type="number"
               value={config.costo_delivery || ''}
-              onChange={(e) => handleChange('costo_delivery', parseFloat(e.target.value) || 0)}
+              onChange={(event) =>
+                handleConfigChange('costo_delivery', Number(event.target.value) || 0)
+              }
               className="input"
               min="0"
               step="100"
@@ -615,32 +337,29 @@ export default function Configuracion() {
               id="config-direccion-retiro"
               type="text"
               value={config.direccion_retiro}
-              onChange={(e) => handleChange('direccion_retiro', e.target.value)}
+              onChange={(event) =>
+                handleConfigChange('direccion_retiro', event.target.value)
+              }
               className="input"
-              placeholder="Av. Principal 123"
             />
           </div>
 
           <div>
             <label className="label" htmlFor="config-whatsapp">
-              WhatsApp (opcional)
+              WhatsApp
             </label>
             <input
               id="config-whatsapp"
               type="text"
               value={config.whatsapp_numero}
-              onChange={(e) => handleChange('whatsapp_numero', e.target.value)}
+              onChange={(event) => handleConfigChange('whatsapp_numero', event.target.value)}
               className="input"
               placeholder="5411XXXXXXXX"
             />
-            <p className="input-hint">
-              Codigo de pais + numero sin espacios ni guiones
-            </p>
           </div>
         </div>
-      </div>
+      </ConfigSection>
 
-      {/* Pagos */}
       <div className="mb-6">
         <h2 className="text-heading-3 mb-4 flex items-center gap-2">
           <CreditCardIcon className="w-5 h-5" />
@@ -648,49 +367,195 @@ export default function Configuracion() {
         </h2>
 
         <div className="grid gap-6 md:grid-cols-2">
-          {/* MercadoPago */}
           <MercadoPagoConfig
-            onStatusChange={(connected) => handleChange('mercadopago_enabled', connected)}
+            onStatusChange={(connected) =>
+              handleConfigChange('mercadopago_enabled', connected)
+            }
           />
 
-          {/* Efectivo */}
-          <div className="card">
+          <ConfigSection className="card" title={null}>
             <div className="flex items-center gap-3 pb-4 mb-4 border-b border-border-subtle">
               <div className="p-2 bg-success-100 rounded-xl">
                 <BanknotesIcon className="w-6 h-6 text-success-600" />
               </div>
               <div>
                 <h3 className="font-bold text-text-primary">Efectivo</h3>
-                <p className="text-text-secondary text-sm">Pago en efectivo al recibir</p>
+                <p className="text-text-secondary text-sm">Caja y cobros presenciales</p>
               </div>
             </div>
 
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.efectivo_enabled}
+                onChange={(event) =>
+                  handleConfigChange('efectivo_enabled', event.target.checked)
+                }
+                className="w-5 h-5 rounded text-success-500 focus:ring-success-500"
+              />
+              <span className="font-medium text-text-primary">
+                Aceptar pagos en efectivo
+              </span>
+            </label>
+          </ConfigSection>
+        </div>
+
+        <ConfigSection className="card mt-6" title={null}>
+          <h3 className="font-bold text-text-primary mb-4 flex items-center gap-2">
+            <QrCodeIcon className="w-5 h-5" />
+            QR Presencial Mercado Pago
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={config.efectivo_enabled}
-                  onChange={(e) => handleChange('efectivo_enabled', e.target.checked)}
-                  className="w-5 h-5 rounded text-success-500 focus:ring-success-500"
-                />
-                <span className="font-medium text-text-primary">Aceptar pagos en efectivo</span>
+              <label className="label" htmlFor="config-qr-pos">
+                External POS ID
               </label>
-
-              <p className="text-sm text-text-secondary mt-4">
-                Los clientes podran elegir pagar en efectivo al momento de recibir su pedido (delivery) o al retirar en el local.
+              <input
+                id="config-qr-pos"
+                type="text"
+                value={config.mercadopago_qr_pos_id}
+                onChange={(event) =>
+                  handleConfigChange('mercadopago_qr_pos_id', event.target.value)
+                }
+                className="input"
+                placeholder="CAJA-PRINCIPAL"
+              />
+              <p className="input-hint">
+                Identificador del POS configurado en Mercado Pago para QR dinamico.
               </p>
-
-              {!config.efectivo_enabled && !config.mercadopago_enabled && (
-                <div className="alert alert-warning mt-4">
-                  Debes habilitar al menos un metodo de pago para recibir pedidos.
-                </div>
-              )}
+            </div>
+            <div>
+              <label className="label" htmlFor="config-qr-mode">
+                Modo QR
+              </label>
+              <select
+                id="config-qr-mode"
+                className="input"
+                value={config.mercadopago_qr_mode}
+                onChange={(event) =>
+                  handleConfigChange('mercadopago_qr_mode', event.target.value)
+                }
+              >
+                <option value="dynamic">Dinamico</option>
+                <option value="static">Estatico</option>
+              </select>
             </div>
           </div>
-        </div>
+        </ConfigSection>
       </div>
 
-      {/* Boton Guardar Configuracion */}
+      <ConfigSection icon={DocumentTextIcon} title="Facturacion Electronica">
+        <div className="space-y-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={config.facturacion_habilitada}
+              onChange={(event) =>
+                handleConfigChange('facturacion_habilitada', event.target.checked)
+              }
+              className="w-5 h-5 rounded text-primary-500 focus:ring-primary-500"
+            />
+            <span className="font-medium text-text-primary">
+              Habilitar facturacion electronica
+            </span>
+          </label>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="label" htmlFor="facturacion-punto-venta">
+                Punto de Venta
+              </label>
+              <input
+                id="facturacion-punto-venta"
+                type="number"
+                min="1"
+                value={config.facturacion_punto_venta}
+                onChange={(event) =>
+                  handleConfigChange('facturacion_punto_venta', Number(event.target.value) || 1)
+                }
+                className="input"
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="facturacion-ambiente">
+                Ambiente
+              </label>
+              <select
+                id="facturacion-ambiente"
+                className="input"
+                value={config.facturacion_ambiente}
+                onChange={(event) =>
+                  handleConfigChange('facturacion_ambiente', event.target.value)
+                }
+              >
+                <option value="homologacion">Homologacion</option>
+                <option value="produccion">Produccion</option>
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="facturacion-cuit">
+                CUIT Emisor
+              </label>
+              <input
+                id="facturacion-cuit"
+                type="text"
+                value={config.facturacion_cuit_emisor}
+                onChange={(event) =>
+                  handleConfigChange('facturacion_cuit_emisor', event.target.value)
+                }
+                className="input"
+                placeholder="30XXXXXXXXX"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="facturacion-alicuota">
+              Alicuota IVA (%)
+            </label>
+            <select
+              id="facturacion-alicuota"
+              className="input"
+              value={config.facturacion_alicuota_iva}
+              onChange={(event) =>
+                handleConfigChange(
+                  'facturacion_alicuota_iva',
+                  Number(event.target.value) || 21
+                )
+              }
+            >
+              <option value="0">0</option>
+              <option value="2.5">2.5</option>
+              <option value="5">5</option>
+              <option value="10.5">10.5</option>
+              <option value="21">21</option>
+              <option value="27">27</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="facturacion-descripcion">
+              Descripcion del punto de venta
+            </label>
+            <input
+              id="facturacion-descripcion"
+              type="text"
+              value={config.facturacion_descripcion}
+              onChange={(event) =>
+                handleConfigChange('facturacion_descripcion', event.target.value)
+              }
+              className="input"
+              placeholder="Caja principal"
+            />
+          </div>
+
+          <p className="text-sm text-text-secondary">
+            La emision real requiere credenciales WSAA/WSFEv1 configuradas en el servidor.
+          </p>
+        </div>
+      </ConfigSection>
+
       <div className="flex justify-end">
         <button
           onClick={guardarConfiguracion}

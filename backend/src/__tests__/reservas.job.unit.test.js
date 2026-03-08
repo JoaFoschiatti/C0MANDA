@@ -34,7 +34,6 @@ describe('reservas.job (unit)', () => {
     const reservasProximas = [
       {
         id: 1,
-        tenantId: 10,
         mesaId: 5,
         mesa: { estado: 'LIBRE', numero: 1 }
       }
@@ -43,7 +42,6 @@ describe('reservas.job (unit)', () => {
     const reservasVencidas = [
       {
         id: 2,
-        tenantId: 10,
         mesaId: 6,
         mesa: { estado: 'RESERVADA' }
       }
@@ -78,7 +76,7 @@ describe('reservas.job (unit)', () => {
   it('no actualiza mesa si ya esta reservada', async () => {
     mockPrisma.reserva.findMany
       .mockResolvedValueOnce([
-        { id: 1, tenantId: 10, mesaId: 5, mesa: { estado: 'RESERVADA' } }
+        { id: 1, mesaId: 5, mesa: { estado: 'RESERVADA' } }
       ])
       .mockResolvedValueOnce([]);
 

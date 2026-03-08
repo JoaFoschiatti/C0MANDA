@@ -4,7 +4,6 @@ const multer = require('multer');
 const path = require('path');
 const configuracionController = require('../controllers/configuracion.controller');
 const { verificarToken, verificarRol } = require('../middlewares/auth.middleware');
-const { setTenantFromAuth, bloquearSiSoloLectura } = require('../middlewares/tenant.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const { asyncHandler } = require('../utils/async-handler');
 const { createHttpError } = require('../utils/http-error');
@@ -40,14 +39,14 @@ const upload = multer({
   }
 });
 
-// Rutas (todas requieren rol ADMIN + tenant context)
+// Rutas globales de configuracion (todas requieren rol ADMIN)
 router.use(verificarToken);
-router.use(setTenantFromAuth);
 router.use(verificarRol('ADMIN'));
 
 router.get('/', asyncHandler(configuracionController.obtenerTodas));
-router.put('/:clave', bloquearSiSoloLectura, validate({ params: claveParamSchema, body: actualizarBodySchema }), asyncHandler(configuracionController.actualizar));
-router.put('/', bloquearSiSoloLectura, validate({ body: actualizarBulkBodySchema }), asyncHandler(configuracionController.actualizarBulk));
-router.post('/banner', bloquearSiSoloLectura, upload.single('banner'), asyncHandler(configuracionController.subirBanner));
+router.put('/:clave', validate({ params: claveParamSchema, body: actualizarBodySchema }), asyncHandler(configuracionController.actualizar));
+router.put('/', validate({ body: actualizarBulkBodySchema }), asyncHandler(configuracionController.actualizarBulk));
+router.post('/banner', upload.single('banner'), asyncHandler(configuracionController.subirBanner));
 
 module.exports = router;
+

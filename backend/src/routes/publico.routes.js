@@ -1,19 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
-const { resolveTenantFromSlug } = require('../middlewares/tenant.middleware');
 const emailService = require('../services/email.service');
 const eventBus = require('../services/event-bus');
+const { prisma, getNegocio } = require('../db/prisma');
 const { asyncHandler } = require('../utils/async-handler');
 const publicoService = require('../services/publico.service');
 const { logger } = require('../utils/logger');
 
-// Rate limiter para pedidos públicos (10 pedidos por hora por IP)
-// Deshabilitado en entorno de test para permitir E2E tests
 const publicOrderLimiter = process.env.NODE_ENV === 'test'
-  ? (req, res, next) => next() // Skip en test
+  ? (req, res, next) => next()
   : rateLimit({
-      windowMs: 60 * 60 * 1000, // 1 hora
+      windowMs: 60 * 60 * 1000,
       max: 10,
       message: {
         error: { message: 'Demasiados pedidos creados. Intente nuevamente en 1 hora.' }
@@ -22,87 +20,120 @@ const publicOrderLimiter = process.env.NODE_ENV === 'test'
       legacyHeaders: false
     });
 
-/**
- * All public routes require slug parameter for tenant resolution
- * Routes: /api/publico/:slug/...
- */
-
-// GET /api/publico/:slug/config - Configuración pública del tenant
-router.get('/:slug/config', resolveTenantFromSlug, asyncHandler(async (req, res) => {
-  const result = await publicoService.getPublicConfig(req.prisma, req.tenantId, req.tenant);
+const getConfigHandler = asyncHandler(async (_req, res) => {
+  const result = await publicoService.getPublicConfig(prisma);
   res.json(result);
-}));
+});
 
-// GET /api/publico/:slug/menu - Menú público (categorías con productos)
-router.get('/:slug/menu', resolveTenantFromSlug, asyncHandler(async (req, res) => {
-  const categorias = await publicoService.getPublicMenu(req.prisma);
+const getMenuHandler = asyncHandler(async (_req, res) => {
+  const categorias = await publicoService.getPublicMenu(prisma);
   res.json(categorias);
-}));
+});
 
-// POST /api/publico/:slug/pedido - Crear pedido público
-router.post('/:slug/pedido', publicOrderLimiter, resolveTenantFromSlug, asyncHandler(async (req, res) => {
-  const result = await publicoService.createPublicOrder(req.prisma, {
-    tenantId: req.tenantId,
-    tenantSlug: req.tenantSlug,
-    tenant: req.tenant,
+const createOrderHandler = asyncHandler(async (req, res) => {
+  const negocio = await getNegocio();
+  const result = await publicoService.createPublicOrder(prisma, {
+    negocio,
     body: req.body
   });
 
-  result.events.forEach(event => eventBus.publish(event.topic, event.payload));
+  result.events.forEach((event) => eventBus.publish(event.topic, event.payload));
 
   if (result.shouldSendEmail) {
-      try {
-        await emailService.sendOrderConfirmation(result.pedido, req.tenant);
-        logger.info('Email de confirmación enviado a:', result.pedido.clienteEmail);
-      } catch (emailError) {
-        logger.error('Error al enviar email de confirmación:', emailError);
-      }
+    try {
+      await emailService.sendOrderConfirmation(result.pedido, negocio);
+      logger.info('Email de confirmacion enviado a:', result.pedido.clienteEmail);
+    } catch (emailError) {
+      logger.error('Error al enviar email de confirmacion:', emailError);
     }
+  }
 
   res.status(201).json({
     pedido: result.pedido,
     costoEnvio: result.costoEnvio,
     total: result.total,
-    initPoint: result.initPoint, // Incluir initPoint para MercadoPago
+    initPoint: result.initPoint,
     message: 'Pedido creado correctamente'
   });
-}));
+});
 
-// POST /api/publico/:slug/pedido/:id/pagar - Iniciar pago MercadoPago
-router.post('/:slug/pedido/:id/pagar', resolveTenantFromSlug, asyncHandler(async (req, res) => {
-  const pedidoId = parseInt(req.params.id);
-  const result = await publicoService.startMercadoPagoPaymentForOrder(req.prisma, {
-    tenantId: req.tenantId,
-    tenantSlug: req.tenantSlug,
-    tenant: req.tenant,
+const startPaymentHandler = asyncHandler(async (req, res) => {
+  const pedidoId = parseInt(req.params.id, 10);
+  const negocio = await getNegocio();
+  const result = await publicoService.startMercadoPagoPaymentForOrder(prisma, {
+    negocio,
     pedidoId
   });
+
   res.json(result);
-}));
+});
 
-// GET /api/publico/:slug/pedido/:id - Obtener estado de pedido
-router.get('/:slug/pedido/:id', resolveTenantFromSlug, asyncHandler(async (req, res) => {
-  const pedidoId = parseInt(req.params.id);
-  const result = await publicoService.getPublicOrderStatus(req.prisma, { tenantId: req.tenantId, pedidoId });
-  result.events.forEach(event => eventBus.publish(event.topic, event.payload));
+const getOrderStatusHandler = asyncHandler(async (req, res) => {
+  const pedidoId = parseInt(req.params.id, 10);
+  const result = await publicoService.getPublicOrderStatus(prisma, { pedidoId });
+  result.events.forEach((event) => eventBus.publish(event.topic, event.payload));
   res.json(result.pedido);
-}));
-
-// ============================================
-// BACKWARDS COMPATIBILITY ROUTES
-// These redirect to the default tenant during migration
-// ============================================
-
-// GET /api/publico/config - Redirect to default tenant
-router.get('/config', async (req, res) => {
-  console.warn('[DEPRECATION] /api/publico/config is deprecated. Use /api/publico/:slug/config');
-  res.redirect(301, '/api/publico/default/config');
 });
 
-// GET /api/publico/menu - Redirect to default tenant
-router.get('/menu', async (req, res) => {
-  console.warn('[DEPRECATION] /api/publico/menu is deprecated. Use /api/publico/:slug/menu');
-  res.redirect(301, '/api/publico/default/menu');
+const getMesaContextHandler = asyncHandler(async (req, res) => {
+  const mesa = await prisma.mesa.findUnique({
+    where: { qrToken: req.params.qrToken }
+  });
+
+  if (!mesa || !mesa.activa) {
+    return res.status(404).json({ error: { message: 'Mesa no encontrada' } });
+  }
+
+  const negocio = await getNegocio();
+  const [config, categorias] = await Promise.all([
+    publicoService.getPublicConfig(prisma, negocio),
+    publicoService.getPublicMenu(prisma)
+  ]);
+
+  res.json({
+    mesa: {
+      id: mesa.id,
+      numero: mesa.numero,
+      zona: mesa.zona,
+      capacidad: mesa.capacidad,
+      estado: mesa.estado,
+      qrToken: mesa.qrToken
+    },
+    negocio: config.negocio,
+    config: config.config,
+    categorias
+  });
 });
+
+const createMesaOrderHandler = asyncHandler(async (req, res) => {
+  const mesa = await prisma.mesa.findUnique({
+    where: { qrToken: req.params.qrToken }
+  });
+
+  if (!mesa || !mesa.activa) {
+    return res.status(404).json({ error: { message: 'Mesa no encontrada' } });
+  }
+
+  const result = await publicoService.createPublicTableOrder(prisma, {
+    qrToken: req.params.qrToken,
+    body: req.body
+  });
+
+  result.events.forEach((event) => eventBus.publish(event.topic, event.payload));
+
+  res.status(201).json({
+    mesa: result.mesa,
+    pedido: result.pedido,
+    message: 'Pedido enviado a la mesa correctamente'
+  });
+});
+
+router.get('/config', getConfigHandler);
+router.get('/menu', getMenuHandler);
+router.post('/pedido', publicOrderLimiter, createOrderHandler);
+router.post('/pedido/:id/pagar', startPaymentHandler);
+router.get('/pedido/:id', getOrderStatusHandler);
+router.get('/mesa/:qrToken', getMesaContextHandler);
+router.post('/mesa/:qrToken/pedido', publicOrderLimiter, createMesaOrderHandler);
 
 module.exports = router;

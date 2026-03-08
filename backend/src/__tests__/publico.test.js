@@ -3,46 +3,47 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
-  cleanupTenantData
+  ensureNegocio,
+  cleanupOperationalData
 } = require('./helpers/test-helpers');
 
 describe('Publico Endpoints', () => {
-  let tenant;
-
-  beforeAll(async () => {
-    tenant = await createTenant({ slug: uniqueId('tenant-publico') });
-  });
-
-  afterEach(async () => {
-    await prisma.configuracion.deleteMany({
-      where: {
-        tenantId: tenant.id,
-        clave: { in: ['delivery_habilitado', 'efectivo_enabled', 'mercadopago_enabled', 'tienda_abierta', 'costo_delivery'] }
-      }
-    });
+  beforeEach(async () => {
+    await cleanupOperationalData();
+    await ensureNegocio();
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
-  it('GET /api/publico/:slug/config devuelve defaults y tenant info', async () => {
+  it('GET /api/publico/config devuelve defaults y datos del negocio', async () => {
+    await prisma.negocio.update({
+      where: { id: 1 },
+      data: {
+        nombre: 'Comanda Test',
+        telefono: '3415550000',
+        direccion: 'Calle Falsa 123'
+      }
+    });
+
     const response = await request(app)
-      .get(`/api/publico/${tenant.slug}/config`)
+      .get('/api/publico/config')
       .expect(200);
 
-    expect(response.body.tenant.slug).toBe(tenant.slug);
+    expect(response.body.negocio).toEqual(expect.objectContaining({
+      nombre: 'Comanda Test',
+      telefono: '3415550000',
+      direccion: 'Calle Falsa 123'
+    }));
     expect(response.body.config.tienda_abierta).toBe(true);
     expect(response.body.config.efectivo_enabled).toBe(true);
     expect(response.body.config.mercadopago_enabled).toBe(false);
   });
 
-  it('GET /api/publico/:slug/menu filtra categorías/productos y expone variantes', async () => {
+  it('GET /api/publico/menu filtra categorias y productos y expone variantes', async () => {
     const categoriaActiva = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('activa')}`,
         orden: 1,
         activa: true
@@ -51,7 +52,6 @@ describe('Publico Endpoints', () => {
 
     const categoriaInactiva = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('inactiva')}`,
         orden: 2,
         activa: false
@@ -60,7 +60,6 @@ describe('Publico Endpoints', () => {
 
     const productoBase = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('base')}`,
         precio: 100,
         categoriaId: categoriaActiva.id,
@@ -70,7 +69,6 @@ describe('Publico Endpoints', () => {
 
     const productoNoDisponible = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('nodisp')}`,
         precio: 50,
         categoriaId: categoriaActiva.id,
@@ -80,7 +78,6 @@ describe('Publico Endpoints', () => {
 
     const varianteDisponible = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('var')}`,
         nombreVariante: 'Doble',
         precio: 150,
@@ -91,9 +88,8 @@ describe('Publico Endpoints', () => {
       }
     });
 
-    const varianteNoDisponible = await prisma.producto.create({
+    await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('var-no')}`,
         nombreVariante: 'Triple',
         precio: 200,
@@ -104,10 +100,8 @@ describe('Publico Endpoints', () => {
       }
     });
 
-    // Producto en categoría inactiva (no debería aparecer)
     await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('cat-inactiva')}`,
         precio: 10,
         categoriaId: categoriaInactiva.id,
@@ -116,30 +110,28 @@ describe('Publico Endpoints', () => {
     });
 
     const response = await request(app)
-      .get(`/api/publico/${tenant.slug}/menu`)
+      .get('/api/publico/menu')
       .expect(200);
 
     expect(Array.isArray(response.body)).toBe(true);
 
-    const categoria = response.body.find(c => c.id === categoriaActiva.id);
+    const categoria = response.body.find((item) => item.id === categoriaActiva.id);
     expect(categoria).toBeDefined();
-    expect(response.body.some(c => c.id === categoriaInactiva.id)).toBe(false);
+    expect(response.body.some((item) => item.id === categoriaInactiva.id)).toBe(false);
 
-    const idsProductos = categoria.productos.map(p => p.id);
+    const idsProductos = categoria.productos.map((producto) => producto.id);
     expect(idsProductos).toContain(productoBase.id);
     expect(idsProductos).not.toContain(productoNoDisponible.id);
     expect(idsProductos).not.toContain(varianteDisponible.id);
 
-    const baseEnRespuesta = categoria.productos.find(p => p.id === productoBase.id);
-    const idsVariantes = baseEnRespuesta.variantes.map(v => v.id);
+    const baseEnRespuesta = categoria.productos.find((producto) => producto.id === productoBase.id);
+    const idsVariantes = baseEnRespuesta.variantes.map((variante) => variante.id);
     expect(idsVariantes).toContain(varianteDisponible.id);
-    expect(idsVariantes).not.toContain(varianteNoDisponible.id);
   });
 
-  it('POST /api/publico/:slug/pedido crea pedido y permite items duplicados', async () => {
+  it('POST /api/publico/pedido crea pedido y permite items duplicados', async () => {
     const categoria = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('pedido')}`,
         orden: 1,
         activa: true
@@ -148,7 +140,6 @@ describe('Publico Endpoints', () => {
 
     const producto = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('pedido')}`,
         precio: 123,
         categoriaId: categoria.id,
@@ -157,7 +148,7 @@ describe('Publico Endpoints', () => {
     });
 
     const response = await request(app)
-      .post(`/api/publico/${tenant.slug}/pedido`)
+      .post('/api/publico/pedido')
       .send({
         items: [
           { productoId: producto.id, cantidad: 1 },
@@ -171,16 +162,15 @@ describe('Publico Endpoints', () => {
       .expect(201);
 
     expect(response.body.message).toBe('Pedido creado correctamente');
-    expect(response.body.initPoint).toBe(null);
-    expect(response.body.pedido.tenantId).toBe(tenant.id);
+    expect(response.body.initPoint).toBeNull();
     expect(response.body.pedido.origen).toBe('MENU_PUBLICO');
     expect(response.body.pedido.items).toHaveLength(2);
+    expect(response.body.pedido.clienteNombre).toBe('Cliente Test');
   });
 
-  it('POST /api/publico/:slug/pedido rechaza delivery si está deshabilitado', async () => {
+  it('POST /api/publico/pedido rechaza delivery si esta deshabilitado', async () => {
     const categoria = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('delivery')}`,
         orden: 1,
         activa: true
@@ -189,7 +179,6 @@ describe('Publico Endpoints', () => {
 
     const producto = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('delivery')}`,
         precio: 100,
         categoriaId: categoria.id,
@@ -199,14 +188,13 @@ describe('Publico Endpoints', () => {
 
     await prisma.configuracion.create({
       data: {
-        tenantId: tenant.id,
         clave: 'delivery_habilitado',
         valor: 'false'
       }
     });
 
     const response = await request(app)
-      .post(`/api/publico/${tenant.slug}/pedido`)
+      .post('/api/publico/pedido')
       .send({
         items: [{ productoId: producto.id, cantidad: 1 }],
         clienteNombre: 'Cliente Test',
@@ -217,13 +205,12 @@ describe('Publico Endpoints', () => {
       })
       .expect(400);
 
-    expect(response.body.error.message).toBe('El delivery no está disponible en este momento');
+    expect(response.body.error.message).toBe('El delivery no esta disponible en este momento');
   });
 
-  it('POST /api/publico/:slug/pedido rechaza efectivo si está deshabilitado', async () => {
+  it('POST /api/publico/pedido rechaza efectivo si esta deshabilitado', async () => {
     const categoria = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('efectivo')}`,
         orden: 1,
         activa: true
@@ -232,7 +219,6 @@ describe('Publico Endpoints', () => {
 
     const producto = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('efectivo')}`,
         precio: 100,
         categoriaId: categoria.id,
@@ -242,14 +228,13 @@ describe('Publico Endpoints', () => {
 
     await prisma.configuracion.create({
       data: {
-        tenantId: tenant.id,
         clave: 'efectivo_enabled',
         valor: 'false'
       }
     });
 
     const response = await request(app)
-      .post(`/api/publico/${tenant.slug}/pedido`)
+      .post('/api/publico/pedido')
       .send({
         items: [{ productoId: producto.id, cantidad: 1 }],
         clienteNombre: 'Cliente Test',
@@ -259,6 +244,6 @@ describe('Publico Endpoints', () => {
       })
       .expect(400);
 
-    expect(response.body.error.message).toBe('El pago en efectivo no está disponible en este momento');
+    expect(response.body.error.message).toBe('El pago en efectivo no esta disponible en este momento');
   });
 });

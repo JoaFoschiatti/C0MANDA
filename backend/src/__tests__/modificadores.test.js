@@ -3,33 +3,28 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
   createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Modificadores Endpoints', () => {
-  let tenant;
   let token;
-  let tenantSecundario;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+    await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
     token = signTokenForUser(admin);
-
-    tenantSecundario = await createTenant();
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await cleanupTenantData(tenantSecundario.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('POST /api/modificadores crea EXCLUSION con precio 0', async () => {
@@ -61,10 +56,9 @@ describe('Modificadores Endpoints', () => {
     expect(Number(actualizado.body.precio)).toBe(0);
   });
 
-  it('PUT /api/modificadores/producto/:productoId rechaza ids de otro tenant', async () => {
+  it('PUT /api/modificadores/producto/:productoId rechaza ids inexistentes', async () => {
     const categoria = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('m')}`,
         orden: 1,
         activa: true
@@ -73,7 +67,6 @@ describe('Modificadores Endpoints', () => {
 
     const producto = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('m')}`,
         precio: 10,
         categoriaId: categoria.id,
@@ -81,20 +74,10 @@ describe('Modificadores Endpoints', () => {
       }
     });
 
-    const modOtroTenant = await prisma.modificador.create({
-      data: {
-        tenantId: tenantSecundario.id,
-        nombre: `Mod-${uniqueId('otro')}`,
-        tipo: 'ADICION',
-        precio: 5,
-        activo: true
-      }
-    });
-
     const response = await request(app)
       .put(`/api/modificadores/producto/${producto.id}`)
       .set('Authorization', authHeader(token))
-      .send({ modificadorIds: [modOtroTenant.id] })
+      .send({ modificadorIds: [999999] })
       .expect(400);
 
     expect(response.body.error.message).toContain('Modificadores inválidos');
@@ -103,7 +86,6 @@ describe('Modificadores Endpoints', () => {
   it('PUT /api/modificadores/producto/:productoId asigna modificadores', async () => {
     const categoria = await prisma.categoria.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Cat-${uniqueId('asignar')}`,
         orden: 1,
         activa: true
@@ -112,7 +94,6 @@ describe('Modificadores Endpoints', () => {
 
     const producto = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('asignar')}`,
         precio: 10,
         categoriaId: categoria.id,
@@ -122,7 +103,6 @@ describe('Modificadores Endpoints', () => {
 
     const mod1 = await prisma.modificador.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Mod-${uniqueId('1')}`,
         tipo: 'ADICION',
         precio: 5,
@@ -132,7 +112,6 @@ describe('Modificadores Endpoints', () => {
 
     const mod2 = await prisma.modificador.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Mod-${uniqueId('2')}`,
         tipo: 'EXCLUSION',
         precio: 0,
@@ -146,7 +125,7 @@ describe('Modificadores Endpoints', () => {
       .send({ modificadorIds: [mod1.id, mod2.id] })
       .expect(200);
 
-    const modificadoresAsignados = response.body.modificadores.map(pm => pm.modificador.nombre);
+    const modificadoresAsignados = response.body.modificadores.map((item) => item.modificador.nombre);
     expect(modificadoresAsignados).toEqual(expect.arrayContaining([mod1.nombre, mod2.nombre]));
 
     const listado = await request(app)
@@ -154,8 +133,7 @@ describe('Modificadores Endpoints', () => {
       .set('Authorization', authHeader(token))
       .expect(200);
 
-    const nombres = listado.body.map(m => m.nombre);
+    const nombres = listado.body.map((item) => item.nombre);
     expect(nombres).toEqual(expect.arrayContaining([mod1.nombre, mod2.nombre]));
   });
 });
-

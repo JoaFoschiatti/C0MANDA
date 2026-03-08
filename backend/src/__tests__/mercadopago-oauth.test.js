@@ -3,25 +3,26 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
-  createUsuario,
+    createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('MercadoPago OAuth Endpoints', () => {
-  let tenant;
-  let token;
+    let token;
 
   beforeAll(async () => {
     process.env.MP_APP_ID = 'test-mp-app-id';
     process.env.MP_APP_SECRET = 'test-mp-app-secret';
     process.env.BACKEND_URL = 'http://localhost:3001';
     process.env.FRONTEND_URL = 'http://frontend.local';
+    process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+        await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
@@ -29,8 +30,7 @@ describe('MercadoPago OAuth Endpoints', () => {
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('GET /api/mercadopago/oauth/authorize devuelve authUrl', async () => {
@@ -51,7 +51,7 @@ describe('MercadoPago OAuth Endpoints', () => {
       .get('/api/mercadopago/oauth/callback')
       .expect(302);
 
-    expect(response.headers.location).toBe(`${process.env.FRONTEND_URL}/admin/configuracion?mp=error&reason=missing_params`);
+    expect(response.headers.location).toBe(`${process.env.FRONTEND_URL}/configuracion?mp=error&reason=missing_params`);
   });
 
   it('GET /api/mercadopago/oauth/callback redirige a invalid_state', async () => {
@@ -59,11 +59,11 @@ describe('MercadoPago OAuth Endpoints', () => {
       .get('/api/mercadopago/oauth/callback?code=abc&state=invalid')
       .expect(302);
 
-    expect(response.headers.location).toBe(`${process.env.FRONTEND_URL}/admin/configuracion?mp=error&reason=invalid_state`);
+    expect(response.headers.location).toBe(`${process.env.FRONTEND_URL}/configuracion?mp=error&reason=invalid_state`);
   });
 
-  it('GET /api/mercadopago/oauth/callback guarda config y redirige a connected', async () => {
-    const state = Buffer.from(JSON.stringify({ tenantId: tenant.id, timestamp: Date.now() })).toString('base64url');
+  it('GET /api/mercadopago/oauth/callback guarda config global y redirige a connected', async () => {
+    const state = Buffer.from(JSON.stringify({ timestamp: Date.now() })).toString('base64url');
 
     const fetchMock = jest.fn()
       .mockResolvedValueOnce({
@@ -89,13 +89,13 @@ describe('MercadoPago OAuth Endpoints', () => {
         .get(`/api/mercadopago/oauth/callback?code=abc&state=${encodeURIComponent(state)}`)
         .expect(302);
 
-      expect(response.headers.location).toBe(`${process.env.FRONTEND_URL}/admin/configuracion?mp=connected`);
+      expect(response.headers.location).toBe(`${process.env.FRONTEND_URL}/configuracion?mp=connected`);
     } finally {
       global.fetch = originalFetch;
     }
 
     const config = await prisma.mercadoPagoConfig.findUnique({
-      where: { tenantId: tenant.id }
+      where: { id: 1 }
     });
 
     expect(config).toBeTruthy();
@@ -104,9 +104,7 @@ describe('MercadoPago OAuth Endpoints', () => {
     expect(config.email).toBe('mp@example.com');
 
     const enabledConfig = await prisma.configuracion.findUnique({
-      where: {
-        tenantId_clave: { tenantId: tenant.id, clave: 'mercadopago_enabled' }
-      }
+      where: { clave: 'mercadopago_enabled' }
     });
     expect(enabledConfig.valor).toBe('true');
   });

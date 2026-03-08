@@ -1,5 +1,5 @@
 /**
- * Servicio de reportes y estadísticas para GestioNeo.
+ * Servicio de reportes y estadisticas para Comanda.
  *
  * Este servicio genera reportes analíticos del restaurante:
  * - Dashboard con métricas en tiempo real
@@ -10,13 +10,14 @@
  * - Liquidaciones y sueldos
  * - Consumo de insumos/ingredientes
  *
- * Todos los reportes están aislados por tenant (multi-tenancy).
+ * Todos los reportes operan sobre la instalacion unica del restaurante.
  *
  * @module reportes.service
  */
 
 const { createHttpError } = require('../utils/http-error');
 const { decimalToNumber } = require('../utils/decimal');
+const { buildExpiredLotsWhere } = require('./lotes-stock.service');
 
 /**
  * Construye un rango de fechas para filtros de Prisma.
@@ -41,6 +42,391 @@ const buildDateRange = (fechaDesde, fechaHasta) => {
   return { gte: start, lt: endExclusive };
 };
 
+const TASK_PRIORITY_ORDER = {
+  ALTA: 0,
+  MEDIA: 1,
+  BAJA: 2
+};
+
+const UPCOMING_EXPIRY_WINDOW_DAYS = 7;
+const ACTIVE_PEDIDO_STATES = ['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO'];
+const NON_FINAL_PEDIDO_STATES = ['CANCELADO', 'CERRADO'];
+
+const addDays = (value, days) => {
+  const nextDate = new Date(value);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+};
+
+const formatTaskDate = (value) => (
+  value
+    ? new Date(value).toISOString().slice(0, 10)
+    : null
+);
+
+const buildUpcomingLotsWhere = (referenceDate = new Date()) => ({
+  activo: true,
+  stockActual: { gt: 0 },
+  fechaVencimiento: {
+    gte: referenceDate,
+    lte: addDays(referenceDate, UPCOMING_EXPIRY_WINDOW_DAYS)
+  }
+});
+
+const compareTaskPriority = (left, right) => (
+  TASK_PRIORITY_ORDER[left.prioridad] - TASK_PRIORITY_ORDER[right.prioridad]
+);
+
+const compareTaskReferenceDate = (left, right) => {
+  const leftValue = left.fechaReferencia ? new Date(left.fechaReferencia).getTime() : 0;
+  const rightValue = right.fechaReferencia ? new Date(right.fechaReferencia).getTime() : 0;
+
+  if (leftValue !== rightValue) {
+    return leftValue - rightValue;
+  }
+
+  return left.id.localeCompare(right.id);
+};
+
+const sortTaskItems = (items) => [...items].sort((left, right) => {
+  const byPriority = compareTaskPriority(left, right);
+  if (byPriority !== 0) {
+    return byPriority;
+  }
+
+  return compareTaskReferenceDate(left, right);
+});
+
+const countTaskType = (items, type) => items.filter((item) => item.tipo === type).length;
+
+const buildTaskSummary = (caja, stock) => {
+  const total = caja.length + stock.length;
+  const altaPrioridad = [...caja, ...stock]
+    .filter((item) => item.prioridad === 'ALTA')
+    .length;
+
+  return {
+    total,
+    altaPrioridad,
+    caja: caja.length,
+    stock: stock.length,
+    mesasEsperandoCuenta: countTaskType(caja, 'MESA_ESPERANDO_CUENTA'),
+    qrPendientes: countTaskType(caja, 'QR_PRESENCIAL_PENDIENTE'),
+    pedidosPorCerrar: countTaskType(caja, 'PEDIDO_COBRADO_PENDIENTE_CIERRE'),
+    mesasPorLiberar: countTaskType(caja, 'MESA_CERRADA_PENDIENTE_LIBERACION'),
+    stockBajo: countTaskType(stock, 'INGREDIENTE_STOCK_BAJO'),
+    lotesPorVencer: countTaskType(stock, 'LOTE_PROXIMO_A_VENCER'),
+    lotesVencidosPendientes: countTaskType(stock, 'LOTE_VENCIDO_PENDIENTE_DESCARTE')
+  };
+};
+
+const buildMesaEsperandoCuentaTask = (mesa) => {
+  const pedidoActivo = mesa.pedidos?.[0] || null;
+
+  return {
+    id: `caja:mesa-esperando-cuenta:${mesa.id}`,
+    categoria: 'CAJA',
+    tipo: 'MESA_ESPERANDO_CUENTA',
+    prioridad: 'ALTA',
+    fechaReferencia: mesa.updatedAt.toISOString(),
+    titulo: `Mesa ${mesa.numero} esperando cuenta`,
+    descripcion: pedidoActivo
+      ? `Mesa ${mesa.numero} solicito precuenta para el pedido #${pedidoActivo.id}.`
+      : `Mesa ${mesa.numero} solicito precuenta y no tiene pedido activo resoluble.`,
+    entidad: {
+      mesaId: mesa.id,
+      pedidoId: pedidoActivo?.id ?? null
+    }
+  };
+};
+
+const buildQrPendienteTask = (pago) => {
+  const mesaNumero = pago.pedido?.mesa?.numero;
+  const monto = decimalToNumber(pago.monto);
+  const propinaMonto = decimalToNumber(pago.propinaMonto);
+  const total = monto + propinaMonto;
+
+  return {
+    id: `caja:qr-presencial-pendiente:${pago.id}`,
+    categoria: 'CAJA',
+    tipo: 'QR_PRESENCIAL_PENDIENTE',
+    prioridad: 'MEDIA',
+    fechaReferencia: pago.updatedAt.toISOString(),
+    titulo: `QR presencial pendiente para pedido #${pago.pedido.id}`,
+    descripcion: mesaNumero
+      ? `Pedido #${pago.pedido.id} en mesa ${mesaNumero} mantiene un cobro QR pendiente por $${total.toFixed(2)}.`
+      : `Pedido #${pago.pedido.id} mantiene un cobro QR pendiente por $${total.toFixed(2)}.`,
+    entidad: {
+      pagoId: pago.id,
+      pedidoId: pago.pedido.id,
+      mesaId: pago.pedido.mesaId ?? null
+    }
+  };
+};
+
+const buildPedidoPorCerrarTask = (pedido) => ({
+  id: `caja:pedido-cobrado-pendiente-cierre:${pedido.id}`,
+  categoria: 'CAJA',
+  tipo: 'PEDIDO_COBRADO_PENDIENTE_CIERRE',
+  prioridad: 'ALTA',
+  fechaReferencia: pedido.updatedAt.toISOString(),
+  titulo: `Pedido #${pedido.id} pendiente de cierre`,
+  descripcion: pedido.mesa?.numero
+    ? `Pedido #${pedido.id} ya esta cobrado en mesa ${pedido.mesa.numero} y debe cerrarse.`
+    : `Pedido #${pedido.id} ya esta cobrado y debe cerrarse.`,
+  entidad: {
+    pedidoId: pedido.id,
+    mesaId: pedido.mesaId ?? null
+  }
+});
+
+const buildMesaPorLiberarTask = (mesa) => {
+  const pedidoCerrado = mesa.pedidos?.find((pedido) => pedido.estado === 'CERRADO') || null;
+
+  return {
+    id: `caja:mesa-cerrada-pendiente-liberacion:${mesa.id}`,
+    categoria: 'CAJA',
+    tipo: 'MESA_CERRADA_PENDIENTE_LIBERACION',
+    prioridad: 'MEDIA',
+    fechaReferencia: mesa.updatedAt.toISOString(),
+    titulo: `Mesa ${mesa.numero} pendiente de liberacion`,
+    descripcion: pedidoCerrado
+      ? `Mesa ${mesa.numero} ya cerro el pedido #${pedidoCerrado.id} y espera liberacion.`
+      : `Mesa ${mesa.numero} esta cerrada y espera liberacion.`,
+    entidad: {
+      mesaId: mesa.id,
+      pedidoId: pedidoCerrado?.id ?? null
+    }
+  };
+};
+
+const buildLoteVencidoTask = (lote) => ({
+  id: `stock:lote-vencido:${lote.id}`,
+  categoria: 'STOCK',
+  tipo: 'LOTE_VENCIDO_PENDIENTE_DESCARTE',
+  prioridad: 'ALTA',
+  fechaReferencia: lote.fechaVencimiento.toISOString(),
+  titulo: `Lote ${lote.codigoLote} vencido`,
+  descripcion: `El lote ${lote.codigoLote} de ${lote.ingrediente.nombre} vencio el ${formatTaskDate(lote.fechaVencimiento)} y mantiene ${decimalToNumber(lote.stockActual).toFixed(2)} ${lote.ingrediente.unidad}.`,
+  entidad: {
+    ingredienteId: lote.ingredienteId,
+    loteId: lote.id
+  }
+});
+
+const buildIngredienteStockBajoTask = (ingrediente) => {
+  const stockActual = decimalToNumber(ingrediente.stockActual);
+  const stockMinimo = decimalToNumber(ingrediente.stockMinimo);
+
+  return {
+    id: `stock:ingrediente-stock-bajo:${ingrediente.id}`,
+    categoria: 'STOCK',
+    tipo: 'INGREDIENTE_STOCK_BAJO',
+    prioridad: stockActual <= 0 ? 'ALTA' : 'MEDIA',
+    fechaReferencia: ingrediente.updatedAt.toISOString(),
+    titulo: `Stock bajo de ${ingrediente.nombre}`,
+    descripcion: `${ingrediente.nombre} quedo en ${stockActual.toFixed(2)} ${ingrediente.unidad} sobre un minimo de ${stockMinimo.toFixed(2)} ${ingrediente.unidad}.`,
+    entidad: {
+      ingredienteId: ingrediente.id
+    }
+  };
+};
+
+const buildLotePorVencerTask = (lote) => ({
+  id: `stock:lote-proximo-a-vencer:${lote.id}`,
+  categoria: 'STOCK',
+  tipo: 'LOTE_PROXIMO_A_VENCER',
+  prioridad: 'BAJA',
+  fechaReferencia: lote.fechaVencimiento.toISOString(),
+  titulo: `Lote ${lote.codigoLote} proximo a vencer`,
+  descripcion: `El lote ${lote.codigoLote} de ${lote.ingrediente.nombre} vence el ${formatTaskDate(lote.fechaVencimiento)} y conserva ${decimalToNumber(lote.stockActual).toFixed(2)} ${lote.ingrediente.unidad}.`,
+  entidad: {
+    ingredienteId: lote.ingredienteId,
+    loteId: lote.id
+  }
+});
+
+const tareasCentro = async (prisma, referenceDate = new Date()) => {
+  const [
+    mesasEsperandoCuenta,
+    pagosQrPendientes,
+    pedidosPorCerrar,
+    mesasCerradas,
+    ingredientes,
+    lotesVencidos,
+    lotesPorVencer
+  ] = await prisma.$transaction([
+    prisma.mesa.findMany({
+      where: {
+        activa: true,
+        estado: 'ESPERANDO_CUENTA'
+      },
+      select: {
+        id: true,
+        numero: true,
+        updatedAt: true,
+        pedidos: {
+          where: {
+            estado: { in: ACTIVE_PEDIDO_STATES }
+          },
+          orderBy: [
+            { updatedAt: 'desc' },
+            { id: 'desc' }
+          ],
+          take: 1,
+          select: {
+            id: true
+          }
+        }
+      }
+    }),
+    prisma.pago.findMany({
+      where: {
+        canalCobro: 'QR_PRESENCIAL',
+        estado: 'PENDIENTE',
+        pedido: {
+          estado: {
+            notIn: NON_FINAL_PEDIDO_STATES
+          }
+        }
+      },
+      select: {
+        id: true,
+        monto: true,
+        propinaMonto: true,
+        updatedAt: true,
+        pedido: {
+          select: {
+            id: true,
+            mesaId: true,
+            mesa: {
+              select: {
+                numero: true
+              }
+            }
+          }
+        }
+      }
+    }),
+    prisma.pedido.findMany({
+      where: {
+        estado: 'COBRADO'
+      },
+      select: {
+        id: true,
+        mesaId: true,
+        updatedAt: true,
+        mesa: {
+          select: {
+            numero: true
+          }
+        }
+      }
+    }),
+    prisma.mesa.findMany({
+      where: {
+        activa: true,
+        estado: 'CERRADA'
+      },
+      select: {
+        id: true,
+        numero: true,
+        updatedAt: true,
+        pedidos: {
+          where: {
+            estado: {
+              in: ['COBRADO', 'CERRADO']
+            }
+          },
+          orderBy: [
+            { updatedAt: 'desc' },
+            { id: 'desc' }
+          ],
+          select: {
+            id: true,
+            estado: true
+          }
+        }
+      }
+    }),
+    prisma.ingrediente.findMany({
+      where: {
+        activo: true
+      },
+      select: {
+        id: true,
+        nombre: true,
+        unidad: true,
+        stockActual: true,
+        stockMinimo: true,
+        updatedAt: true
+      }
+    }),
+    prisma.loteStock.findMany({
+      where: {
+        ...buildExpiredLotsWhere(referenceDate)
+      },
+      select: {
+        id: true,
+        ingredienteId: true,
+        codigoLote: true,
+        stockActual: true,
+        fechaVencimiento: true,
+        ingrediente: {
+          select: {
+            id: true,
+            nombre: true,
+            unidad: true
+          }
+        }
+      }
+    }),
+    prisma.loteStock.findMany({
+      where: {
+        ...buildUpcomingLotsWhere(referenceDate)
+      },
+      select: {
+        id: true,
+        ingredienteId: true,
+        codigoLote: true,
+        stockActual: true,
+        fechaVencimiento: true,
+        ingrediente: {
+          select: {
+            id: true,
+            nombre: true,
+            unidad: true
+          }
+        }
+      }
+    })
+  ]);
+
+  const caja = sortTaskItems([
+    ...mesasEsperandoCuenta.map(buildMesaEsperandoCuentaTask),
+    ...pagosQrPendientes.map(buildQrPendienteTask),
+    ...pedidosPorCerrar.map(buildPedidoPorCerrarTask),
+    ...mesasCerradas
+      .filter((mesa) => !mesa.pedidos.some((pedido) => pedido.estado === 'COBRADO'))
+      .map(buildMesaPorLiberarTask)
+  ]);
+
+  const stock = sortTaskItems([
+    ...ingredientes
+      .filter((ingrediente) => decimalToNumber(ingrediente.stockActual) <= decimalToNumber(ingrediente.stockMinimo))
+      .map(buildIngredienteStockBajoTask),
+    ...lotesVencidos.map(buildLoteVencidoTask),
+    ...lotesPorVencer.map(buildLotePorVencerTask)
+  ]);
+
+  return {
+    actualizadoEn: referenceDate.toISOString(),
+    resumen: buildTaskSummary(caja, stock),
+    caja,
+    stock
+  };
+};
+
 /**
  * Obtiene métricas del dashboard en tiempo real.
  *
@@ -48,7 +434,6 @@ const buildDateRange = (fechaDesde, fechaHasta) => {
  * el estado actual del restaurante de forma eficiente.
  *
  * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping
- * @param {number} tenantId - ID del tenant
  *
  * @returns {Promise<Object>} Métricas del dashboard
  * @returns {number} returns.ventasHoy - Total vendido hoy (solo pedidos COBRADO)
@@ -57,6 +442,7 @@ const buildDateRange = (fechaDesde, fechaHasta) => {
  * @returns {number} returns.mesasOcupadas - Mesas con estado OCUPADA
  * @returns {number} returns.mesasTotal - Total de mesas activas
  * @returns {number} returns.alertasStock - Ingredientes con stock <= mínimo
+ * @returns {number} returns.lotesVencidosPendientes - Lotes vencidos con descarte pendiente
  * @returns {number} returns.empleadosTrabajando - Fichajes abiertos (sin salida)
  *
  * @example
@@ -68,10 +454,11 @@ const buildDateRange = (fechaDesde, fechaHasta) => {
  * //   mesasOcupadas: 8,
  * //   mesasTotal: 15,
  * //   alertasStock: 2,
+ * //   lotesVencidosPendientes: 1,
  * //   empleadosTrabajando: 5
  * // }
  */
-const dashboard = async (prisma, tenantId) => {
+const dashboard = async (prisma) => {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
   const manana = new Date(hoy);
@@ -82,12 +469,10 @@ const dashboard = async (prisma, tenantId) => {
     pedidosPendientes,
     mesasOcupadas,
     mesasTotal,
-    ingredientes,
     empleadosTrabajando
   ] = await prisma.$transaction([
     prisma.pedido.aggregate({
       where: {
-        tenantId,
         createdAt: { gte: hoy, lt: manana },
         estado: { not: 'CANCELADO' }
       },
@@ -95,29 +480,23 @@ const dashboard = async (prisma, tenantId) => {
       _count: { id: true }
     }),
     prisma.pedido.count({
-      where: { tenantId, estado: { in: ['PENDIENTE', 'EN_PREPARACION'] } }
+      where: { estado: { in: ['PENDIENTE', 'EN_PREPARACION'] } }
     }),
     prisma.mesa.count({
-      where: { tenantId, estado: 'OCUPADA' }
+      where: { estado: 'OCUPADA' }
     }),
     prisma.mesa.count({
-      where: { tenantId, activa: true }
-    }),
-    prisma.ingrediente.findMany({
-      where: { tenantId, activo: true },
-      select: { stockActual: true, stockMinimo: true }
+      where: { activa: true }
     }),
     prisma.fichaje.count({
-      where: { tenantId, salida: null }
+      where: { salida: null }
     })
   ]);
 
+  const centroTareas = await tareasCentro(prisma);
+
   const ventasHoy = decimalToNumber(pedidosHoyAgg._sum.total);
   const pedidosHoy = pedidosHoyAgg._count.id;
-
-  const alertasStock = ingredientes.filter(
-    ing => decimalToNumber(ing.stockActual) <= decimalToNumber(ing.stockMinimo)
-  ).length;
 
   return {
     ventasHoy,
@@ -125,8 +504,13 @@ const dashboard = async (prisma, tenantId) => {
     pedidosPendientes,
     mesasOcupadas,
     mesasTotal,
-    alertasStock,
-    empleadosTrabajando
+    alertasStock: centroTareas.resumen.stockBajo,
+    lotesVencidosPendientes: centroTareas.resumen.lotesVencidosPendientes,
+    empleadosTrabajando,
+    tareasPendientes: centroTareas.resumen.total,
+    tareasCaja: centroTareas.resumen.caja,
+    tareasStock: centroTareas.resumen.stock,
+    tareasAltaPrioridad: centroTareas.resumen.altaPrioridad
   };
 };
 
@@ -137,7 +521,6 @@ const dashboard = async (prisma, tenantId) => {
  * Retorna también los pedidos individuales para análisis detallado.
  *
  * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping
- * @param {number} tenantId - ID del tenant
  * @param {Object} query - Parámetros del reporte
  * @param {string} query.fechaDesde - Fecha inicio formato YYYY-MM-DD (requerido)
  * @param {string} query.fechaHasta - Fecha fin formato YYYY-MM-DD (requerido)
@@ -168,7 +551,7 @@ const dashboard = async (prisma, tenantId) => {
  * //   pedidos: [...]
  * // }
  */
-const ventasReporte = async (prisma, tenantId, query) => {
+const ventasReporte = async (prisma, query) => {
   const { fechaDesde, fechaHasta } = query;
 
   if (!fechaDesde || !fechaHasta) {
@@ -179,7 +562,6 @@ const ventasReporte = async (prisma, tenantId, query) => {
 
   const pedidos = await prisma.pedido.findMany({
     where: {
-      tenantId,
       createdAt: range,
       estado: 'COBRADO'
     },
@@ -229,7 +611,6 @@ const ventasReporte = async (prisma, tenantId, query) => {
  * Solo cuenta items de pedidos COBRADOS.
  *
  * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping
- * @param {number} tenantId - ID del tenant
  * @param {Object} query - Parámetros del reporte
  * @param {string} [query.fechaDesde] - Fecha inicio formato YYYY-MM-DD
  * @param {string} [query.fechaHasta] - Fecha fin formato YYYY-MM-DD
@@ -267,11 +648,10 @@ const ventasReporte = async (prisma, tenantId, query) => {
  * //   ...
  * // ]
  */
-const productosMasVendidos = async (prisma, tenantId, query) => {
+const productosMasVendidos = async (prisma, query) => {
   const { fechaDesde, fechaHasta, limite, agruparPorBase } = query;
 
   const where = {
-    tenantId,
     pedido: { estado: 'COBRADO' }
   };
 
@@ -360,7 +740,6 @@ const productosMasVendidos = async (prisma, tenantId, query) => {
  * Incluye pedidos sin usuario (Menú Público).
  *
  * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping
- * @param {number} tenantId - ID del tenant
  * @param {Object} query - Parámetros del reporte
  * @param {string} [query.fechaDesde] - Fecha inicio formato YYYY-MM-DD
  * @param {string} [query.fechaHasta] - Fecha fin formato YYYY-MM-DD
@@ -379,10 +758,10 @@ const productosMasVendidos = async (prisma, tenantId, query) => {
  * //   ...
  * // ]
  */
-const ventasPorMozo = async (prisma, tenantId, query) => {
+const ventasPorMozo = async (prisma, query) => {
   const { fechaDesde, fechaHasta } = query;
 
-  const where = { tenantId, estado: 'COBRADO' };
+  const where = { estado: 'COBRADO' };
 
   const range = buildDateRange(fechaDesde, fechaHasta);
   if (range) {
@@ -422,7 +801,6 @@ const ventasPorMozo = async (prisma, tenantId, query) => {
  * y valor estimado basado en el costo unitario.
  *
  * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping
- * @param {number} tenantId - ID del tenant
  *
  * @returns {Promise<Object>} Reporte de inventario
  * @returns {Object} returns.resumen - Totales agregados
@@ -444,9 +822,9 @@ const ventasPorMozo = async (prisma, tenantId, query) => {
  * //   ]
  * // }
  */
-const inventarioReporte = async (prisma, tenantId) => {
+const inventarioReporte = async (prisma) => {
   const ingredientes = await prisma.ingrediente.findMany({
-    where: { tenantId, activo: true },
+    where: { activo: true },
     orderBy: { nombre: 'asc' }
   });
 
@@ -481,7 +859,6 @@ const inventarioReporte = async (prisma, tenantId) => {
  * Incluye resumen de totales pagados y pendientes.
  *
  * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping
- * @param {number} tenantId - ID del tenant
  * @param {Object} query - Parámetros del reporte
  * @param {number} [query.mes] - Mes (1-12)
  * @param {number} [query.anio] - Año (ej: 2024)
@@ -511,10 +888,10 @@ const inventarioReporte = async (prisma, tenantId) => {
  * //   ]
  * // }
  */
-const sueldosReporte = async (prisma, tenantId, query) => {
+const sueldosReporte = async (prisma, query) => {
   const { mes, anio } = query;
 
-  const where = { tenantId };
+  const where = {};
   if (mes && anio) {
     const fechaInicio = new Date(anio, mes - 1, 1);
     const fechaFin = new Date(anio, mes, 0);
@@ -545,7 +922,6 @@ const sueldosReporte = async (prisma, tenantId, query) => {
  * incluye el desglose de variantes con más detalle.
  *
  * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping
- * @param {number} tenantId - ID del tenant
  * @param {Object} query - Parámetros del reporte
  * @param {string} [query.fechaDesde] - Fecha inicio formato YYYY-MM-DD
  * @param {string} [query.fechaHasta] - Fecha fin formato YYYY-MM-DD
@@ -570,11 +946,10 @@ const sueldosReporte = async (prisma, tenantId, query) => {
  * //   ...
  * // ]
  */
-const ventasPorProductoBase = async (prisma, tenantId, query) => {
+const ventasPorProductoBase = async (prisma, query) => {
   const { fechaDesde, fechaHasta, limite } = query;
 
   const where = {
-    tenantId,
     pedido: { estado: 'COBRADO' }
   };
 
@@ -649,7 +1024,6 @@ const ventasPorProductoBase = async (prisma, tenantId, query) => {
  * Considera el multiplicadorInsumos de cada producto.
  *
  * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping
- * @param {number} tenantId - ID del tenant
  * @param {Object} query - Parámetros del reporte
  * @param {string} [query.fechaDesde] - Fecha inicio formato YYYY-MM-DD
  * @param {string} [query.fechaHasta] - Fecha fin formato YYYY-MM-DD
@@ -692,11 +1066,10 @@ const ventasPorProductoBase = async (prisma, tenantId, query) => {
  * //   ]
  * // }
  */
-const consumoInsumos = async (prisma, tenantId, query) => {
+const consumoInsumos = async (prisma, query) => {
   const { fechaDesde, fechaHasta } = query;
 
   const where = {
-    tenantId,
     pedido: { estado: 'COBRADO' }
   };
 
@@ -783,6 +1156,7 @@ const consumoInsumos = async (prisma, tenantId, query) => {
 
 module.exports = {
   dashboard,
+  tareasCentro,
   ventasReporte,
   productosMasVendidos,
   ventasPorMozo,

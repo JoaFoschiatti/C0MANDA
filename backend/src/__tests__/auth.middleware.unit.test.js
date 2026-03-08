@@ -3,9 +3,6 @@ const jwt = require('jsonwebtoken');
 const mockPrisma = {
   usuario: {
     findUnique: jest.fn()
-  },
-  tenant: {
-    findUnique: jest.fn()
   }
 };
 
@@ -51,30 +48,8 @@ describe('auth.middleware', () => {
     await verificarToken(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ error: { message: 'Usuario no válido o inactivo' } });
+    expect(res.json).toHaveBeenCalledWith({ error: { message: 'Usuario no valido o inactivo' } });
     expect(next).not.toHaveBeenCalled();
-  });
-
-  it('responde 403 si el tenant esta inactivo', async () => {
-    const token = jwt.sign({ id: 1 }, process.env.JWT_SECRET);
-    mockPrisma.usuario.findUnique.mockResolvedValue({
-      id: 1,
-      activo: true,
-      rol: 'ADMIN',
-      tenantId: 99
-    });
-    mockPrisma.tenant.findUnique.mockResolvedValue({ id: 99, activo: false });
-
-    const req = { headers: { authorization: `Bearer ${token}` } };
-    const res = createRes();
-    const next = jest.fn();
-
-    await verificarToken(req, res, next);
-
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith({
-      error: { message: 'El restaurante asociado no está activo' }
-    });
   });
 
   it('setea req.usuario y llama next cuando el token es valido', async () => {
@@ -83,9 +58,9 @@ describe('auth.middleware', () => {
       id: 1,
       activo: true,
       rol: 'ADMIN',
-      tenantId: 10
+      email: 'admin@test.local',
+      nombre: 'Admin'
     });
-    mockPrisma.tenant.findUnique.mockResolvedValue({ id: 10, activo: true });
 
     const req = { headers: { authorization: `Bearer ${token}` } };
     const res = createRes();
@@ -117,7 +92,7 @@ describe('auth.middleware', () => {
     await verificarToken(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ error: { message: 'Token inválido' } });
+    expect(res.json).toHaveBeenCalledWith({ error: { message: 'Token invalido' } });
   });
 });
 
@@ -149,7 +124,7 @@ describe('verificarRol', () => {
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({
-      error: { message: 'No tienes permisos para realizar esta acción' }
+      error: { message: 'No tienes permisos para realizar esta accion' }
     });
   });
 

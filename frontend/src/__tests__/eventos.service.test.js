@@ -4,28 +4,19 @@ import { createEventSource } from '../services/eventos'
 describe('createEventSource', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    global.EventSource = vi.fn(function EventSource(url) {
+    global.EventSource = vi.fn(function EventSource(url, options) {
       this.url = url
+      this.options = options
     })
   })
 
-  it('retorna null si no hay token', () => {
-    localStorage.getItem.mockReturnValue(null)
-
+  it('crea EventSource por mismo origen usando cookie httpOnly', () => {
     const source = createEventSource()
-
-    expect(source).toBeNull()
-    expect(global.EventSource).not.toHaveBeenCalled()
-  })
-
-  it('crea EventSource con el token en la URL', () => {
-    localStorage.getItem.mockReturnValue('abc 123')
-
-    const source = createEventSource()
-    const expectedUrl = `http://localhost:3001/api/eventos?token=${encodeURIComponent('abc 123')}`
+    const expectedUrl = '/api/eventos'
 
     expect(global.EventSource).toHaveBeenCalledTimes(1)
-    expect(global.EventSource).toHaveBeenCalledWith(expectedUrl)
+    expect(global.EventSource).toHaveBeenCalledWith(expectedUrl, { withCredentials: true })
     expect(source.url).toBe(expectedUrl)
+    expect(source.options).toEqual({ withCredentials: true })
   })
 })

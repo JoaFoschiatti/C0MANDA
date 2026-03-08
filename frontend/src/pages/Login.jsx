@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useNavigate, useParams, Link } from 'react-router-dom'
+import { useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 import useAsync from '../hooks/useAsync'
 import {
-  BuildingStorefrontIcon,
   EnvelopeIcon,
   LockClosedIcon,
   EyeIcon,
@@ -12,29 +11,21 @@ import {
 } from '@heroicons/react/24/outline'
 
 export default function Login() {
-  const { slug: urlSlug } = useParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [slug, setSlug] = useState(urlSlug || '')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState(null)
   const { login } = useAuth()
   const navigate = useNavigate()
 
-  useEffect(() => {
-    if (urlSlug) {
-      setSlug(urlSlug)
-    }
-  }, [urlSlug])
-
   const loginRequest = useCallback(async (_ctx, credentials) => {
-    const { email, password, slug } = credentials
-    await login(email, password, slug, { skipToast: true })
+    const { email, password } = credentials
+    await login(email, password, { skipToast: true })
     return true
   }, [login])
 
-  const handleLoginError = useCallback((error) => {
-    const message = error.response?.data?.error?.message || 'Error al iniciar sesion'
+  const handleLoginError = useCallback((requestError) => {
+    const message = requestError.response?.data?.error?.message || 'Error al iniciar sesion'
     setError(message)
   }, [])
 
@@ -47,7 +38,7 @@ export default function Login() {
     e.preventDefault()
     setError(null)
 
-    const result = await loginAsync({ email, password, slug: slug || undefined })
+    const result = await loginAsync({ email, password })
     if (result) {
       toast.success('Bienvenido!')
       navigate('/dashboard')
@@ -56,56 +47,26 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center login-gradient-bg overflow-hidden relative px-4">
-      {/* Subtle decorative elements */}
       <div className="blob blob-1" />
       <div className="blob blob-2" />
       <div className="blob blob-3" />
 
-      {/* Main card */}
       <div className="glass-card w-full max-w-md relative z-10 animate-fade-in-up">
-        {/* Logo + title */}
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-primary-500 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg">
-            <span className="text-2xl text-white font-bold">G</span>
+          <div className="w-14 h-14 bg-brand-900 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg">
+            <span className="text-2xl text-primary-400 font-bold">C</span>
           </div>
-          <h1 className="text-heading-1">GestioNeo</h1>
+          <h1 className="text-heading-1">Comanda</h1>
           <p className="text-text-secondary mt-2">Accede a tu cuenta</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
-            <div
-              className="alert alert-error"
-              role="alert"
-            >
+            <div className="alert alert-error" role="alert">
               <span className="text-sm">{error}</span>
             </div>
           )}
 
-          {/* Restaurant input */}
-          {!urlSlug && (
-            <div className="input-group">
-              <label className="label">Restaurante</label>
-              <div className="relative">
-                <BuildingStorefrontIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-text-tertiary" />
-                <input
-                  type="text"
-                  className="glass-input"
-                  value={slug}
-                  onChange={(e) => {
-                    setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
-                    setError(null)
-                  }}
-                  placeholder="mi-restaurante"
-                />
-              </div>
-              <p className="input-hint">
-                Deja vacio para login general
-              </p>
-            </div>
-          )}
-
-          {/* Email input */}
           <div className="input-group">
             <label className="label">Email</label>
             <div className="relative">
@@ -124,7 +85,6 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Password input */}
           <div className="input-group">
             <label className="label">Contrasena</label>
             <div className="relative">
@@ -156,7 +116,6 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Submit button */}
           <button
             type="submit"
             className="btn-glass-primary mt-6"
@@ -173,24 +132,8 @@ export default function Login() {
           </button>
         </form>
 
-        {/* Register link */}
-        <div className="mt-6 text-center text-sm">
-          <p className="text-text-secondary">
-            No tienes cuenta?{' '}
-            <Link to="/registro" className="glass-link font-medium">
-              Registra tu restaurante
-            </Link>
-          </p>
-        </div>
-
-        {/* Test credentials info */}
-        <div className="mt-6 glass-info-box">
-          <p className="font-medium text-text-primary mb-2">Usuarios de prueba:</p>
-          <div className="space-y-0.5 text-text-tertiary">
-            <p>Restaurante: restaurante-demo</p>
-            <p>Admin: admin@demo.com / demo123</p>
-            <p>Mozo: mozo1@demo.com / demo123</p>
-          </div>
+        <div className="mt-6 border-t border-white/12 pt-4 text-center text-sm text-text-secondary">
+          Si no tienes acceso, solicita un usuario al administrador del local.
         </div>
       </div>
     </div>

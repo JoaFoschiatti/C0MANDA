@@ -5,20 +5,20 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
   createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Configuracion Endpoints', () => {
-  let tenant;
   let token;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+    await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
@@ -26,8 +26,7 @@ describe('Configuracion Endpoints', () => {
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('GET /api/configuracion devuelve objeto de claves/valores', async () => {
@@ -48,10 +47,9 @@ describe('Configuracion Endpoints', () => {
 
     expect(response.body.clave).toBe('tienda_abierta');
     expect(response.body.valor).toBe('false');
-    expect(response.body.tenantId).toBe(tenant.id);
   });
 
-  it('PUT /api/configuracion (bulk) actualiza múltiples claves', async () => {
+  it('PUT /api/configuracion (bulk) actualiza multiples claves', async () => {
     const response = await request(app)
       .put('/api/configuracion')
       .set('Authorization', authHeader(token))
@@ -104,9 +102,7 @@ describe('Configuracion Endpoints', () => {
     expect(fs.existsSync(filePath)).toBe(true);
 
     const config = await prisma.configuracion.findUnique({
-      where: {
-        tenantId_clave: { tenantId: tenant.id, clave: 'banner_imagen' }
-      }
+      where: { clave: 'banner_imagen' }
     });
 
     expect(config.valor).toBe(response.body.url);

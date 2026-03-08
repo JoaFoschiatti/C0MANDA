@@ -9,6 +9,7 @@ import {
   PlusCircleIcon
 } from '@heroicons/react/24/outline'
 import useAsync from '../../hooks/useAsync'
+import { PageHeader, Button, Spinner } from '../../components/ui'
 
 export default function Modificadores() {
   const [modificadores, setModificadores] = useState([])
@@ -106,23 +107,21 @@ export default function Modificadores() {
   if (loading && modificadores.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="spinner spinner-lg" />
+        <Spinner size="lg" />
       </div>
     )
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-heading-1">Modificadores</h1>
-        <button
-          onClick={() => abrirModal()}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          <PlusIcon className="w-5 h-5" />
-          Nuevo Modificador
-        </button>
-      </div>
+      <PageHeader
+        title="Modificadores"
+        actions={
+          <Button icon={PlusIcon} onClick={() => abrirModal()}>
+            Nuevo Modificador
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Exclusiones */}

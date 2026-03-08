@@ -1,6 +1,5 @@
-const { prisma: basePrisma } = require('../db/prisma');
+const { prisma } = require('../db/prisma');
 
-const getPrisma = (req) => req.prisma || basePrisma;
+const getPrisma = () => prisma;
 
 module.exports = { getPrisma };
-

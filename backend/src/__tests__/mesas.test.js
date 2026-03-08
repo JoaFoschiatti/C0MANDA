@@ -3,49 +3,35 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
   createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Mesas Endpoints', () => {
-  let tenant;
   let tokenAdmin;
   let tokenMozo;
-  let tenantSecundario;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+    await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
     tokenAdmin = signTokenForUser(admin);
 
-    const mozo = await createUsuario(tenant.id, {
+    const mozo = await createUsuario({
       email: `${uniqueId('mozo')}@example.com`,
       rol: 'MOZO'
     });
     tokenMozo = signTokenForUser(mozo);
-
-    tenantSecundario = await createTenant();
-    await prisma.mesa.create({
-      data: {
-        tenantId: tenantSecundario.id,
-        numero: 99,
-        capacidad: 4,
-        estado: 'LIBRE',
-        activa: true
-      }
-    });
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await cleanupTenantData(tenantSecundario.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
   it('POST /api/mesas crea mesa (ADMIN) y rechaza duplicados', async () => {
@@ -56,7 +42,6 @@ describe('Mesas Endpoints', () => {
       .expect(201);
 
     expect(creada.body.id).toBeDefined();
-    expect(creada.body.tenantId).toBe(tenant.id);
     expect(creada.body.numero).toBe(1);
     expect(creada.body.estado).toBe('LIBRE');
     expect(creada.body.activa).toBe(true);
@@ -70,7 +55,7 @@ describe('Mesas Endpoints', () => {
     expect(duplicada.body.error.message).toBe('Ya existe una mesa con ese número');
   });
 
-  it('POST /api/mesas rechaza creación si no es ADMIN', async () => {
+  it('POST /api/mesas rechaza creacion si no es ADMIN', async () => {
     await request(app)
       .post('/api/mesas')
       .set('Authorization', authHeader(tokenMozo))
@@ -78,10 +63,9 @@ describe('Mesas Endpoints', () => {
       .expect(403);
   });
 
-  it('GET /api/mesas lista solo mesas del tenant y filtra por estado/activa', async () => {
+  it('GET /api/mesas lista mesas y filtra por estado/activa', async () => {
     await prisma.mesa.create({
       data: {
-        tenantId: tenant.id,
         numero: 10,
         capacidad: 4,
         estado: 'OCUPADA',
@@ -94,23 +78,21 @@ describe('Mesas Endpoints', () => {
       .set('Authorization', authHeader(tokenAdmin))
       .expect(200);
 
-    const numeros = listado.body.map(m => m.numero);
+    const numeros = listado.body.map((mesa) => mesa.numero);
     expect(numeros).toContain(1);
     expect(numeros).toContain(10);
-    expect(numeros).not.toContain(99);
 
     const ocupadas = await request(app)
       .get('/api/mesas?estado=OCUPADA')
       .set('Authorization', authHeader(tokenAdmin))
       .expect(200);
 
-    expect(ocupadas.body.every(m => m.estado === 'OCUPADA')).toBe(true);
+    expect(ocupadas.body.every((mesa) => mesa.estado === 'OCUPADA')).toBe(true);
   });
 
   it('PATCH /api/mesas/:id/estado permite cambiar estado (MOZO)', async () => {
     const mesa = await prisma.mesa.create({
       data: {
-        tenantId: tenant.id,
         numero: 20,
         capacidad: 4,
         estado: 'LIBRE',
@@ -131,7 +113,6 @@ describe('Mesas Endpoints', () => {
   it('DELETE /api/mesas/:id hace soft delete (activa=false) y permite filtrar activa=false', async () => {
     const mesa = await prisma.mesa.create({
       data: {
-        tenantId: tenant.id,
         numero: 30,
         capacidad: 4,
         estado: 'LIBRE',
@@ -151,8 +132,7 @@ describe('Mesas Endpoints', () => {
       .set('Authorization', authHeader(tokenAdmin))
       .expect(200);
 
-    const ids = inactivas.body.map(m => m.id);
+    const ids = inactivas.body.map((item) => item.id);
     expect(ids).toContain(mesa.id);
   });
 });
-

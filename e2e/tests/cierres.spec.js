@@ -1,58 +1,35 @@
 const { test, expect } = require('@playwright/test');
-const fs = require('fs');
-const path = require('path');
+const { readTestData, loginAsRole, openAndWait } = require('./helpers');
 
-const testDataPath = path.join(__dirname, '..', '.e2e-test-data.json');
-
-test.describe('Cierres de Caja E2E', () => {
+test.describe('Cierre de Caja E2E', () => {
   let testData;
 
   test.beforeAll(() => {
-    testData = JSON.parse(fs.readFileSync(testDataPath, 'utf-8'));
+    testData = readTestData();
   });
 
   test.beforeEach(async ({ page }) => {
-    // Login
-    await page.goto('/login');
-    await page.fill('input[placeholder="mi-restaurante"]', testData.tenantSlug);
-    await page.fill('input[type="email"]', testData.userEmail);
-    await page.fill('input[type="password"]', testData.userPassword);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+    await loginAsRole(page, 'CAJERO', testData);
   });
 
-  test('ver pagina de cierre de caja', async ({ page }) => {
-    await page.goto('/cierre-caja');
+  test('abre y cierra caja desde la UI', async ({ page }) => {
+    await openAndWait(page, '/cierre-caja', 'text=Caja');
 
-    // Page should load
-    await expect(page.locator('text=/[Cc]ierre|[Cc]aja/')).toBeVisible({ timeout: 10000 });
-  });
+    await expect(page.getByText(/Caja Cerrada/i)).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: /^Abrir Caja$/ }).click();
 
-  test('abrir caja con fondo inicial', async ({ page }) => {
-    await page.goto('/cierre-caja');
+    await page.locator('#caja-fondo-inicial').fill('1000');
+    await page.getByRole('button', { name: /^Abrir Caja$/ }).last().click();
 
-    // Check if cash register is closed (shows open button)
-    const openButton = page.locator('button:has-text("Abrir Caja")');
+    await expect(page.getByText(/Caja Abierta/i)).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: /Cerrar Caja/i }).click();
 
-    if (await openButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // Fill initial fund
-      const fondoInput = page.locator('input[name="fondoInicial"], input#fondoInicial, input[type="number"]');
-      if (await fondoInput.isVisible()) {
-        await fondoInput.fill('10000');
-      }
+    await expect(page.getByText(/Resumen del Turno/i)).toBeVisible({ timeout: 10000 });
+    await page.locator('#caja-efectivo-contado').fill('1000');
+    await page.locator('#caja-observaciones').fill(testData.cierreObservaciones);
+    await page.getByRole('button', { name: /Confirmar Cierre/i }).click();
 
-      // Click open
-      await openButton.click();
-
-      // Wait
-      await page.waitForTimeout(1000);
-
-      // Verify no validation error
-      const errorVisible = await page.locator('text=/[Dd]atos [Ii]nv[aá]lidos/').isVisible();
-      expect(errorVisible).toBe(false);
-    }
-
-    // If already open, just verify the page loads correctly
-    await expect(page.locator('text=/[Cc]ierre|[Cc]aja|[Rr]esumen/')).toBeVisible();
+    await expect(page.getByText('Caja Cerrada', { exact: true }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.badge').filter({ hasText: 'Cerrado' }).first()).toBeVisible({ timeout: 10000 });
   });
 });

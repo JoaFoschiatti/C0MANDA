@@ -3,39 +3,33 @@ const app = require('../app');
 const {
   prisma,
   uniqueId,
-  createTenant,
-  createUsuario,
+    createUsuario,
   signTokenForUser,
   authHeader,
-  cleanupTenantData
+  cleanupOperationalData,
+  ensureNegocio
 } = require('./helpers/test-helpers');
 
 describe('Pagos Endpoints', () => {
-  let tenant;
-  let token;
-  let tenantSecundario;
+    let token;
 
   beforeAll(async () => {
-    tenant = await createTenant();
-    const admin = await createUsuario(tenant.id, {
+        await cleanupOperationalData();
+    await ensureNegocio();
+    const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
       rol: 'ADMIN'
     });
     token = signTokenForUser(admin);
-
-    tenantSecundario = await createTenant();
   });
 
   afterAll(async () => {
-    await cleanupTenantData(tenant.id);
-    await cleanupTenantData(tenantSecundario.id);
-    await prisma.$disconnect();
+    await cleanupOperationalData();
   });
 
-  it('POST /api/pagos permite pagos parciales y completa el pedido (libera mesa)', async () => {
+  it('POST /api/pagos permite pagos parciales y completa el pedido (cierra mesa)', async () => {
     const mesa = await prisma.mesa.create({
       data: {
-        tenantId: tenant.id,
         numero: 1,
         capacidad: 4,
         estado: 'OCUPADA',
@@ -45,7 +39,6 @@ describe('Pagos Endpoints', () => {
 
     const pedido = await prisma.pedido.create({
       data: {
-        tenantId: tenant.id,
         tipo: 'MESA',
         mesaId: mesa.id,
         subtotal: 100,
@@ -75,13 +68,12 @@ describe('Pagos Endpoints', () => {
     expect(pago2.body.pedido.estado).toBe('COBRADO');
 
     const mesaActualizada = await prisma.mesa.findUnique({ where: { id: mesa.id } });
-    expect(mesaActualizada.estado).toBe('LIBRE');
+    expect(mesaActualizada.estado).toBe('CERRADA');
   });
 
   it('POST /api/pagos rechaza monto mayor al pendiente', async () => {
     const pedido = await prisma.pedido.create({
       data: {
-        tenantId: tenant.id,
         tipo: 'MOSTRADOR',
         subtotal: 10,
         total: 10
@@ -106,7 +98,6 @@ describe('Pagos Endpoints', () => {
   it('POST /api/pagos rechaza pagar pedido cancelado', async () => {
     const pedido = await prisma.pedido.create({
       data: {
-        tenantId: tenant.id,
         tipo: 'MOSTRADOR',
         subtotal: 10,
         total: 10,
@@ -126,7 +117,6 @@ describe('Pagos Endpoints', () => {
   it('GET /api/pagos/pedido/:pedidoId lista pagos y calcula totales', async () => {
     const pedido = await prisma.pedido.create({
       data: {
-        tenantId: tenant.id,
         tipo: 'MOSTRADOR',
         subtotal: 50,
         total: 50
@@ -150,20 +140,11 @@ describe('Pagos Endpoints', () => {
     expect(Array.isArray(response.body.pagos)).toBe(true);
   });
 
-  it('Aislamiento multi-tenant: no permite pagar pedido de otro tenant', async () => {
-    const pedidoOtroTenant = await prisma.pedido.create({
-      data: {
-        tenantId: tenantSecundario.id,
-        tipo: 'MOSTRADOR',
-        subtotal: 10,
-        total: 10
-      }
-    });
-
+  it('POST /api/pagos rechaza pedido inexistente', async () => {
     const response = await request(app)
       .post('/api/pagos')
       .set('Authorization', authHeader(token))
-      .send({ pedidoId: pedidoOtroTenant.id, monto: 10, metodo: 'EFECTIVO' })
+      .send({ pedidoId: 999999, monto: 10, metodo: 'EFECTIVO' })
       .expect(404);
 
     expect(response.body.error.message).toBe('Pedido no encontrado');
@@ -171,11 +152,10 @@ describe('Pagos Endpoints', () => {
 
   it('POST /api/pagos/mercadopago/preferencia crea preferencia mock', async () => {
     const categoria = await prisma.categoria.create({
-      data: { tenantId: tenant.id, nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
+      data: { nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
     });
     const producto = await prisma.producto.create({
       data: {
-        tenantId: tenant.id,
         nombre: `Prod-${uniqueId('prod')}`,
         precio: 10,
         categoriaId: categoria.id,
@@ -184,7 +164,6 @@ describe('Pagos Endpoints', () => {
     });
     const pedido = await prisma.pedido.create({
       data: {
-        tenantId: tenant.id,
         tipo: 'MOSTRADOR',
         subtotal: 10,
         total: 10
@@ -192,7 +171,6 @@ describe('Pagos Endpoints', () => {
     });
     await prisma.pedidoItem.create({
       data: {
-        tenantId: tenant.id,
         pedidoId: pedido.id,
         productoId: producto.id,
         cantidad: 1,

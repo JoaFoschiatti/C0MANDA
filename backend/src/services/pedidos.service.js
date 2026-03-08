@@ -13,6 +13,13 @@
 
 const { createHttpError } = require('../utils/http-error');
 const printService = require('./print.service');
+const { registrarAuditoriaPedido } = require('./pedido-auditoria.service');
+const {
+  buildAutoLoteCode,
+  consumirLotesFIFO,
+  registrarEntradaEnLote,
+  sincronizarStockIngrediente
+} = require('./lotes-stock.service');
 
 /**
  * Construye los items de un pedido con precios calculados.
@@ -119,7 +126,7 @@ const buildPedidoItems = async (prisma, items) => {
  * - Actualización del estado de la mesa a OCUPADA (si aplica)
  * - Creación de items con sus modificadores en una transacción
  *
- * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping de tenant
+ * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma global
  * @param {Object} payload - Datos del pedido
  * @param {('MESA'|'DELIVERY'|'MOSTRADOR')} payload.tipo - Tipo de pedido
  * @param {number} [payload.mesaId] - ID de mesa (requerido si tipo='MESA')
@@ -301,7 +308,7 @@ const crearPedido = async (prisma, payload) => {
  * }
  */
 const cambiarEstadoPedido = async (prisma, payload) => {
-  const { pedidoId, estado } = payload;
+  const { pedidoId, estado, usuarioId = null } = payload;
 
   const result = await prisma.$transaction(async (tx) => {
     const pedido = await tx.pedido.findUnique({
@@ -318,59 +325,42 @@ const cambiarEstadoPedido = async (prisma, payload) => {
     const productosAgotados = [];
 
     if (shouldPrint) {
-      // Optimize N+1 query: Collect all stock movements first
-      const stockMovements = [];
-      const ingredienteUpdates = new Map(); // ingredienteId -> total cantidad a descontar
+      const ingredienteUpdates = new Map();
 
       for (const item of pedido.items) {
         for (const prodIng of item.producto.ingredientes) {
           const cantidadDescontar = parseFloat(prodIng.cantidad) * item.cantidad;
           const ingredienteId = prodIng.ingredienteId;
 
-          // Accumulate total cantidad for this ingrediente
           const currentTotal = ingredienteUpdates.get(ingredienteId) || 0;
           ingredienteUpdates.set(ingredienteId, currentTotal + cantidadDescontar);
-
-          stockMovements.push({
-            ingredienteId,
-            tipo: 'SALIDA',
-            cantidad: cantidadDescontar,
-            motivo: `Pedido #${pedido.id}`,
-            pedidoId: pedido.id
-          });
         }
       }
 
-      // Validar stock disponible ANTES de descontar
       for (const [ingredienteId, cantidadTotal] of ingredienteUpdates.entries()) {
         const ingrediente = await tx.ingrediente.findUnique({
           where: { id: ingredienteId },
           select: { id: true, nombre: true, stockActual: true }
         });
 
-        const stockActual = parseFloat(ingrediente?.stockActual || 0);
+        const ingredienteSincronizado = await sincronizarStockIngrediente(tx, ingrediente, new Date(), { migrateLegacy: true });
+        const stockActual = parseFloat(ingredienteSincronizado?.stockActual || 0);
 
         if (stockActual < cantidadTotal) {
           throw createHttpError.badRequest(
             `Stock insuficiente de ${ingrediente.nombre} para completar el pedido. Disponible: ${stockActual}, Necesario: ${cantidadTotal}`
           );
         }
+
+        await consumirLotesFIFO(tx, {
+          ingredienteId,
+          cantidad: cantidadTotal,
+          motivo: `Pedido #${pedido.id}`,
+          pedidoId: pedido.id,
+          tipoMovimiento: 'SALIDA'
+        });
       }
 
-      // Execute all updates and creates in parallel
-      await Promise.all([
-        // Update all ingredientes in parallel
-        ...Array.from(ingredienteUpdates.entries()).map(([ingredienteId, cantidadTotal]) =>
-          tx.ingrediente.update({
-            where: { id: ingredienteId },
-            data: { stockActual: { decrement: cantidadTotal } }
-          })
-        ),
-        // Create all stock movements in batch
-        stockMovements.length > 0 ? tx.movimientoStock.createMany({ data: stockMovements }) : Promise.resolve()
-      ]);
-
-      // Check for depleted stock
       const ingredientesAgotados = await tx.ingrediente.findMany({
         where: { stockActual: { lte: 0 } },
         select: { id: true }
@@ -398,12 +388,12 @@ const cambiarEstadoPedido = async (prisma, payload) => {
       }
     }
 
-    if (estado === 'COBRADO' && pedido.mesaId) {
+    if ((estado === 'COBRADO' || estado === 'CERRADO') && pedido.mesaId) {
       await tx.mesa.update({
         where: { id: pedido.mesaId },
-        data: { estado: 'LIBRE' }
+        data: { estado: 'CERRADA' }
       });
-      mesaUpdates.push({ mesaId: pedido.mesaId, estado: 'LIBRE' });
+      mesaUpdates.push({ mesaId: pedido.mesaId, estado: 'CERRADA' });
     }
 
     const pedidoActualizado = await tx.pedido.update({
@@ -414,6 +404,14 @@ const cambiarEstadoPedido = async (prisma, payload) => {
         usuario: { select: { nombre: true } },
         items: { include: { producto: true } }
       }
+    });
+
+    await registrarAuditoriaPedido(tx, {
+      pedidoId: pedido.id,
+      usuarioId,
+      accion: `ESTADO_${estado}`,
+      snapshotAntes: pedido,
+      snapshotDespues: pedidoActualizado
     });
 
     return {
@@ -457,7 +455,7 @@ const agregarItemsPedido = async (prisma, payload) => {
       throw createHttpError.notFound('Pedido no encontrado');
     }
 
-    if (['COBRADO', 'CANCELADO'].includes(pedido.estado)) {
+    if (['COBRADO', 'CERRADO', 'CANCELADO'].includes(pedido.estado)) {
       throw createHttpError.badRequest('No se pueden agregar items a este pedido');
     }
 
@@ -531,7 +529,7 @@ const agregarItemsPedido = async (prisma, payload) => {
  * @throws {HttpError} 400 - No se puede cancelar un pedido ya cobrado
  */
 const cancelarPedido = async (prisma, payload) => {
-  const { pedidoId, motivo } = payload;
+  const { pedidoId, motivo, usuarioId = null } = payload;
 
   const result = await prisma.$transaction(async (tx) => {
     const pedido = await tx.pedido.findUnique({
@@ -543,11 +541,30 @@ const cancelarPedido = async (prisma, payload) => {
       throw createHttpError.notFound('Pedido no encontrado');
     }
 
-    if (pedido.estado === 'COBRADO') {
-      throw createHttpError.badRequest('No se puede cancelar un pedido cobrado');
+    if (['COBRADO', 'CERRADO'].includes(pedido.estado)) {
+      throw createHttpError.badRequest('No se puede cancelar un pedido ya cerrado o cobrado');
     }
 
     if (pedido.estado !== 'PENDIENTE') {
+      const salidaMovementsLote = pedido.movimientos.filter(mov => mov.tipo === 'SALIDA');
+
+      if (salidaMovementsLote.length > 0) {
+        for (const mov of salidaMovementsLote) {
+          await registrarEntradaEnLote(tx, {
+            ingredienteId: mov.ingredienteId,
+            loteStockId: mov.loteStockId || null,
+            cantidad: parseFloat(mov.cantidad),
+            motivo: `Cancelacion pedido #${pedido.id}`,
+            pedidoId: pedido.id,
+            tipoMovimiento: 'ENTRADA',
+            incrementStockInicial: false,
+            codigoLote: mov.loteStockId ? null : buildAutoLoteCode(`DEV-${pedido.id}-${mov.ingredienteId}`)
+          });
+        }
+
+        pedido.movimientos = pedido.movimientos.filter(mov => mov.tipo !== 'SALIDA');
+      }
+
       // Optimize N+1 query: Revert stock movements in parallel
       const salidaMovements = pedido.movimientos.filter(mov => mov.tipo === 'SALIDA');
 
@@ -595,10 +612,192 @@ const cancelarPedido = async (prisma, payload) => {
       }
     });
 
+    await registrarAuditoriaPedido(tx, {
+      pedidoId: pedido.id,
+      usuarioId,
+      accion: 'PEDIDO_CANCELADO',
+      motivo,
+      snapshotAntes: pedido,
+      snapshotDespues: pedidoCancelado
+    });
+
     return { pedidoCancelado, mesaUpdated };
   });
 
   return result;
+};
+
+const precuentaMesa = async (prisma, payload) => {
+  const { mesaId, usuarioId = null } = payload;
+
+  return prisma.$transaction(async (tx) => {
+    const mesa = await tx.mesa.findUnique({
+      where: { id: mesaId }
+    });
+
+    if (!mesa) {
+      throw createHttpError.notFound('Mesa no encontrada');
+    }
+
+    const pedido = await tx.pedido.findFirst({
+      where: {
+        mesaId,
+        estado: { notIn: ['CANCELADO', 'CERRADO'] }
+      },
+      include: { pagos: true, items: { include: { producto: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!pedido) {
+      throw createHttpError.badRequest('La mesa no tiene un pedido activo para generar precuenta');
+    }
+
+    const mesaActualizada = await tx.mesa.update({
+      where: { id: mesaId },
+      data: { estado: 'ESPERANDO_CUENTA' }
+    });
+
+    await registrarAuditoriaPedido(tx, {
+      pedidoId: pedido.id,
+      usuarioId,
+      accion: 'PRECUENTA_SOLICITADA',
+      snapshotAntes: pedido,
+      snapshotDespues: {
+        ...pedido,
+        mesaEstado: 'ESPERANDO_CUENTA'
+      }
+    });
+
+    const totalPagado = pedido.pagos
+      .filter((pago) => !['RECHAZADO', 'CANCELADO'].includes(pago.estado))
+      .reduce((sum, pago) => sum + parseFloat(pago.monto), 0);
+
+    return {
+      mesa: mesaActualizada,
+      pedido,
+      totalPagado,
+      pendiente: Math.max(0, parseFloat(pedido.total) - totalPagado)
+    };
+  });
+};
+
+const cerrarPedido = async (prisma, payload) => {
+  const { pedidoId, usuarioId = null } = payload;
+
+  return prisma.$transaction(async (tx) => {
+    const pedido = await tx.pedido.findUnique({
+      where: { id: pedidoId },
+      include: { pagos: true, mesa: true }
+    });
+
+    if (!pedido) {
+      throw createHttpError.notFound('Pedido no encontrado');
+    }
+
+    if (pedido.estado === 'CANCELADO') {
+      throw createHttpError.badRequest('No se puede cerrar un pedido cancelado');
+    }
+
+    const totalPagado = pedido.pagos
+      .filter((pago) => !['RECHAZADO', 'CANCELADO'].includes(pago.estado))
+      .reduce((sum, pago) => sum + parseFloat(pago.monto), 0);
+
+    if (totalPagado < parseFloat(pedido.total) - 0.01) {
+      throw createHttpError.badRequest('El pedido todavia tiene saldo pendiente');
+    }
+
+    let mesaUpdated = null;
+    if (pedido.mesaId) {
+      await tx.mesa.update({
+        where: { id: pedido.mesaId },
+        data: { estado: 'CERRADA' }
+      });
+      mesaUpdated = { mesaId: pedido.mesaId, estado: 'CERRADA' };
+    }
+
+    const pedidoActualizado = await tx.pedido.update({
+      where: { id: pedidoId },
+      data: {
+        estado: 'CERRADO',
+        estadoPago: 'APROBADO'
+      },
+      include: {
+        mesa: true,
+        usuario: { select: { nombre: true } },
+        items: { include: { producto: true } },
+        pagos: true
+      }
+    });
+
+    await registrarAuditoriaPedido(tx, {
+      pedidoId: pedido.id,
+      usuarioId,
+      accion: 'PEDIDO_CERRADO',
+      snapshotAntes: pedido,
+      snapshotDespues: pedidoActualizado
+    });
+
+    return { pedidoAntes: pedido, pedidoActualizado, mesaUpdated };
+  });
+};
+
+const liberarMesa = async (prisma, payload) => {
+  const { mesaId, usuarioId = null } = payload;
+
+  return prisma.$transaction(async (tx) => {
+    const mesa = await tx.mesa.findUnique({
+      where: { id: mesaId }
+    });
+
+    if (!mesa) {
+      throw createHttpError.notFound('Mesa no encontrada');
+    }
+
+    const pedidoAbierto = await tx.pedido.findFirst({
+      where: {
+        mesaId,
+        estado: { notIn: ['COBRADO', 'CERRADO', 'CANCELADO'] }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (pedidoAbierto) {
+      throw createHttpError.badRequest('No se puede liberar una mesa con pedidos abiertos');
+    }
+
+    const pedidoCerrado = await tx.pedido.findFirst({
+      where: {
+        mesaId,
+        estado: { in: ['COBRADO', 'CERRADO'] }
+      },
+      include: { pagos: true },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const mesaActualizada = await tx.mesa.update({
+      where: { id: mesaId },
+      data: { estado: 'LIBRE' }
+    });
+
+    if (pedidoCerrado) {
+      await registrarAuditoriaPedido(tx, {
+        pedidoId: pedidoCerrado.id,
+        usuarioId,
+        accion: 'MESA_LIBERADA',
+        snapshotAntes: pedidoCerrado,
+        snapshotDespues: {
+          ...pedidoCerrado,
+          mesaEstado: 'LIBRE'
+        }
+      });
+    }
+
+    return {
+      mesa: mesaActualizada,
+      pedido: pedidoCerrado,
+      mesaUpdated: { mesaId: mesaActualizada.id, estado: 'LIBRE' }
+    };
+  });
 };
 
 module.exports = {
@@ -690,5 +889,8 @@ module.exports = {
   crearPedido,
   cambiarEstadoPedido,
   agregarItemsPedido,
-  cancelarPedido
+  cancelarPedido,
+  precuentaMesa,
+  cerrarPedido,
+  liberarMesa
 };

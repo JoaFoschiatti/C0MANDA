@@ -11,6 +11,7 @@
 
 const winston = require('winston');
 const path = require('path');
+const { ensureDirectory, getRuntimePaths } = require('../config/runtime');
 
 // Determine log level based on environment
 const logLevel = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
@@ -41,18 +42,18 @@ const fileFormat = winston.format.combine(
 // Define transports
 const transports = [];
 
-// Console transport (always enabled except in test)
-if (process.env.NODE_ENV !== 'test') {
-  transports.push(
-    new winston.transports.Console({
-      format: consoleFormat
-    })
-  );
-}
+// Console transport is always present to avoid Winston warnings in tests.
+transports.push(
+  new winston.transports.Console({
+    format: consoleFormat,
+    silent: process.env.NODE_ENV === 'test'
+  })
+);
 
 // File transports (production only)
 if (process.env.NODE_ENV === 'production') {
-  const logDir = path.join(__dirname, '../../logs');
+  const { logsDir: logDir } = getRuntimePaths();
+  ensureDirectory(logDir);
 
   // Combined log file
   transports.push(
@@ -93,7 +94,7 @@ const logger = winston.createLogger({
  * @param {Object} [meta] - Additional metadata
  *
  * @example
- * logger.info('User logged in', { userId: 123, tenant: 'restaurant-1' });
+* logger.info('User logged in', { userId: 123, negocio: 'principal' });
  */
 
 /**

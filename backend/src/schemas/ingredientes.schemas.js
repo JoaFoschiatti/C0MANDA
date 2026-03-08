@@ -26,12 +26,29 @@ const actualizarIngredienteBodySchema = z.object({
 const registrarMovimientoBodySchema = z.object({
   tipo: z.enum(['ENTRADA', 'SALIDA']),
   cantidad: z.coerce.number().positive(),
-  motivo: z.preprocess((val) => (val === '' ? null : val), z.union([z.string(), z.null()]).optional())
+  motivo: z.preprocess((val) => (val === '' ? null : val), z.union([z.string(), z.null()]).optional()),
+  codigoLote: z.preprocess((val) => (val === '' ? null : val), z.union([z.string().max(120), z.null()]).optional()),
+  fechaVencimiento: z.preprocess(
+    (val) => (val === '' || val == null ? null : val),
+    z.coerce.date().nullable().optional()
+  ),
+  costoUnitario: z.preprocess(
+    (val) => (val === '' || val == null ? null : val),
+    z.coerce.number().min(0).nullable().optional()
+  )
 }).strip();
 
 const ajustarStockBodySchema = z.object({
   stockReal: z.coerce.number().min(0),
   motivo: z.preprocess((val) => (val === '' ? null : val), z.union([z.string(), z.null()]).optional())
+}).strip();
+
+const descartarLoteBodySchema = z.object({
+  cantidad: z.preprocess(
+    (val) => (val === '' || val == null ? null : val),
+    z.coerce.number().positive().nullable().optional()
+  ),
+  motivo: z.string({ required_error: 'Motivo es requerido' }).min(1, 'Motivo es requerido')
 }).strip();
 
 module.exports = {
@@ -40,5 +57,6 @@ module.exports = {
   crearIngredienteBodySchema,
   actualizarIngredienteBodySchema,
   registrarMovimientoBodySchema,
-  ajustarStockBodySchema
+  ajustarStockBodySchema,
+  descartarLoteBodySchema
 };

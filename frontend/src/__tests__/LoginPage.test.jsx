@@ -7,15 +7,13 @@ import Login from '../pages/Login'
 import toast from 'react-hot-toast'
 
 const mockNavigate = vi.fn()
-const mockUseParams = vi.fn()
 const mockLogin = vi.fn()
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')
   return {
     ...actual,
-    useNavigate: () => mockNavigate,
-    useParams: () => mockUseParams()
+    useNavigate: () => mockNavigate
   }
 })
 
@@ -36,7 +34,6 @@ describe('Login page', () => {
   })
 
   it('inicia sesion y navega al dashboard', async () => {
-    mockUseParams.mockReturnValue({ slug: 'demo' })
     mockLogin.mockResolvedValueOnce({ id: 1 })
 
     const user = userEvent.setup()
@@ -49,16 +46,15 @@ describe('Login page', () => {
     expect(screen.queryByPlaceholderText('mi-restaurante')).not.toBeInTheDocument()
 
     await user.type(screen.getByPlaceholderText('usuario@ejemplo.com'), 'admin@demo.com')
-    await user.type(screen.getByPlaceholderText('••••••••'), 'secret')
+    await user.type(screen.getByPlaceholderText('********'), 'secret')
     await user.click(screen.getByRole('button', { name: /Ingresar/i }))
 
-    expect(mockLogin).toHaveBeenCalledWith('admin@demo.com', 'secret', 'demo', { skipToast: true })
+    expect(mockLogin).toHaveBeenCalledWith('admin@demo.com', 'secret', { skipToast: true })
     expect(toast.success).toHaveBeenCalledWith('Bienvenido!')
     expect(mockNavigate).toHaveBeenCalledWith('/dashboard')
   })
 
   it('muestra error cuando el login falla', async () => {
-    mockUseParams.mockReturnValue({})
     mockLogin.mockRejectedValueOnce({
       response: { data: { error: { message: 'Credenciales invalidas' } } }
     })
@@ -70,9 +66,8 @@ describe('Login page', () => {
       </MemoryRouter>
     )
 
-    await user.type(screen.getByPlaceholderText('mi-restaurante'), 'mi-local')
     await user.type(screen.getByPlaceholderText('usuario@ejemplo.com'), 'admin@demo.com')
-    await user.type(screen.getByPlaceholderText('••••••••'), 'secret')
+    await user.type(screen.getByPlaceholderText('********'), 'secret')
     await user.click(screen.getByRole('button', { name: /Ingresar/i }))
 
     const alert = await screen.findByRole('alert')

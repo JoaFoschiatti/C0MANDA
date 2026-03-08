@@ -5,6 +5,7 @@ import { CheckIcon, ClockIcon, SpeakerWaveIcon, SpeakerXMarkIcon } from '@heroic
 import usePolling from '../../hooks/usePolling'
 import useEventSource from '../../hooks/useEventSource'
 import useAsync from '../../hooks/useAsync'
+import { PageHeader, Spinner } from '../../components/ui'
 
 // Función para reproducir sonido de notificación usando Web Audio API
 const playNotificationSound = () => {
@@ -125,7 +126,7 @@ export default function Cocina() {
   if (loading && pedidos.length === 0) {
     return (
       <div className="flex justify-center py-12">
-        <div className="spinner spinner-lg" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -171,35 +172,37 @@ export default function Cocina() {
           </button>
         </div>
       )}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-heading-1">Cocina</h1>
-        <div className="flex items-center gap-4 text-sm">
-          <span className="flex items-center gap-1 text-text-secondary">
-            <span className="w-3 h-3 bg-warning-400 rounded-full"></span>
-            Pendientes: {pedidosPendientes.length}
-          </span>
-          <span className="flex items-center gap-1 text-text-secondary">
-            <span className="w-3 h-3 bg-info-400 rounded-full"></span>
-            En preparación: {pedidosEnPreparacion.length}
-          </span>
-          <button
-            onClick={toggleSound}
-            className={`p-2 rounded-lg transition-colors ${
-              soundEnabled
-                ? 'bg-success-100 text-success-600 hover:bg-success-200'
-                : 'bg-surface-hover text-text-tertiary hover:bg-border-default'
-            }`}
-            title={soundEnabled ? 'Sonido activado' : 'Sonido desactivado'}
-            aria-label={soundEnabled ? 'Desactivar sonido' : 'Activar sonido'}
-          >
-            {soundEnabled ? (
-              <SpeakerWaveIcon className="w-5 h-5" />
-            ) : (
-              <SpeakerXMarkIcon className="w-5 h-5" />
-            )}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Cocina"
+        actions={
+          <div className="flex items-center gap-4 text-sm">
+            <span className="flex items-center gap-1 text-text-secondary">
+              <span className="w-3 h-3 bg-warning-400 rounded-full"></span>
+              Pendientes: {pedidosPendientes.length}
+            </span>
+            <span className="flex items-center gap-1 text-text-secondary">
+              <span className="w-3 h-3 bg-info-400 rounded-full"></span>
+              En preparación: {pedidosEnPreparacion.length}
+            </span>
+            <button
+              onClick={toggleSound}
+              className={`p-2 rounded-lg transition-colors ${
+                soundEnabled
+                  ? 'bg-success-100 text-success-600 hover:bg-success-200'
+                  : 'bg-surface-hover text-text-tertiary hover:bg-border-default'
+              }`}
+              title={soundEnabled ? 'Sonido activado' : 'Sonido desactivado'}
+              aria-label={soundEnabled ? 'Desactivar sonido' : 'Activar sonido'}
+            >
+              {soundEnabled ? (
+                <SpeakerWaveIcon className="w-5 h-5" />
+              ) : (
+                <SpeakerXMarkIcon className="w-5 h-5" />
+              )}
+            </button>
+          </div>
+        }
+      />
 
       {pedidos.length === 0 ? (
         <div className="text-center py-16">
