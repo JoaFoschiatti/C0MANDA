@@ -1,29 +1,29 @@
 import { PlusIcon } from '@heroicons/react/24/outline'
 
-import EmpleadoModal from '../../components/empleados/EmpleadoModal'
-import EmpleadosTable from '../../components/empleados/EmpleadosTable'
+import UsuarioModal from '../../components/usuarios/UsuarioModal'
+import UsuariosTable from '../../components/usuarios/UsuariosTable'
 import { Button, PageHeader, Spinner } from '../../components/ui'
-import useEmpleadosPage from '../../hooks/useEmpleadosPage'
+import useUsuariosPage from '../../hooks/useUsuariosPage'
 
-export default function Empleados() {
+export default function Usuarios() {
   const {
-    abrirNuevoEmpleado,
+    abrirNuevoUsuario,
     cerrarModal,
     editando,
-    empleados,
+    usuarios,
     form,
-    handleDelete,
+    handleToggleActivo,
     handleEdit,
     handleSubmit,
     loading,
     setForm,
     showModal,
-  } = useEmpleadosPage()
+  } = useUsuariosPage()
 
-  if (loading && empleados.length === 0) {
+  if (loading && usuarios.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <Spinner size="lg" label="Cargando empleados..." />
+        <Spinner size="lg" label="Cargando usuarios..." />
       </div>
     )
   }
@@ -31,18 +31,18 @@ export default function Empleados() {
   return (
     <div>
       <PageHeader
-        title="Empleados"
+        title="Usuarios"
         actions={(
-          <Button onClick={abrirNuevoEmpleado} icon={PlusIcon}>
-            Nuevo Empleado
+          <Button onClick={abrirNuevoUsuario} icon={PlusIcon}>
+            Nuevo Usuario
           </Button>
         )}
       />
 
-      <EmpleadosTable empleados={empleados} onDelete={handleDelete} onEdit={handleEdit} />
+      <UsuariosTable usuarios={usuarios} onEdit={handleEdit} onToggleActivo={handleToggleActivo} />
 
       {showModal && (
-        <EmpleadoModal
+        <UsuarioModal
           editando={editando}
           form={form}
           onClose={cerrarModal}

@@ -9,7 +9,7 @@ const isValidDate = (value) => {
 const dateStringSchema = z.string().refine(isValidDate, 'Fecha inválida');
 
 const listarQuerySchema = z.object({
-  empleadoId: z.preprocess(
+  usuarioId: z.preprocess(
     (val) => (val === '' || val === null ? undefined : val),
     positiveIntSchema.optional()
   ),
@@ -17,13 +17,13 @@ const listarQuerySchema = z.object({
 }).strip();
 
 const calcularBodySchema = z.object({
-  empleadoId: positiveIntSchema,
+  usuarioId: positiveIntSchema,
   fechaDesde: dateStringSchema,
   fechaHasta: dateStringSchema
 }).strip();
 
 const crearBodySchema = z.object({
-  empleadoId: positiveIntSchema,
+  usuarioId: positiveIntSchema,
   periodoDesde: dateStringSchema,
   periodoHasta: dateStringSchema,
   horasTotales: z.coerce.number().positive(),

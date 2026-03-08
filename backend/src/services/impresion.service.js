@@ -139,37 +139,29 @@ const claimJobs = async (prisma, payload = {}) => {
   return { jobs };
 };
 
-const ackJob = async (prisma, jobId, payload = {}) => {
-  const bridgeId = payload.bridgeId;
-
+// Busca un print job y valida que pertenezca al bridge solicitante.
+const _findAndValidateJob = async (prisma, jobId, bridgeId) => {
   const job = await prisma.printJob.findUnique({
     where: { id: parseInt(jobId, 10) }
   });
-
-  if (!job) {
-    throw createHttpError.notFound('Job no encontrado');
+  if (!job) throw createHttpError.notFound('Job no encontrado');
+  if (bridgeId && job.claimedBy && job.claimedBy !== bridgeId) {
+    throw createHttpError.conflict('Job reclamado por otro bridge');
   }
+  return job;
+};
 
-  if (job.status === 'OK') {
-    return { alreadyOk: true };
-  }
+const ackJob = async (prisma, jobId, payload = {}) => {
+  const job = await _findAndValidateJob(prisma, jobId, payload.bridgeId);
 
+  if (job.status === 'OK') return { alreadyOk: true };
   if (job.status !== 'IMPRIMIENDO') {
     throw createHttpError.conflict('Job no esta en impresion');
   }
 
-  if (bridgeId && job.claimedBy && job.claimedBy !== bridgeId) {
-    throw createHttpError.conflict('Job reclamado por otro bridge');
-  }
-
   await prisma.printJob.update({
     where: { id: job.id },
-    data: {
-      status: 'OK',
-      lastError: null,
-      claimedBy: null,
-      claimedAt: null
-    }
+    data: { status: 'OK', lastError: null, claimedBy: null, claimedAt: null }
   });
 
   const resumen = await printService.refreshPedidoImpresion(prisma, job.pedidoId, job.batchId);
@@ -177,20 +169,8 @@ const ackJob = async (prisma, jobId, payload = {}) => {
 };
 
 const failJob = async (prisma, jobId, payload = {}) => {
-  const bridgeId = payload.bridgeId;
+  const job = await _findAndValidateJob(prisma, jobId, payload.bridgeId);
   const errorMessage = payload.error || 'Error de impresion';
-
-  const job = await prisma.printJob.findUnique({
-    where: { id: parseInt(jobId, 10) }
-  });
-
-  if (!job) {
-    throw createHttpError.notFound('Job no encontrado');
-  }
-
-  if (bridgeId && job.claimedBy && job.claimedBy !== bridgeId) {
-    throw createHttpError.conflict('Job reclamado por otro bridge');
-  }
 
   const now = new Date();
   const backoff = getBackoffMs();

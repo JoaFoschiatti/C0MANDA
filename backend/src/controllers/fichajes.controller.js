@@ -9,25 +9,25 @@ const listar = async (req, res) => {
 
 const registrarEntrada = async (req, res) => {
   const prisma = getPrisma(req);
-  const fichaje = await fichajesService.registrarEntrada(prisma, req.body.empleadoId);
+  const fichaje = await fichajesService.registrarEntrada(prisma, req.body.usuarioId);
   res.status(201).json(fichaje);
 };
 
 const registrarSalida = async (req, res) => {
   const prisma = getPrisma(req);
-  const fichaje = await fichajesService.registrarSalida(prisma, req.body.empleadoId);
+  const fichaje = await fichajesService.registrarSalida(prisma, req.body.usuarioId);
   res.json(fichaje);
 };
 
-const estadoEmpleado = async (req, res) => {
+const estadoUsuario = async (req, res) => {
   const prisma = getPrisma(req);
-  const estado = await fichajesService.estadoEmpleado(prisma, req.params.empleadoId);
+  const estado = await fichajesService.estadoUsuario(prisma, req.params.usuarioId);
   res.json(estado);
 };
 
 const calcularHoras = async (req, res) => {
   const prisma = getPrisma(req);
-  const reporte = await fichajesService.calcularHoras(prisma, req.params.empleadoId, req.query.fechaDesde, req.query.fechaHasta);
+  const reporte = await fichajesService.calcularHoras(prisma, req.params.usuarioId, req.query.fechaDesde, req.query.fechaHasta);
   res.json(reporte);
 };
 
@@ -41,7 +41,7 @@ module.exports = {
   listar,
   registrarEntrada,
   registrarSalida,
-  estadoEmpleado,
+  estadoUsuario,
   calcularHoras,
   editar
 };

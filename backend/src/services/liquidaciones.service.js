@@ -1,20 +1,17 @@
 const { createHttpError } = require('../utils/http-error');
 const { createCrudService } = require('./crud-factory.service');
 
-// Crear servicio CRUD base usando el factory
 const baseCrud = createCrudService('liquidacion', {
   defaultOrderBy: { createdAt: 'desc' },
   defaultInclude: {
-    empleado: { select: { nombre: true, apellido: true, dni: true } }
+    usuario: { select: { nombre: true, apellido: true, dni: true } }
   },
   softDelete: false,
   entityName: 'liquidación',
   gender: 'f',
 
-  // Protección mass assignment
-  allowedFilterFields: ['empleadoId', 'pagado'],
-  allowedCreateFields: ['empleadoId', 'periodoDesde', 'periodoHasta', 'horasTotales', 'descuentos', 'adicionales', 'observaciones'],
-  // No allowedUpdateFields - liquidaciones no se actualizan directamente
+  allowedFilterFields: ['usuarioId', 'pagado'],
+  allowedCreateFields: ['usuarioId', 'periodoDesde', 'periodoHasta', 'horasTotales', 'descuentos', 'adicionales', 'observaciones'],
 
   // Hook: calcular totales antes de crear
   beforeCreate: async (prisma, data) => {
@@ -22,27 +19,27 @@ const baseCrud = createCrudService('liquidacion', {
       throw createHttpError.badRequest('Las horas trabajadas son requeridas');
     }
 
-    const empleado = await prisma.empleado.findUnique({
-      where: { id: data.empleadoId }
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: data.usuarioId }
     });
 
-    if (!empleado) {
-      throw createHttpError.notFound('Empleado no encontrado');
+    if (!usuario) {
+      throw createHttpError.notFound('Usuario no encontrado');
     }
 
     const horas = parseFloat(data.horasTotales);
-    const tarifaHora = parseFloat(empleado.tarifaHora);
+    const tarifaHora = parseFloat(usuario.tarifaHora);
     const descuentos = data.descuentos || 0;
     const adicionales = data.adicionales || 0;
     const subtotal = horas * tarifaHora;
     const totalPagar = subtotal - descuentos + adicionales;
 
     return {
-      empleadoId: data.empleadoId,
+      usuarioId: data.usuarioId,
       periodoDesde: new Date(data.periodoDesde),
       periodoHasta: new Date(data.periodoHasta),
       horasTotales: horas,
-      tarifaHora: empleado.tarifaHora,
+      tarifaHora: usuario.tarifaHora,
       subtotal,
       descuentos,
       adicionales,
@@ -51,7 +48,6 @@ const baseCrud = createCrudService('liquidacion', {
     };
   },
 
-  // Validación: no eliminar liquidaciones pagadas
   customValidations: {
     eliminar: async (prisma, id, item) => {
       if (item.pagado) {
@@ -64,15 +60,15 @@ const baseCrud = createCrudService('liquidacion', {
 });
 
 // Función de negocio: calcular horas desde fichajes
-const calcular = async (prisma, empleadoId, fechaDesde, fechaHasta) => {
-  const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId } });
-  if (!empleado) {
-    throw createHttpError.notFound('Empleado no encontrado');
+const calcular = async (prisma, usuarioId, fechaDesde, fechaHasta) => {
+  const usuario = await prisma.usuario.findUnique({ where: { id: usuarioId } });
+  if (!usuario) {
+    throw createHttpError.notFound('Usuario no encontrado');
   }
 
   const fichajes = await prisma.fichaje.findMany({
     where: {
-      empleadoId,
+      usuarioId,
       fecha: {
         gte: new Date(fechaDesde),
         lte: new Date(fechaHasta)
@@ -89,15 +85,15 @@ const calcular = async (prisma, empleadoId, fechaDesde, fechaHasta) => {
   }
 
   const horasTotales = totalMinutos / 60;
-  const tarifaHora = parseFloat(empleado.tarifaHora);
+  const tarifaHora = parseFloat(usuario.tarifaHora);
   const subtotal = horasTotales * tarifaHora;
 
   return {
-    empleado: {
-      id: empleado.id,
-      nombre: empleado.nombre,
-      apellido: empleado.apellido,
-      tarifaHora: empleado.tarifaHora
+    usuario: {
+      id: usuario.id,
+      nombre: usuario.nombre,
+      apellido: usuario.apellido,
+      tarifaHora: usuario.tarifaHora
     },
     periodo: { desde: fechaDesde, hasta: fechaHasta },
     totalFichajes: fichajes.length,
@@ -124,14 +120,12 @@ const marcarPagada = async (prisma, id) => {
       pagado: true,
       fechaPago: new Date()
     },
-    include: { empleado: { select: { nombre: true, apellido: true } } }
+    include: { usuario: { select: { nombre: true, apellido: true } } }
   });
 };
 
 module.exports = {
   ...baseCrud,
-  // Funciones de negocio (sin cambios)
   calcular,
   marcarPagada
 };
-

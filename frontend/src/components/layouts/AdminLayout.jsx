@@ -44,7 +44,7 @@ const navSections = [
   {
     title: 'Administracion',
     items: [
-      { name: 'Empleados', href: '/empleados', icon: UsersIcon, roles: ['ADMIN'] },
+      { name: 'Usuarios', href: '/usuarios', icon: UsersIcon, roles: ['ADMIN'] },
       { name: 'Config. Mesas', href: '/mesas', icon: TableCellsIcon, roles: ['ADMIN'] },
       { name: 'Categorias', href: '/categorias', icon: TagIcon, roles: ['ADMIN'] },
       { name: 'Productos', href: '/productos', icon: CubeIcon, roles: ['ADMIN'] },

@@ -324,6 +324,8 @@ const cambiarEstadoPedido = async (prisma, payload) => {
     const mesaUpdates = [];
     const productosAgotados = [];
 
+    // Deduccion de stock: agrega necesidades de ingredientes de todos los items,
+    // verifica disponibilidad por ingrediente, luego consume de lotes usando FIFO.
     if (shouldPrint) {
       const ingredienteUpdates = new Map();
 
@@ -545,6 +547,8 @@ const cancelarPedido = async (prisma, payload) => {
       throw createHttpError.badRequest('No se puede cancelar un pedido ya cerrado o cobrado');
     }
 
+    // Si el pedido ya paso de PENDIENTE, el stock fue deducido.
+    // Revertir creando movimientos ENTRADA que devuelven el stock a los lotes originales.
     if (pedido.estado !== 'PENDIENTE') {
       const salidaMovementsLote = pedido.movimientos.filter(mov => mov.tipo === 'SALIDA');
 
@@ -563,31 +567,6 @@ const cancelarPedido = async (prisma, payload) => {
         }
 
         pedido.movimientos = pedido.movimientos.filter(mov => mov.tipo !== 'SALIDA');
-      }
-
-      // Optimize N+1 query: Revert stock movements in parallel
-      const salidaMovements = pedido.movimientos.filter(mov => mov.tipo === 'SALIDA');
-
-      if (salidaMovements.length > 0) {
-        await Promise.all([
-          // Restore stock for all ingredientes in parallel
-          ...salidaMovements.map(mov =>
-            tx.ingrediente.update({
-              where: { id: mov.ingredienteId },
-              data: { stockActual: { increment: parseFloat(mov.cantidad) } }
-            })
-          ),
-          // Create reversal movements in batch
-          tx.movimientoStock.createMany({
-            data: salidaMovements.map(mov => ({
-              ingredienteId: mov.ingredienteId,
-              tipo: 'ENTRADA',
-              cantidad: mov.cantidad,
-              motivo: `Cancelación pedido #${pedido.id}`,
-              pedidoId: pedido.id
-            }))
-          })
-        ]);
       }
     }
 

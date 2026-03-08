@@ -12,7 +12,7 @@ const {
 
 describe('Fichajes Endpoints', () => {
     let token;
-  let empleado;
+  let usuario;
 
   beforeAll(async () => {
         await cleanupOperationalData();
@@ -23,15 +23,11 @@ describe('Fichajes Endpoints', () => {
     });
     token = signTokenForUser(admin);
 
-    empleado = await prisma.empleado.create({
-      data: {
-        nombre: 'Empleado',
-        apellido: 'Test',
-        dni: `DNI-${uniqueId('fichaje')}`,
-        rol: 'MOZO',
-        tarifaHora: 1500,
-        activo: true
-      }
+    usuario = await createUsuario({
+      email: `${uniqueId('emp')}@example.com`,
+      nombre: 'Empleado',
+      rol: 'MOZO',
+      tarifaHora: 1500
     });
   });
 
@@ -43,26 +39,26 @@ describe('Fichajes Endpoints', () => {
     const creado = await request(app)
       .post('/api/fichajes/entrada')
       .set('Authorization', authHeader(token))
-      .send({ empleadoId: empleado.id })
+      .send({ usuarioId: usuario.id })
       .expect(201);
 
     expect(creado.body.id).toBeDefined();
-    expect(creado.body.empleadoId).toBe(empleado.id);
+    expect(creado.body.usuarioId).toBe(usuario.id);
     expect(creado.body.salida).toBe(null);
-    expect(creado.body.empleado.nombre).toBe('Empleado');
+    expect(creado.body.usuario.nombre).toBe('Empleado');
 
     const duplicado = await request(app)
       .post('/api/fichajes/entrada')
       .set('Authorization', authHeader(token))
-      .send({ empleadoId: empleado.id })
+      .send({ usuarioId: usuario.id })
       .expect(400);
 
-    expect(duplicado.body.error.message).toBe('El empleado ya tiene un fichaje de entrada sin salida');
+    expect(duplicado.body.error.message).toBe('El usuario ya tiene un fichaje de entrada sin salida');
   });
 
   it('POST /api/fichajes/salida cierra fichaje y evita salida sin entrada', async () => {
     const estadoAntes = await request(app)
-      .get(`/api/fichajes/empleado/${empleado.id}/estado`)
+      .get(`/api/fichajes/usuario/${usuario.id}/estado`)
       .set('Authorization', authHeader(token))
       .expect(200);
 
@@ -71,13 +67,13 @@ describe('Fichajes Endpoints', () => {
     const salida = await request(app)
       .post('/api/fichajes/salida')
       .set('Authorization', authHeader(token))
-      .send({ empleadoId: empleado.id })
+      .send({ usuarioId: usuario.id })
       .expect(200);
 
     expect(salida.body.salida).toBeDefined();
 
     const estadoDespues = await request(app)
-      .get(`/api/fichajes/empleado/${empleado.id}/estado`)
+      .get(`/api/fichajes/usuario/${usuario.id}/estado`)
       .set('Authorization', authHeader(token))
       .expect(200);
 
@@ -86,18 +82,18 @@ describe('Fichajes Endpoints', () => {
     const sinEntrada = await request(app)
       .post('/api/fichajes/salida')
       .set('Authorization', authHeader(token))
-      .send({ empleadoId: empleado.id })
+      .send({ usuarioId: usuario.id })
       .expect(400);
 
     expect(sinEntrada.body.error.message).toBe('No hay fichaje de entrada para registrar salida');
   });
 
-  it('GET /api/fichajes/empleado/:empleadoId/horas calcula horas en período', async () => {
+  it('GET /api/fichajes/usuario/:usuarioId/horas calcula horas en período', async () => {
     // Crear un fichaje del día y fijar horas conocidas (2h 30m)
     const nuevo = await request(app)
       .post('/api/fichajes/entrada')
       .set('Authorization', authHeader(token))
-      .send({ empleadoId: empleado.id })
+      .send({ usuarioId: usuario.id })
       .expect(201);
 
     const inicio = new Date();
@@ -115,11 +111,11 @@ describe('Fichajes Endpoints', () => {
     const hoy = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     const reporte = await request(app)
-      .get(`/api/fichajes/empleado/${empleado.id}/horas?fechaDesde=${hoy}&fechaHasta=${hoy}`)
+      .get(`/api/fichajes/usuario/${usuario.id}/horas?fechaDesde=${hoy}&fechaHasta=${hoy}`)
       .set('Authorization', authHeader(token))
       .expect(200);
 
-    expect(reporte.body.empleadoId).toBe(empleado.id);
+    expect(reporte.body.usuarioId).toBe(usuario.id);
     expect(reporte.body.totalFichajes).toBeGreaterThanOrEqual(1);
     expect(reporte.body.horasTotales).toBeGreaterThanOrEqual(2.5);
   });

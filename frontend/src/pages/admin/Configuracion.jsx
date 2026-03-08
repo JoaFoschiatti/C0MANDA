@@ -13,7 +13,7 @@ import {
 import MercadoPagoConfig from '../../components/configuracion/MercadoPagoConfig'
 import ConfigSection from '../../components/configuracion/ConfigSection'
 import ConfigMessageBanner from '../../components/configuracion/ConfigMessageBanner'
-import { PageHeader, Spinner } from '../../components/ui'
+import { PageHeader, Spinner, ColorPicker } from '../../components/ui'
 import useConfiguracionPage from '../../hooks/useConfiguracionPage'
 
 export default function Configuracion() {
@@ -109,52 +109,18 @@ export default function Configuracion() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label" htmlFor="negocio-color-primario">
-                Color Primario
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={negocio.colorPrimario}
-                  onChange={(event) => handleNegocioChange('colorPrimario', event.target.value)}
-                  className="w-12 h-10 rounded border cursor-pointer"
-                  aria-label="Seleccionar color primario"
-                />
-                <input
-                  id="negocio-color-primario"
-                  type="text"
-                  value={negocio.colorPrimario}
-                  onChange={(event) => handleNegocioChange('colorPrimario', event.target.value)}
-                  className="input flex-1"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="label" htmlFor="negocio-color-secundario">
-                Color Secundario
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={negocio.colorSecundario}
-                  onChange={(event) =>
-                    handleNegocioChange('colorSecundario', event.target.value)
-                  }
-                  className="w-12 h-10 rounded border cursor-pointer"
-                  aria-label="Seleccionar color secundario"
-                />
-                <input
-                  id="negocio-color-secundario"
-                  type="text"
-                  value={negocio.colorSecundario}
-                  onChange={(event) =>
-                    handleNegocioChange('colorSecundario', event.target.value)
-                  }
-                  className="input flex-1"
-                />
-              </div>
-            </div>
+            <ColorPicker
+              id="negocio-color-primario"
+              label="Color Primario"
+              value={negocio.colorPrimario}
+              onChange={(v) => handleNegocioChange('colorPrimario', v)}
+            />
+            <ColorPicker
+              id="negocio-color-secundario"
+              label="Color Secundario"
+              value={negocio.colorSecundario}
+              onChange={(v) => handleNegocioChange('colorSecundario', v)}
+            />
           </div>
 
           <div className="bg-info-50 p-4 rounded-xl">

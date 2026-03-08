@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 export default function useTimeout() {
   const timeoutRef = useRef(null)
@@ -20,5 +20,5 @@ export default function useTimeout() {
 
   useEffect(() => clear, [clear])
 
-  return useMemo(() => ({ set, clear }), [set, clear])
+  return { set, clear }
 }

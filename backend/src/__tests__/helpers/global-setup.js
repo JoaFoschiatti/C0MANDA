@@ -40,7 +40,6 @@ module.exports = async function globalSetup() {
     await prisma.fichaje.deleteMany();
     await prisma.liquidacion.deleteMany();
     await prisma.refreshToken.deleteMany();
-    await prisma.empleado.deleteMany();
     await prisma.usuario.deleteMany({
       where: { email: { not: 'admin@comanda.local' } }
     });

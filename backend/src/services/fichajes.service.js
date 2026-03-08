@@ -1,10 +1,10 @@
 const { createHttpError } = require('../utils/http-error');
 
 const listar = async (prisma, query) => {
-  const { empleadoId, fechaDesde, fechaHasta } = query;
+  const { usuarioId, fechaDesde, fechaHasta } = query;
 
   const where = {};
-  if (empleadoId) where.empleadoId = empleadoId;
+  if (usuarioId) where.usuarioId = usuarioId;
   if (fechaDesde || fechaHasta) {
     where.fecha = {};
     if (fechaDesde) where.fecha.gte = new Date(fechaDesde);
@@ -13,28 +13,23 @@ const listar = async (prisma, query) => {
 
   return prisma.fichaje.findMany({
     where,
-    include: { empleado: { select: { nombre: true, apellido: true } } },
+    include: { usuario: { select: { nombre: true, apellido: true } } },
     orderBy: [{ fecha: 'desc' }, { entrada: 'desc' }]
   });
 };
 
-const registrarEntrada = async (prisma, empleadoId) => {
-  // Verificar empleado existe y está activo
-  const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId } });
-  if (!empleado || !empleado.activo) {
-    throw createHttpError.badRequest('Empleado no válido');
+const registrarEntrada = async (prisma, usuarioId) => {
+  const usuario = await prisma.usuario.findUnique({ where: { id: usuarioId } });
+  if (!usuario || !usuario.activo) {
+    throw createHttpError.badRequest('Usuario no válido');
   }
 
-  // Verificar que no tenga un fichaje abierto
   const fichajeAbierto = await prisma.fichaje.findFirst({
-    where: {
-      empleadoId,
-      salida: null
-    }
+    where: { usuarioId, salida: null }
   });
 
   if (fichajeAbierto) {
-    throw createHttpError.badRequest('El empleado ya tiene un fichaje de entrada sin salida');
+    throw createHttpError.badRequest('El usuario ya tiene un fichaje de entrada sin salida');
   }
 
   const hoy = new Date();
@@ -42,20 +37,17 @@ const registrarEntrada = async (prisma, empleadoId) => {
 
   return prisma.fichaje.create({
     data: {
-      empleadoId,
+      usuarioId,
       entrada: new Date(),
       fecha: hoy
     },
-    include: { empleado: { select: { nombre: true, apellido: true } } }
+    include: { usuario: { select: { nombre: true, apellido: true } } }
   });
 };
 
-const registrarSalida = async (prisma, empleadoId) => {
+const registrarSalida = async (prisma, usuarioId) => {
   const fichajeAbierto = await prisma.fichaje.findFirst({
-    where: {
-      empleadoId,
-      salida: null
-    }
+    where: { usuarioId, salida: null }
   });
 
   if (!fichajeAbierto) {
@@ -65,16 +57,13 @@ const registrarSalida = async (prisma, empleadoId) => {
   return prisma.fichaje.update({
     where: { id: fichajeAbierto.id },
     data: { salida: new Date() },
-    include: { empleado: { select: { nombre: true, apellido: true } } }
+    include: { usuario: { select: { nombre: true, apellido: true } } }
   });
 };
 
-const estadoEmpleado = async (prisma, empleadoId) => {
+const estadoUsuario = async (prisma, usuarioId) => {
   const fichajeAbierto = await prisma.fichaje.findFirst({
-    where: {
-      empleadoId,
-      salida: null
-    }
+    where: { usuarioId, salida: null }
   });
 
   return {
@@ -83,10 +72,10 @@ const estadoEmpleado = async (prisma, empleadoId) => {
   };
 };
 
-const calcularHoras = async (prisma, empleadoId, fechaDesde, fechaHasta) => {
+const calcularHoras = async (prisma, usuarioId, fechaDesde, fechaHasta) => {
   const fichajes = await prisma.fichaje.findMany({
     where: {
-      empleadoId,
+      usuarioId,
       fecha: {
         gte: new Date(fechaDesde),
         lte: new Date(fechaHasta)
@@ -106,7 +95,7 @@ const calcularHoras = async (prisma, empleadoId, fechaDesde, fechaHasta) => {
   const minutos = Math.round(totalMinutos % 60);
 
   return {
-    empleadoId,
+    usuarioId,
     periodo: { desde: fechaDesde, hasta: fechaHasta },
     totalFichajes: fichajes.length,
     horasTotales: totalMinutos / 60,
@@ -130,7 +119,7 @@ const editar = async (prisma, id, data) => {
       entrada: data.entrada ? new Date(data.entrada) : undefined,
       salida: data.salida ? new Date(data.salida) : undefined
     },
-    include: { empleado: { select: { nombre: true, apellido: true } } }
+    include: { usuario: { select: { nombre: true, apellido: true } } }
   });
 };
 
@@ -138,8 +127,7 @@ module.exports = {
   listar,
   registrarEntrada,
   registrarSalida,
-  estadoEmpleado,
+  estadoUsuario,
   calcularHoras,
   editar
 };
-

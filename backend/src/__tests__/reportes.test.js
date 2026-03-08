@@ -87,21 +87,17 @@ describe('Reportes Endpoints', () => {
       }
     });
 
-    const empleado = await prisma.empleado.create({
-      data: {
-        nombre: 'Emp',
-        apellido: 'Test',
-        dni: uniqueId('dni'),
-        rol: 'MOZO',
-        tarifaHora: 100,
-        activo: true
-      }
+    const empUser = await createUsuario({
+      email: `${uniqueId('emp')}@example.com`,
+      nombre: 'Emp',
+      rol: 'MOZO',
+      tarifaHora: 100
     });
 
     const ahora = new Date();
     await prisma.fichaje.create({
       data: {
-        empleadoId: empleado.id,
+        usuarioId: empUser.id,
         entrada: ahora,
         salida: null,
         fecha: ahora

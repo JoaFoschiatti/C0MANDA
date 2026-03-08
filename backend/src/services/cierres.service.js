@@ -1,63 +1,43 @@
 const { createHttpError } = require('../utils/http-error');
 
+// Mapa de metodos de pago DB -> claves internas
+const METODO_KEY = { EFECTIVO: 'efectivo', TARJETA: 'tarjeta', MERCADOPAGO: 'mercadopago' };
+
 const calcularVentasDesdeFecha = async (prisma, desde) => {
   const pagos = await prisma.pago.findMany({
-    where: {
-      createdAt: { gte: desde },
-      estado: 'APROBADO'
-    }
+    where: { createdAt: { gte: desde }, estado: 'APROBADO' }
   });
 
-  const totales = {
-    efectivo: 0,
-    tarjeta: 0,
-    mercadopago: 0,
-    total: 0
-  };
+  const totales = { efectivo: 0, tarjeta: 0, mercadopago: 0, total: 0 };
 
   for (const pago of pagos) {
     const monto = parseFloat(pago.monto);
     totales.total += monto;
-
-    switch (pago.metodo) {
-      case 'EFECTIVO':
-        totales.efectivo += monto;
-        break;
-      case 'TARJETA':
-        totales.tarjeta += monto;
-        break;
-      case 'MERCADOPAGO':
-        totales.mercadopago += monto;
-        break;
-    }
+    const key = METODO_KEY[pago.metodo];
+    if (key) totales[key] += monto;
   }
 
   return totales;
 };
 
-const obtenerActual = async (prisma) => {
-  const cajaAbierta = await prisma.cierreCaja.findFirst({
-    where: {
-      estado: 'ABIERTO'
-    },
-    include: {
-      usuario: { select: { nombre: true, email: true } }
-    },
+// Busca la caja abierta con sus ventas. Retorna null si no hay caja abierta.
+const _getCajaAbiertaConVentas = async (prisma) => {
+  const caja = await prisma.cierreCaja.findFirst({
+    where: { estado: 'ABIERTO' },
+    include: { usuario: { select: { nombre: true, email: true } } },
     orderBy: { createdAt: 'desc' }
   });
+  if (!caja) return null;
+  const ventas = await calcularVentasDesdeFecha(prisma, caja.horaApertura);
+  return { caja, ventas };
+};
 
-  if (!cajaAbierta) {
-    return { cajaAbierta: false, mensaje: 'No hay caja abierta' };
-  }
-
-  const ventas = await calcularVentasDesdeFecha(prisma, cajaAbierta.horaApertura);
-
+const obtenerActual = async (prisma) => {
+  const result = await _getCajaAbiertaConVentas(prisma);
+  if (!result) return { cajaAbierta: false, mensaje: 'No hay caja abierta' };
   return {
     cajaAbierta: true,
-    caja: {
-      ...cajaAbierta,
-      ventasActuales: ventas
-    }
+    caja: { ...result.caja, ventasActuales: result.ventas }
   };
 };
 
@@ -162,26 +142,20 @@ const listar = async (prisma, query) => {
 };
 
 const resumenActual = async (prisma) => {
-  const cajaAbierta = await prisma.cierreCaja.findFirst({
-    where: { estado: 'ABIERTO' },
-    orderBy: { createdAt: 'desc' }
-  });
+  const result = await _getCajaAbiertaConVentas(prisma);
+  if (!result) throw createHttpError.badRequest('No hay caja abierta');
 
-  if (!cajaAbierta) {
-    throw createHttpError.badRequest('No hay caja abierta');
-  }
-
-  const ventas = await calcularVentasDesdeFecha(prisma, cajaAbierta.horaApertura);
-  const efectivoEsperado = parseFloat(cajaAbierta.fondoInicial) + ventas.efectivo;
+  const { caja, ventas } = result;
+  const efectivoEsperado = parseFloat(caja.fondoInicial) + ventas.efectivo;
 
   return {
-    fondoInicial: parseFloat(cajaAbierta.fondoInicial),
+    fondoInicial: parseFloat(caja.fondoInicial),
     ventasEfectivo: ventas.efectivo,
     ventasTarjeta: ventas.tarjeta,
     ventasMercadoPago: ventas.mercadopago,
     totalVentas: ventas.total,
     efectivoEsperado,
-    horaApertura: cajaAbierta.horaApertura
+    horaApertura: caja.horaApertura
   };
 };
 
@@ -192,4 +166,3 @@ module.exports = {
   listar,
   resumenActual
 };
-

@@ -12,7 +12,7 @@ const MenuPublico = lazy(() => import('./pages/MenuPublico'))
 const MenuMesaPublico = lazy(() => import('./pages/MenuMesaPublico'))
 
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
-const Empleados = lazy(() => import('./pages/admin/Empleados'))
+const Usuarios = lazy(() => import('./pages/admin/Usuarios'))
 const Mesas = lazy(() => import('./pages/admin/Mesas'))
 const Categorias = lazy(() => import('./pages/admin/Categorias'))
 const Productos = lazy(() => import('./pages/admin/Productos'))
@@ -89,7 +89,7 @@ export default function App() {
       >
         <Route index element={<RedirectByRole />} />
         <Route path="dashboard" element={<ProtectedRoute roles={['ADMIN', 'COCINERO', 'CAJERO']}><LazyScreen><Dashboard /></LazyScreen></ProtectedRoute>} />
-        <Route path="empleados" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Empleados /></LazyScreen></ProtectedRoute>} />
+        <Route path="usuarios" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Usuarios /></LazyScreen></ProtectedRoute>} />
         <Route path="mesas" element={<LazyScreen><Mesas /></LazyScreen>} />
         <Route path="categorias" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Categorias /></LazyScreen></ProtectedRoute>} />
         <Route path="productos" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Productos /></LazyScreen></ProtectedRoute>} />

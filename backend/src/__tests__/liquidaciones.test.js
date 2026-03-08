@@ -12,7 +12,7 @@ const {
 
 describe('Liquidaciones Endpoints', () => {
     let token;
-  let empleado;
+  let usuario;
 
   beforeAll(async () => {
         await cleanupOperationalData();
@@ -23,15 +23,11 @@ describe('Liquidaciones Endpoints', () => {
     });
     token = signTokenForUser(admin);
 
-    empleado = await prisma.empleado.create({
-      data: {
-        nombre: 'Empleado',
-        apellido: 'Liquidacion',
-        dni: `DNI-${uniqueId('liq')}`,
-        rol: 'MOZO',
-        tarifaHora: 1500,
-        activo: true
-      }
+    usuario = await createUsuario({
+      email: `${uniqueId('emp')}@example.com`,
+      nombre: 'Empleado',
+      rol: 'MOZO',
+      tarifaHora: 1500
     });
   });
 
@@ -51,7 +47,7 @@ describe('Liquidaciones Endpoints', () => {
 
     await prisma.fichaje.create({
       data: {
-        empleadoId: empleado.id,
+        usuarioId: usuario.id,
         entrada,
         salida,
         fecha
@@ -64,19 +60,19 @@ describe('Liquidaciones Endpoints', () => {
       .post('/api/liquidaciones/calcular')
       .set('Authorization', authHeader(token))
       .send({
-        empleadoId: empleado.id,
+        usuarioId: usuario.id,
         fechaDesde: hoy,
         fechaHasta: hoy
       })
       .expect(200);
 
-    expect(response.body.empleado.id).toBe(empleado.id);
+    expect(response.body.usuario.id).toBe(usuario.id);
     expect(response.body.totalFichajes).toBeGreaterThanOrEqual(1);
     expect(response.body.horasTotales).toBeGreaterThanOrEqual(2);
     expect(response.body.subtotal).toBeGreaterThanOrEqual(3000);
   });
 
-  it('POST /api/liquidaciones crea y GET /api/liquidaciones filtra por empleadoId/pagado', async () => {
+  it('POST /api/liquidaciones crea y GET /api/liquidaciones filtra por usuarioId/pagado', async () => {
     const hoy = new Date();
     const yyyymmdd = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
 
@@ -84,7 +80,7 @@ describe('Liquidaciones Endpoints', () => {
       .post('/api/liquidaciones')
       .set('Authorization', authHeader(token))
       .send({
-        empleadoId: empleado.id,
+        usuarioId: usuario.id,
         periodoDesde: yyyymmdd,
         periodoHasta: yyyymmdd,
         horasTotales: 10,
@@ -95,11 +91,11 @@ describe('Liquidaciones Endpoints', () => {
       .expect(201);
 
     expect(creado.body.id).toBeDefined();
-    expect(creado.body.empleadoId).toBe(empleado.id);
+    expect(creado.body.usuarioId).toBe(usuario.id);
     expect(creado.body.pagado).toBe(false);
 
     const listado = await request(app)
-      .get(`/api/liquidaciones?empleadoId=${empleado.id}&pagado=false`)
+      .get(`/api/liquidaciones?usuarioId=${usuario.id}&pagado=false`)
       .set('Authorization', authHeader(token))
       .expect(200);
 
@@ -113,7 +109,7 @@ describe('Liquidaciones Endpoints', () => {
 
     const creado = await prisma.liquidacion.create({
       data: {
-        empleadoId: empleado.id,
+        usuarioId: usuario.id,
         periodoDesde: new Date(yyyymmdd),
         periodoHasta: new Date(yyyymmdd),
         horasTotales: 5,
@@ -150,7 +146,7 @@ describe('Liquidaciones Endpoints', () => {
       .post('/api/liquidaciones')
       .set('Authorization', authHeader(token))
       .send({
-        empleadoId: empleado.id,
+        usuarioId: usuario.id,
         periodoDesde: yyyymmdd,
         periodoHasta: yyyymmdd,
         horasTotales: 2,
@@ -167,4 +163,3 @@ describe('Liquidaciones Endpoints', () => {
     expect(response.body.message).toBe('Liquidación eliminada correctamente');
   });
 });
-

@@ -9,8 +9,8 @@ export default function Liquidaciones() {
   const {
     abrirNuevaLiquidacion,
     cerrarModal,
-    empleadoSeleccionado,
-    empleados,
+    usuarioSeleccionado,
+    usuarios,
     form,
     handleSubmit,
     horas,
@@ -24,7 +24,7 @@ export default function Liquidaciones() {
     totalPagar,
   } = useLiquidacionesPage()
 
-  if (loading && liquidaciones.length === 0 && empleados.length === 0) {
+  if (loading && liquidaciones.length === 0 && usuarios.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Spinner size="lg" />
@@ -47,8 +47,8 @@ export default function Liquidaciones() {
 
       {showModal && (
         <LiquidacionModal
-          empleadoSeleccionado={empleadoSeleccionado}
-          empleados={empleados}
+          usuarioSeleccionado={usuarioSeleccionado}
+          usuarios={usuarios}
           form={form}
           horas={horas}
           onClose={cerrarModal}

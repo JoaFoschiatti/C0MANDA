@@ -1,6 +1,6 @@
 export default function LiquidacionModal({
-  empleadoSeleccionado,
-  empleados,
+  usuarioSeleccionado,
+  usuarios,
   form,
   horas,
   onClose,
@@ -16,22 +16,22 @@ export default function LiquidacionModal({
         <h2 className="mb-4 text-heading-3">Nueva Liquidación</h2>
         <form onSubmit={onSubmit} className="flex-1 space-y-4 overflow-y-auto">
           <div>
-            <label className="label" htmlFor="liquidacion-empleado">
-              Empleado
+            <label className="label" htmlFor="liquidacion-usuario">
+              Usuario
             </label>
             <select
-              id="liquidacion-empleado"
+              id="liquidacion-usuario"
               className="input"
-              value={form.empleadoId}
+              value={form.usuarioId}
               onChange={(event) =>
-                setForm((current) => ({ ...current, empleadoId: event.target.value }))
+                setForm((current) => ({ ...current, usuarioId: event.target.value }))
               }
               required
             >
               <option value="">Seleccionar...</option>
-              {empleados.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.nombre} {emp.apellido} - {emp.rol}
+              {usuarios.map((usr) => (
+                <option key={usr.id} value={usr.id}>
+                  {usr.nombre} {usr.apellido || ''} - {usr.rol}
                 </option>
               ))}
             </select>
@@ -88,7 +88,7 @@ export default function LiquidacionModal({
             />
           </div>
 
-          {empleadoSeleccionado && horas > 0 && (
+          {usuarioSeleccionado && horas > 0 && (
             <div className="space-y-2 rounded-xl bg-surface-hover p-4">
               <div className="flex justify-between text-text-secondary">
                 <span>Horas trabajadas:</span>
@@ -170,7 +170,7 @@ export default function LiquidacionModal({
             <button
               type="submit"
               className="btn btn-primary flex-1"
-              disabled={!empleadoSeleccionado || horas <= 0}
+              disabled={!usuarioSeleccionado || horas <= 0}
             >
               Crear Liquidación
             </button>

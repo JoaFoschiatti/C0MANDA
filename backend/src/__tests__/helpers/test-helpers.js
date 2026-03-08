@@ -41,8 +41,11 @@ const createUsuario = async (overrides = {}) => {
       email,
       password: passwordHash,
       nombre: overrides.nombre || 'Usuario Test',
+      apellido: overrides.apellido || null,
       rol: overrides.rol || 'ADMIN',
-      activo: overrides.activo ?? true
+      activo: overrides.activo ?? true,
+      dni: overrides.dni || null,
+      tarifaHora: overrides.tarifaHora || null
     }
   });
 };
@@ -82,7 +85,6 @@ const cleanupOperationalData = async () => {
   await prisma.fichaje.deleteMany();
   await prisma.liquidacion.deleteMany();
   await prisma.refreshToken.deleteMany();
-  await prisma.empleado.deleteMany();
   await prisma.usuario.deleteMany({
     where: {
       email: {

@@ -5,7 +5,7 @@ import api from '../services/api'
 import useAsync from './useAsync'
 
 const initialForm = {
-  empleadoId: '',
+  usuarioId: '',
   periodoDesde: '',
   periodoHasta: '',
   horasTotales: '',
@@ -16,32 +16,32 @@ const initialForm = {
 
 export default function useLiquidacionesPage() {
   const [liquidaciones, setLiquidaciones] = useState([])
-  const [empleados, setEmpleados] = useState([])
+  const [usuarios, setUsuarios] = useState([])
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState(initialForm)
 
-  const empleadoSeleccionado = useMemo(
-    () => empleados.find((empleado) => empleado.id === Number.parseInt(form.empleadoId, 10)),
-    [empleados, form.empleadoId]
+  const usuarioSeleccionado = useMemo(
+    () => usuarios.find((u) => u.id === Number.parseInt(form.usuarioId, 10)),
+    [usuarios, form.usuarioId]
   )
 
-  const tarifaHora = empleadoSeleccionado ? parseFloat(empleadoSeleccionado.tarifaHora) : 0
+  const tarifaHora = usuarioSeleccionado ? parseFloat(usuarioSeleccionado.tarifaHora) : 0
   const horas = parseFloat(form.horasTotales) || 0
   const subtotal = horas * tarifaHora
   const totalPagar =
     subtotal - (parseFloat(form.descuentos) || 0) + (parseFloat(form.adicionales) || 0)
 
   const cargarDatos = useCallback(async () => {
-    const [liqRes, empRes] = await Promise.all([
+    const [liqRes, usrRes] = await Promise.all([
       api.get('/liquidaciones'),
-      api.get('/empleados?activo=true'),
+      api.get('/usuarios?activo=true'),
     ])
 
     const nextLiquidaciones = Array.isArray(liqRes.data) ? liqRes.data : []
-    const nextEmpleados = Array.isArray(empRes.data) ? empRes.data : []
+    const nextUsuarios = Array.isArray(usrRes.data) ? usrRes.data : []
     setLiquidaciones(nextLiquidaciones)
-    setEmpleados(nextEmpleados)
-    return { liquidaciones: nextLiquidaciones, empleados: nextEmpleados }
+    setUsuarios(nextUsuarios)
+    return { liquidaciones: nextLiquidaciones, usuarios: nextUsuarios }
   }, [])
 
   const { loading, execute: cargarDatosAsync } = useAsync(
@@ -77,7 +77,7 @@ export default function useLiquidacionesPage() {
 
       try {
         await api.post('/liquidaciones', {
-          empleadoId: Number.parseInt(form.empleadoId, 10),
+          usuarioId: Number.parseInt(form.usuarioId, 10),
           periodoDesde: form.periodoDesde,
           periodoHasta: form.periodoHasta,
           horasTotales: parseFloat(form.horasTotales),
@@ -115,8 +115,8 @@ export default function useLiquidacionesPage() {
   return {
     abrirNuevaLiquidacion,
     cerrarModal,
-    empleadoSeleccionado,
-    empleados,
+    usuarioSeleccionado,
+    usuarios,
     form,
     handleSubmit,
     horas,

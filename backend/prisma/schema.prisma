@@ -127,7 +127,12 @@ model Usuario {
   email         String           @unique
   password      String
   nombre        String
+  apellido      String?
+  dni           String?          @unique
+  telefono      String?
+  direccion     String?
   rol           Rol              @default(MOZO)
+  tarifaHora    Decimal?         @db.Decimal(10, 2)
   activo        Boolean          @default(true)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
@@ -135,6 +140,8 @@ model Usuario {
   cierres       CierreCaja[]
   auditorias    PedidoAuditoria[]
   refreshTokens RefreshToken[]
+  fichajes      Fichaje[]
+  liquidaciones Liquidacion[]
 
   @@map("usuarios")
 }
@@ -154,40 +161,22 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
-model Empleado {
-  id            Int          @id @default(autoincrement())
-  nombre        String
-  apellido      String
-  dni           String       @unique
-  telefono      String?
-  direccion     String?
-  rol           Rol
-  tarifaHora    Decimal      @db.Decimal(10, 2)
-  activo        Boolean      @default(true)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  fichajes      Fichaje[]
-  liquidaciones Liquidacion[]
-
-  @@map("empleados")
-}
-
 model Fichaje {
-  id         Int       @id @default(autoincrement())
-  empleadoId Int
-  entrada    DateTime
-  salida     DateTime?
-  fecha      DateTime  @db.Date
-  createdAt  DateTime  @default(now())
-  empleado   Empleado  @relation(fields: [empleadoId], references: [id])
+  id        Int       @id @default(autoincrement())
+  usuarioId Int
+  entrada   DateTime
+  salida    DateTime?
+  fecha     DateTime  @db.Date
+  createdAt DateTime  @default(now())
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id])
 
-  @@index([empleadoId, fecha])
+  @@index([usuarioId, fecha])
   @@map("fichajes")
 }
 
 model Liquidacion {
   id            Int       @id @default(autoincrement())
-  empleadoId    Int
+  usuarioId     Int
   periodoDesde  DateTime  @db.Date
   periodoHasta  DateTime  @db.Date
   horasTotales  Decimal   @db.Decimal(10, 2)
@@ -200,9 +189,9 @@ model Liquidacion {
   pagado        Boolean   @default(false)
   fechaPago     DateTime?
   createdAt     DateTime  @default(now())
-  empleado      Empleado  @relation(fields: [empleadoId], references: [id])
+  usuario       Usuario   @relation(fields: [usuarioId], references: [id])
 
-  @@index([empleadoId])
+  @@index([usuarioId])
   @@map("liquidaciones")
 }
 

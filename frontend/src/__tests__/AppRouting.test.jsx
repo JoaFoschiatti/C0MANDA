@@ -38,7 +38,7 @@ vi.mock('../pages/MenuMesaPublico', () => ({
   default: () => <div>MenuMesaPublico</div>
 }))
 vi.mock('../pages/admin/Dashboard', () => ({ default: () => <div>Dashboard</div> }))
-vi.mock('../pages/admin/Empleados', () => ({ default: () => <div>Empleados</div> }))
+vi.mock('../pages/admin/Usuarios', () => ({ default: () => <div>Usuarios</div> }))
 vi.mock('../pages/admin/Mesas', () => ({ default: () => <div>Mesas</div> }))
 vi.mock('../pages/admin/Categorias', () => ({ default: () => <div>Categorias</div> }))
 vi.mock('../pages/admin/Productos', () => ({ default: () => <div>Productos</div> }))

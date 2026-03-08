@@ -13,12 +13,12 @@ const optionalDateStringSchema = z.preprocess(
   dateStringSchema.optional()
 );
 
-const empleadoIdParamSchema = z.object({
-  empleadoId: positiveIntSchema
+const usuarioIdParamSchema = z.object({
+  usuarioId: positiveIntSchema
 });
 
 const listarQuerySchema = z.object({
-  empleadoId: z.preprocess(
+  usuarioId: z.preprocess(
     (val) => (val === '' || val === null ? undefined : val),
     positiveIntSchema.optional()
   ),
@@ -27,7 +27,7 @@ const listarQuerySchema = z.object({
 }).strip();
 
 const registrarBodySchema = z.object({
-  empleadoId: positiveIntSchema
+  usuarioId: positiveIntSchema
 }).strip();
 
 const calcularHorasQuerySchema = z.object({
@@ -42,7 +42,7 @@ const editarBodySchema = z.object({
 
 module.exports = {
   idParamSchema,
-  empleadoIdParamSchema,
+  usuarioIdParamSchema,
   listarQuerySchema,
   registrarBodySchema,
   calcularHorasQuerySchema,

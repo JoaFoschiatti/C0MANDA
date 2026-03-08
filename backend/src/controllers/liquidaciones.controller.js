@@ -15,7 +15,7 @@ const obtener = async (req, res) => {
 
 const calcular = async (req, res) => {
   const prisma = getPrisma(req);
-  const result = await liquidacionesService.calcular(prisma, req.body.empleadoId, req.body.fechaDesde, req.body.fechaHasta);
+  const result = await liquidacionesService.calcular(prisma, req.body.usuarioId, req.body.fechaDesde, req.body.fechaHasta);
   res.json(result);
 };
 

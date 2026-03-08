@@ -7,7 +7,7 @@ const path = require('path');
 
 // Importar rutas
 const authRoutes = require('./routes/auth.routes');
-const empleadosRoutes = require('./routes/empleados.routes');
+const usuariosRoutes = require('./routes/usuarios.routes');
 const mesasRoutes = require('./routes/mesas.routes');
 const categoriasRoutes = require('./routes/categorias.routes');
 const productosRoutes = require('./routes/productos.routes');
@@ -102,7 +102,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Rutas de la API
 app.use('/api/auth', authRoutes);
-app.use('/api/empleados', empleadosRoutes);
+app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/mesas', mesasRoutes);
 app.use('/api/categorias', categoriasRoutes);
 app.use('/api/productos', productosRoutes);

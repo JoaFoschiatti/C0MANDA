@@ -277,7 +277,6 @@ export default function useProductosPage() {
 
   return {
     agruparForm,
-    cargarDatosAsync,
     categorias,
     cerrarAgruparModal,
     cerrarProductoModal,
@@ -298,13 +297,9 @@ export default function useProductosPage() {
     productoBase,
     productos,
     productosDisponiblesParaAgrupar,
-    resetAgruparForm,
-    resetVarianteForm,
     setAgruparForm,
     setForm,
     setShowAgruparModal,
-    setShowModal,
-    setShowVarianteModal,
     setVarianteForm,
     setVistaAgrupada,
     showAgruparModal,

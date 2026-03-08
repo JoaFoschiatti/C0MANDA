@@ -47,7 +47,7 @@ describe('AdminLayout', () => {
 
     expect(screen.getAllByText('Mesas').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Pedidos').length).toBeGreaterThan(0)
-    expect(screen.queryByText('Empleados')).toBeNull()
+    expect(screen.queryByText('Usuarios')).toBeNull()
   })
 
   it('llama logout y navega al cerrar sesion', async () => {

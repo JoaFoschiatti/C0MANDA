@@ -43,10 +43,11 @@ async function main() {
 
   const usuarios = [
     { email: adminEmail, password: passwordHash, nombre: 'Administrador', rol: 'ADMIN' },
-    { email: 'mozo@comanda.local', password: await bcrypt.hash('mozo123', 10), nombre: 'Juan Mozo', rol: 'MOZO' },
-    { email: 'cocinero@comanda.local', password: await bcrypt.hash('cocinero123', 10), nombre: 'Pedro Cocinero', rol: 'COCINERO' },
-    { email: 'cajero@comanda.local', password: await bcrypt.hash('cajero123', 10), nombre: 'Carla Caja', rol: 'CAJERO' },
-    { email: 'delivery@comanda.local', password: await bcrypt.hash('delivery123', 10), nombre: 'Diego Delivery', rol: 'DELIVERY' }
+    { email: 'mozo@comanda.local', password: await bcrypt.hash('mozo123', 10), nombre: 'Juan', apellido: 'Perez', dni: '30123456', telefono: '1155551234', rol: 'MOZO', tarifaHora: 1500 },
+    { email: 'mozo2@comanda.local', password: await bcrypt.hash('mozo123', 10), nombre: 'Maria', apellido: 'Garcia', dni: '31234567', telefono: '1155552345', rol: 'MOZO', tarifaHora: 1500 },
+    { email: 'cocinero@comanda.local', password: await bcrypt.hash('cocinero123', 10), nombre: 'Pedro', apellido: 'Lopez', dni: '32345678', telefono: '1155553456', rol: 'COCINERO', tarifaHora: 1800 },
+    { email: 'cajero@comanda.local', password: await bcrypt.hash('cajero123', 10), nombre: 'Carla', apellido: 'Suarez', dni: '33456789', telefono: '1155554567', rol: 'CAJERO', tarifaHora: 1700 },
+    { email: 'delivery@comanda.local', password: await bcrypt.hash('delivery123', 10), nombre: 'Diego', apellido: 'Delivery', rol: 'DELIVERY' }
   ];
 
   for (const usuario of usuarios) {
@@ -54,21 +55,6 @@ async function main() {
       where: { email: usuario.email },
       update: usuario,
       create: usuario
-    });
-  }
-
-  const empleados = [
-    { nombre: 'Juan', apellido: 'Perez', dni: '30123456', telefono: '1155551234', rol: 'MOZO', tarifaHora: 1500 },
-    { nombre: 'Maria', apellido: 'Garcia', dni: '31234567', telefono: '1155552345', rol: 'MOZO', tarifaHora: 1500 },
-    { nombre: 'Pedro', apellido: 'Lopez', dni: '32345678', telefono: '1155553456', rol: 'COCINERO', tarifaHora: 1800 },
-    { nombre: 'Carla', apellido: 'Suarez', dni: '33456789', telefono: '1155554567', rol: 'CAJERO', tarifaHora: 1700 }
-  ];
-
-  for (const empleado of empleados) {
-    await prisma.empleado.upsert({
-      where: { dni: empleado.dni },
-      update: empleado,
-      create: empleado
     });
   }
 

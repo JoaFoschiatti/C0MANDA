@@ -6,7 +6,7 @@ const { validate } = require('../middlewares/validate.middleware');
 const { asyncHandler } = require('../utils/async-handler');
 const {
   idParamSchema,
-  empleadoIdParamSchema,
+  usuarioIdParamSchema,
   listarQuerySchema,
   registrarBodySchema,
   calcularHorasQuerySchema,
@@ -18,13 +18,12 @@ router.use(verificarToken);
 router.get('/', validate({ query: listarQuerySchema }), asyncHandler(fichajesController.listar));
 router.post('/entrada', validate({ body: registrarBodySchema }), asyncHandler(fichajesController.registrarEntrada));
 router.post('/salida', validate({ body: registrarBodySchema }), asyncHandler(fichajesController.registrarSalida));
-router.get('/empleado/:empleadoId/estado', validate({ params: empleadoIdParamSchema }), asyncHandler(fichajesController.estadoEmpleado));
+router.get('/usuario/:usuarioId/estado', validate({ params: usuarioIdParamSchema }), asyncHandler(fichajesController.estadoUsuario));
 router.get(
-  '/empleado/:empleadoId/horas',
-  validate({ params: empleadoIdParamSchema, query: calcularHorasQuerySchema }),
+  '/usuario/:usuarioId/horas',
+  validate({ params: usuarioIdParamSchema, query: calcularHorasQuerySchema }),
   asyncHandler(fichajesController.calcularHoras)
 );
 router.put('/:id', esAdmin, validate({ params: idParamSchema, body: editarBodySchema }), asyncHandler(fichajesController.editar));
 
 module.exports = router;
-

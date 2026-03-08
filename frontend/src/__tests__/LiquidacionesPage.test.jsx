@@ -31,13 +31,13 @@ describe('Liquidaciones page', () => {
   })
 
   it('crea una liquidación desde el modal', async () => {
-    const empleados = [
+    const usuarios = [
       { id: 1, nombre: 'Ana', apellido: 'Lopez', rol: 'MOZO', tarifaHora: '10' }
     ]
 
     api.get.mockImplementation((url) => {
       if (url === '/liquidaciones') return Promise.resolve({ data: [] })
-      if (url === '/empleados?activo=true') return Promise.resolve({ data: empleados })
+      if (url === '/usuarios?activo=true') return Promise.resolve({ data: usuarios })
       return Promise.resolve({ data: [] })
     })
     api.post.mockResolvedValueOnce({ data: { id: 1 } })
@@ -47,7 +47,7 @@ describe('Liquidaciones page', () => {
 
     await user.click(await screen.findByRole('button', { name: /Nueva Liquidación/i }))
 
-    await user.selectOptions(screen.getByLabelText('Empleado'), '1')
+    await user.selectOptions(screen.getByLabelText('Usuario'), '1')
     await user.type(screen.getByLabelText('Período Desde'), '2024-01-01')
     await user.type(screen.getByLabelText('Período Hasta'), '2024-01-31')
     await user.type(screen.getByLabelText('Horas trabajadas'), '10')
@@ -56,7 +56,7 @@ describe('Liquidaciones page', () => {
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/liquidaciones', {
-        empleadoId: 1,
+        usuarioId: 1,
         periodoDesde: '2024-01-01',
         periodoHasta: '2024-01-31',
         horasTotales: 10,
@@ -73,7 +73,7 @@ describe('Liquidaciones page', () => {
     const liquidaciones = [
       {
         id: 3,
-        empleado: { nombre: 'Ana', apellido: 'Lopez' },
+        usuario: { nombre: 'Ana', apellido: 'Lopez' },
         periodoDesde: '2024-01-01T00:00:00.000Z',
         periodoHasta: '2024-01-31T00:00:00.000Z',
         horasTotales: '10',
@@ -84,7 +84,7 @@ describe('Liquidaciones page', () => {
 
     api.get.mockImplementation((url) => {
       if (url === '/liquidaciones') return Promise.resolve({ data: liquidaciones })
-      if (url === '/empleados?activo=true') return Promise.resolve({ data: [] })
+      if (url === '/usuarios?activo=true') return Promise.resolve({ data: [] })
       return Promise.resolve({ data: [] })
     })
     api.patch.mockResolvedValueOnce({ data: { id: 3 } })

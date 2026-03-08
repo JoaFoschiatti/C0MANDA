@@ -901,7 +901,7 @@ const sueldosReporte = async (prisma, query) => {
 
   const liquidaciones = await prisma.liquidacion.findMany({
     where,
-    include: { empleado: { select: { nombre: true, apellido: true, rol: true } } },
+    include: { usuario: { select: { nombre: true, apellido: true, rol: true } } },
     orderBy: { createdAt: 'desc' }
   });
 

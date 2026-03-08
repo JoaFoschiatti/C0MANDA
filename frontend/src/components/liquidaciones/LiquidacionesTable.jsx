@@ -6,7 +6,7 @@ export default function LiquidacionesTable({ liquidaciones, onMarcarPagada }) {
       <table className="table">
         <thead>
           <tr>
-            <th>Empleado</th>
+            <th>Usuario</th>
             <th>Período</th>
             <th>Horas</th>
             <th>Total</th>
@@ -19,7 +19,7 @@ export default function LiquidacionesTable({ liquidaciones, onMarcarPagada }) {
             <tr key={liq.id}>
               <td>
                 <div className="font-medium text-text-primary">
-                  {liq.empleado?.nombre} {liq.empleado?.apellido}
+                  {liq.usuario?.nombre} {liq.usuario?.apellido}
                 </div>
               </td>
               <td className="text-text-secondary">
