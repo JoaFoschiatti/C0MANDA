@@ -178,19 +178,60 @@ const pedidosCocina = async (req, res) => {
 
 const pedidosDelivery = async (req, res) => {
   const prisma = getPrisma(req);
+  const where = {
+    tipo: 'DELIVERY',
+    estado: { in: ['PENDIENTE', 'EN_PREPARACION', 'LISTO'] }
+  };
+
+  if (req.usuario.rol === 'DELIVERY') {
+    where.repartidorId = req.usuario.id;
+  }
+
   const pedidos = await prisma.pedido.findMany({
-    where: {
-      tipo: 'DELIVERY',
-      estado: { in: ['PENDIENTE', 'EN_PREPARACION', 'LISTO'] }
-    },
+    where,
     include: {
       items: { include: { producto: { select: { nombre: true, precio: true } } } },
-      usuario: { select: { nombre: true } }
+      usuario: { select: { nombre: true } },
+      repartidor: { select: { id: true, nombre: true } }
     },
     orderBy: { createdAt: 'asc' }
   });
 
   res.json(pedidos);
+};
+
+const listarRepartidores = async (req, res) => {
+  const prisma = getPrisma(req);
+  const repartidores = await prisma.usuario.findMany({
+    where: { rol: 'DELIVERY', activo: true },
+    select: { id: true, nombre: true, apellido: true }
+  });
+  res.json(repartidores);
+};
+
+const asignarDelivery = async (req, res) => {
+  const prisma = getPrisma(req);
+  const { id } = req.params;
+  const { repartidorId } = req.body;
+
+  const repartidor = await prisma.usuario.findUnique({ where: { id: repartidorId } });
+  if (!repartidor || repartidor.rol !== 'DELIVERY') {
+    throw createHttpError.badRequest('El usuario seleccionado no es un repartidor');
+  }
+
+  const pedido = await prisma.pedido.update({
+    where: { id: Number(id) },
+    data: { repartidorId },
+    include: {
+      repartidor: { select: { id: true, nombre: true } },
+      mesa: true,
+      usuario: { select: { nombre: true } },
+      items: { include: { producto: true } }
+    }
+  });
+
+  emitPedidoUpdated(pedido);
+  res.json(pedido);
 };
 
 module.exports = {
@@ -202,5 +243,7 @@ module.exports = {
   cancelar,
   cerrar,
   pedidosCocina,
-  pedidosDelivery
+  pedidosDelivery,
+  listarRepartidores,
+  asignarDelivery
 };

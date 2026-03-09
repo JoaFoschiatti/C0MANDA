@@ -1,3 +1,5 @@
+import { UNIDADES, getDecimalesUnidad } from '../../constants/unidades'
+
 export default function IngredienteModal({
   editando,
   form,
@@ -33,17 +35,20 @@ export default function IngredienteModal({
               <label className="label" htmlFor="ingrediente-unidad">
                 Unidad
               </label>
-              <input
+              <select
                 id="ingrediente-unidad"
-                type="text"
                 className="input"
                 value={form.unidad}
                 onChange={(event) =>
                   setForm((current) => ({ ...current, unidad: event.target.value }))
                 }
-                placeholder="kg, litros, unidades"
                 required
-              />
+              >
+                <option value="">Seleccionar unidad</option>
+                {UNIDADES.map((u) => (
+                  <option key={u.value} value={u.value}>{u.label}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="label" htmlFor="ingrediente-costo">
@@ -70,7 +75,7 @@ export default function IngredienteModal({
               <input
                 id="ingrediente-stock-actual"
                 type="number"
-                step="0.01"
+                step={getDecimalesUnidad(form.unidad) > 0 ? '0.01' : '1'}
                 className="input"
                 value={form.stockActual}
                 onChange={(event) =>
@@ -86,7 +91,7 @@ export default function IngredienteModal({
               <input
                 id="ingrediente-stock-minimo"
                 type="number"
-                step="0.01"
+                step={getDecimalesUnidad(form.unidad) > 0 ? '0.01' : '1'}
                 className="input"
                 value={form.stockMinimo}
                 onChange={(event) =>

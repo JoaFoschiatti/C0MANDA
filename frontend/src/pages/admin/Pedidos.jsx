@@ -10,7 +10,8 @@ import {
   CurrencyDollarIcon,
   PlusIcon,
   QrCodeIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  TruckIcon
 } from '@heroicons/react/24/outline'
 import { Alert, Button, EmptyState, Modal, PageHeader, Spinner, Table } from '../../components/ui'
 import useEventSource from '../../hooks/useEventSource'
@@ -140,6 +141,11 @@ export default function Pedidos() {
   const [showNuevoPedidoModal, setShowNuevoPedidoModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [previewContent, setPreviewContent] = useState('')
+  const [showAsignarDeliveryModal, setShowAsignarDeliveryModal] = useState(false)
+  const [pedidoDeliveryListoId, setPedidoDeliveryListoId] = useState(null)
+  const [repartidores, setRepartidores] = useState([])
+  const [repartidorSeleccionado, setRepartidorSeleccionado] = useState('')
+  const [asignandoDelivery, setAsignandoDelivery] = useState(false)
 
   const cargarPedidos = useCallback(async () => {
     const params = filtroEstado ? `?estado=${filtroEstado}` : ''
@@ -202,9 +208,19 @@ export default function Pedidos() {
 
   const handleSseUpdate = useCallback((event) => {
     console.log('[SSE] Evento recibido:', event.type)
+
+    let data = null
+    try { data = JSON.parse(event.data) } catch {}
+
+    if (data?.tipo === 'DELIVERY' && data?.estado === 'LISTO' && puedeCrearPedido) {
+      toast('Pedido delivery #' + data.id + ' listo para despachar', { icon: '🚀', duration: 8000 })
+      setPedidoDeliveryListoId(data.id)
+      setShowAsignarDeliveryModal(true)
+    }
+
     cargarPedidosAsync()
       .catch(() => {})
-  }, [cargarPedidosAsync])
+  }, [cargarPedidosAsync, puedeCrearPedido])
 
   const handleSseError = useCallback((err) => {
     console.error('[SSE] Error en conexión:', err)
@@ -472,6 +488,48 @@ export default function Pedidos() {
     }
   }
 
+  const abrirAsignarDelivery = useCallback(async (pedidoId) => {
+    setPedidoDeliveryListoId(pedidoId)
+    try {
+      const res = await api.get('/pedidos/delivery/repartidores')
+      setRepartidores(res.data)
+      setRepartidorSeleccionado(res.data.length === 1 ? String(res.data[0].id) : '')
+    } catch {
+      setRepartidores([])
+    }
+    setShowAsignarDeliveryModal(true)
+  }, [])
+
+  const confirmarAsignarDelivery = async () => {
+    if (!repartidorSeleccionado || !pedidoDeliveryListoId) return
+    setAsignandoDelivery(true)
+    try {
+      await api.patch(`/pedidos/${pedidoDeliveryListoId}/asignar-delivery`, {
+        repartidorId: Number(repartidorSeleccionado)
+      })
+      toast.success('Repartidor asignado')
+      setShowAsignarDeliveryModal(false)
+      setPedidoDeliveryListoId(null)
+      setRepartidorSeleccionado('')
+      cargarPedidosAsync().catch(() => {})
+    } catch (error) {
+      console.error('Error:', error)
+    } finally {
+      setAsignandoDelivery(false)
+    }
+  }
+
+  // Load repartidores when modal opens via SSE
+  useEffect(() => {
+    if (!showAsignarDeliveryModal || repartidores.length > 0) return
+    api.get('/pedidos/delivery/repartidores')
+      .then((res) => {
+        setRepartidores(res.data)
+        if (res.data.length === 1) setRepartidorSeleccionado(String(res.data[0].id))
+      })
+      .catch(() => {})
+  }, [showAsignarDeliveryModal, repartidores.length])
+
   const renderImpresion = (impresion) => {
     if (!impresion) {
       return <span className="text-xs text-text-tertiary">-</span>
@@ -500,7 +558,6 @@ export default function Pedidos() {
     switch (tipo) {
       case 'DELIVERY': return 'badge-info'
       case 'MOSTRADOR': return 'badge-warning'
-      case 'ONLINE': return 'badge-success'
       default: return 'badge-info'
     }
   }
@@ -631,6 +688,11 @@ export default function Pedidos() {
                       : pedido.tipo === 'MOSTRADOR'
                         ? pedido.clienteNombre || 'Mostrador'
                         : pedido.clienteNombre || 'Sin nombre'}
+                    {pedido.tipo === 'DELIVERY' && pedido.repartidor && (
+                      <span className="block text-xs text-primary-500">
+                        Repartidor: {pedido.repartidor.nombre}
+                      </span>
+                    )}
                   </Table.Cell>
                   <Table.Cell className="font-medium text-text-primary">
                     ${parseFloat(pedido.total).toLocaleString('es-AR')}
@@ -663,6 +725,16 @@ export default function Pedidos() {
                     >
                       <PrinterIcon className="w-5 h-5" />
                     </button>
+                    {pedido.tipo === 'DELIVERY' && pedido.estado === 'LISTO' && !pedido.repartidorId && puedeCrearPedido && (
+                      <button
+                        onClick={() => abrirAsignarDelivery(pedido.id)}
+                        type="button"
+                        aria-label={`Asignar repartidor al pedido #${pedido.id}`}
+                        className="text-primary-500 hover:text-primary-600 transition-colors"
+                      >
+                        <TruckIcon className="w-5 h-5" />
+                      </button>
+                    )}
                     {!['COBRADO', 'CERRADO', 'CANCELADO'].includes(pedido.estado) && !esSoloMozo && (
                       <button
                         onClick={() => abrirPago(pedido)}
@@ -1016,6 +1088,61 @@ export default function Pedidos() {
           </Button>
         </Modal.Footer>
       </Modal>
+
+      {/* Modal Asignar Delivery */}
+      {showAsignarDeliveryModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2 className="text-heading-3 mb-4">Asignar Repartidor</h2>
+            <p className="text-sm text-text-secondary mb-4">
+              Pedido #{pedidoDeliveryListoId} esta listo. Selecciona un repartidor para la entrega.
+            </p>
+            {repartidores.length === 0 ? (
+              <p className="text-sm text-text-tertiary mb-4">No hay repartidores disponibles.</p>
+            ) : (
+              <div className="mb-4">
+                <label className="label" htmlFor="repartidor-select">Repartidor</label>
+                <select
+                  id="repartidor-select"
+                  className="input"
+                  value={repartidorSeleccionado}
+                  onChange={(e) => setRepartidorSeleccionado(e.target.value)}
+                >
+                  <option value="">Seleccionar repartidor...</option>
+                  {repartidores.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.nombre}{r.apellido ? ` ${r.apellido}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary flex-1"
+                onClick={() => {
+                  setShowAsignarDeliveryModal(false)
+                  setPedidoDeliveryListoId(null)
+                  setRepartidorSeleccionado('')
+                }}
+              >
+                Cancelar
+              </button>
+              <Button
+                type="button"
+                variant="primary"
+                className="flex-1"
+                disabled={!repartidorSeleccionado}
+                loading={asignandoDelivery}
+                onClick={confirmarAsignarDelivery}
+              >
+                Asignar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Nuevo Pedido */}
       <NuevoPedidoModal

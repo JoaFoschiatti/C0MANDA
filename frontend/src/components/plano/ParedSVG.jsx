@@ -1,155 +1,209 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 
 const GRID = 16
-const snap = (v) => Math.round(v / GRID) * GRID
+const snap = (val) => Math.round(val / GRID) * GRID
 
-export default function ParedSVG({ paredes = [], onChange, dibujar, onDibujarChange }) {
-  const svgRef = useRef(null)
-  const [inicio, setInicio] = useState(null)
-  const [preview, setPreview] = useState(null)
+function constrainToAxis(start, end) {
+  const dx = Math.abs(end.x - start.x)
+  const dy = Math.abs(end.y - start.y)
+  if (dx > dy) {
+    return { x: end.x, y: start.y }
+  }
+  return { x: start.x, y: end.y }
+}
+
+export default function ParedSVG({
+  paredes = [],
+  modo = 'mesas',
+  onAgregarPared,
+  onEliminarPared,
+  disabled = false
+}) {
+  const [puntoInicio, setPuntoInicio] = useState(null)
+  const [puntoActual, setPuntoActual] = useState(null)
   const [hoveredId, setHoveredId] = useState(null)
+  const [shiftHeld, setShiftHeld] = useState(false)
+  const svgRef = useRef(null)
 
-  const getPos = useCallback((e) => {
+  const getCoords = useCallback((e) => {
     const rect = svgRef.current.getBoundingClientRect()
     return {
       x: snap(e.clientX - rect.left),
-      y: snap(e.clientY - rect.top),
+      y: snap(e.clientY - rect.top)
     }
   }, [])
 
-  const handleMouseDown = useCallback(
-    (e) => {
-      if (!dibujar) return
-      e.preventDefault()
-      const pos = getPos(e)
-      setInicio(pos)
-      setPreview({ x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y })
-    },
-    [dibujar, getPos]
-  )
+  const handleClick = (e) => {
+    if (modo !== 'paredes' || disabled) return
 
-  const handleMouseMove = useCallback(
-    (e) => {
-      if (!inicio) return
-      const pos = getPos(e)
-      let { x, y } = pos
+    const point = getCoords(e)
 
-      // Shift = linea recta
-      if (e.shiftKey) {
-        const dx = Math.abs(x - inicio.x)
-        const dy = Math.abs(y - inicio.y)
-        if (dx > dy) y = inicio.y
-        else x = inicio.x
+    if (!puntoInicio) {
+      setPuntoInicio(point)
+    } else {
+      let endPoint = point
+      if (shiftHeld) {
+        endPoint = constrainToAxis(puntoInicio, point)
       }
 
-      setPreview({ x1: inicio.x, y1: inicio.y, x2: x, y2: y })
-    },
-    [inicio, getPos]
-  )
+      // Ignore zero-length walls
+      if (puntoInicio.x === endPoint.x && puntoInicio.y === endPoint.y) return
 
-  const handleMouseUp = useCallback(() => {
-    if (!inicio || !preview) {
-      setInicio(null)
-      setPreview(null)
-      return
+      onAgregarPared({
+        id: 'w_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        x1: puntoInicio.x,
+        y1: puntoInicio.y,
+        x2: endPoint.x,
+        y2: endPoint.y,
+        grosor: 8
+      })
+      setPuntoInicio(null)
+      setPuntoActual(null)
     }
+  }
 
-    const dist = Math.hypot(preview.x2 - preview.x1, preview.y2 - preview.y1)
-    if (dist >= GRID) {
-      const newPared = {
-        id: `p-${Date.now()}`,
-        x1: preview.x1,
-        y1: preview.y1,
-        x2: preview.x2,
-        y2: preview.y2,
-        grosor: 8,
+  const handleMouseMove = (e) => {
+    if (!puntoInicio || modo !== 'paredes') return
+    const point = getCoords(e)
+    setPuntoActual(shiftHeld ? constrainToAxis(puntoInicio, point) : point)
+  }
+
+  const handleContextMenu = (e) => {
+    e.preventDefault()
+    setPuntoInicio(null)
+    setPuntoActual(null)
+  }
+
+  const isActive = modo === 'paredes'
+
+  useEffect(() => {
+    if (!isActive) return
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Shift') setShiftHeld(true)
+      if (e.key === 'Escape') {
+        setPuntoInicio(null)
+        setPuntoActual(null)
       }
-      onChange([...paredes, newPared])
+    }
+    const handleKeyUp = (e) => {
+      if (e.key === 'Shift') setShiftHeld(false)
     }
 
-    setInicio(null)
-    setPreview(null)
-  }, [inicio, preview, paredes, onChange])
-
-  const handleDeletePared = useCallback(
-    (id) => {
-      onChange(paredes.filter((p) => p.id !== id))
-    },
-    [paredes, onChange]
-  )
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+      setShiftHeld(false)
+    }
+  }, [isActive])
 
   return (
     <svg
       ref={svgRef}
-      className={`absolute inset-0 w-full h-full ${dibujar ? 'cursor-crosshair z-30' : 'z-5 pointer-events-none'}`}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={() => {
-        setInicio(null)
-        setPreview(null)
+      className="absolute inset-0 w-full h-full"
+      style={{
+        pointerEvents: isActive ? 'all' : 'none',
+        zIndex: isActive ? 10 : 1,
+        cursor: isActive ? 'crosshair' : 'default'
       }}
+      onClick={handleClick}
+      onMouseMove={handleMouseMove}
+      onContextMenu={handleContextMenu}
     >
-      {/* Grid */}
-      {dibujar && (
-        <defs>
-          <pattern id="grid" width={GRID} height={GRID} patternUnits="userSpaceOnUse">
-            <path d={`M ${GRID} 0 L 0 0 0 ${GRID}`} fill="none" stroke="var(--color-border-subtle)" strokeWidth="0.5" />
-          </pattern>
-        </defs>
+      {/* Grid pattern + background tint when drawing */}
+      {isActive && (
+        <>
+          <defs>
+            <pattern id="drawing-grid" width={GRID} height={GRID} patternUnits="userSpaceOnUse">
+              <circle cx={GRID} cy={GRID} r={0.5} fill="#94a3b8" opacity={0.5} />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="#f1f5f9" opacity={0.35} />
+          <rect width="100%" height="100%" fill="url(#drawing-grid)" />
+        </>
       )}
-      {dibujar && <rect width="100%" height="100%" fill="url(#grid)" />}
 
-      {/* Paredes existentes */}
-      {paredes.map((p) => (
+      {/* Existing walls */}
+      {paredes.map(p => (
         <g
           key={p.id}
-          onMouseEnter={() => dibujar && setHoveredId(p.id)}
-          onMouseLeave={() => setHoveredId(null)}
-          onClick={(e) => {
-            if (dibujar && hoveredId === p.id) {
-              e.stopPropagation()
-              handleDeletePared(p.id)
-            }
-          }}
-          style={{ pointerEvents: dibujar ? 'auto' : 'none' }}
+          onMouseEnter={isActive && !disabled ? () => setHoveredId(p.id) : undefined}
+          onMouseLeave={isActive && !disabled ? () => setHoveredId(null) : undefined}
         >
           <line
-            x1={p.x1}
-            y1={p.y1}
-            x2={p.x2}
-            y2={p.y2}
-            stroke={hoveredId === p.id ? 'var(--color-error-500)' : 'var(--color-text-secondary)'}
+            x1={p.x1} y1={p.y1} x2={p.x2} y2={p.y2}
+            stroke="#475569"
             strokeWidth={p.grosor || 8}
             strokeLinecap="round"
           />
-          {hoveredId === p.id && (
-            <text
-              x={(p.x1 + p.x2) / 2}
-              y={(p.y1 + p.y2) / 2 - 10}
-              textAnchor="middle"
-              fill="var(--color-error-500)"
-              fontSize="11"
-              fontWeight="bold"
+          {/* Wider invisible hit area for hover detection */}
+          {isActive && !disabled && (
+            <line
+              x1={p.x1} y1={p.y1} x2={p.x2} y2={p.y2}
+              stroke="transparent"
+              strokeWidth={Math.max((p.grosor || 8) + 12, 20)}
+              strokeLinecap="round"
+              style={{ cursor: 'pointer' }}
+            />
+          )}
+          {/* Delete button at midpoint */}
+          {hoveredId === p.id && isActive && !disabled && (
+            <g
+              onClick={(e) => {
+                e.stopPropagation()
+                onEliminarPared(p.id)
+                setHoveredId(null)
+              }}
+              style={{ cursor: 'pointer' }}
             >
-              Click para borrar
-            </text>
+              <circle
+                cx={(p.x1 + p.x2) / 2}
+                cy={(p.y1 + p.y2) / 2}
+                r={10}
+                fill="#ef4444"
+                stroke="white"
+                strokeWidth={2}
+              />
+              <text
+                x={(p.x1 + p.x2) / 2}
+                y={(p.y1 + p.y2) / 2 + 1}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="white"
+                fontSize={14}
+                fontWeight="bold"
+                style={{ pointerEvents: 'none' }}
+              >
+                ×
+              </text>
+            </g>
           )}
         </g>
       ))}
 
-      {/* Preview */}
-      {preview && (
+      {/* Preview line while drawing */}
+      {puntoInicio && puntoActual && (
         <line
-          x1={preview.x1}
-          y1={preview.y1}
-          x2={preview.x2}
-          y2={preview.y2}
-          stroke="var(--color-primary-500)"
-          strokeWidth="8"
+          x1={puntoInicio.x} y1={puntoInicio.y}
+          x2={puntoActual.x} y2={puntoActual.y}
+          stroke="#3b82f6"
+          strokeWidth={8}
           strokeLinecap="round"
           strokeDasharray="8 4"
-          opacity="0.7"
+          opacity={0.7}
+        />
+      )}
+
+      {/* Start point indicator */}
+      {puntoInicio && (
+        <circle
+          cx={puntoInicio.x} cy={puntoInicio.y}
+          r={5}
+          fill="#3b82f6"
+          stroke="white"
+          strokeWidth={2}
         />
       )}
     </svg>

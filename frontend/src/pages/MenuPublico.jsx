@@ -692,7 +692,7 @@ export default function MenuPublico() {
             )}
           </main>
 
-          <aside className="hidden lg:block lg:sticky lg:top-24">
+          <aside className="hidden lg:block lg:sticky lg:top-36">
             <CartPanel
               cart={carrito}
               totalItems={totalItems}

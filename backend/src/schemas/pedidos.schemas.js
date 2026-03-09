@@ -37,11 +37,16 @@ const cancelarBodySchema = z.object({
   motivo: z.string().min(3).max(500)
 }).strip();
 
+const asignarDeliveryBodySchema = z.object({
+  repartidorId: positiveIntSchema
+}).strip();
+
 module.exports = {
   idParamSchema,
   listarQuerySchema,
   crearPedidoBodySchema,
   cambiarEstadoBodySchema,
   agregarItemsBodySchema,
-  cancelarBodySchema
+  cancelarBodySchema,
+  asignarDeliveryBodySchema
 };

@@ -1,79 +1,124 @@
+import { forwardRef } from 'react'
 import { useDroppable } from '@dnd-kit/core'
+import { HomeIcon, SunIcon } from '@heroicons/react/24/outline'
 import MesaChip from './MesaChip'
 import ParedSVG from './ParedSVG'
 
-export default function ZonaDroppable({
+const ZonaDroppable = forwardRef(function ZonaDroppable({
   zona,
   mesas,
-  paredes,
-  reservasProximas = [],
-  grupoColores = {},
-  onPedirCuenta,
-  mostrarParedes,
-  onParedesChange,
-  dibujarPared,
-  onDibujarParedChange,
-}) {
+  disabled = false,
+  onRotar,
+  onQuitar,
+  onEditar,
+  paredes = [],
+  modoPlano = 'mesas',
+  onAgregarPared,
+  onEliminarPared
+}, ref) {
   const { setNodeRef, isOver } = useDroppable({
     id: `zona-${zona}`,
-    data: { zona },
+    data: { zona }
   })
 
-  const mesasEnZona = mesas.filter((m) => (m.zona || 'Interior') === zona)
+  const esExterior = zona === 'Exterior'
+  const Icon = esExterior ? SunIcon : HomeIcon
 
-  const getReservaProxima = (mesaId) => {
-    return reservasProximas.find((r) => r.mesaId === mesaId)
+  // Combinar refs
+  const combinedRef = (node) => {
+    setNodeRef(node)
+    if (ref) {
+      if (typeof ref === 'function') {
+        ref(node)
+      } else {
+        ref.current = node
+      }
+    }
   }
 
   return (
     <div
-      ref={setNodeRef}
+      ref={combinedRef}
       className={`
-        relative w-full bg-surface-primary border-2 border-dashed rounded-xl overflow-hidden
-        transition-colors
-        ${isOver ? 'border-primary-400 bg-primary-50/50' : 'border-border-default'}
+        relative rounded-xl border-2 border-dashed transition-colors
+        min-h-[500px] lg:min-h-[600px]
+        ${isOver ? 'border-primary-400 bg-primary-50/30' : 'border-border-default'}
+        ${esExterior
+          ? 'bg-gradient-to-br from-sky-50/40 via-emerald-50/20 to-green-50/40'
+          : 'bg-gradient-to-br from-slate-50/40 via-stone-50/20 to-zinc-50/40'
+        }
       `}
-      style={{ height: 500 }}
     >
-      {/* Etiqueta de zona */}
-      <div className="absolute top-2 left-3 text-xs font-medium text-text-tertiary uppercase tracking-wider z-20 pointer-events-none">
+      {/* Header */}
+      <div className={`
+        absolute top-3 left-3 px-3 py-1.5 rounded-lg text-sm font-medium
+        flex items-center gap-2
+        ${esExterior
+          ? 'bg-sky-100/80 text-sky-700 border border-sky-200'
+          : 'bg-slate-100/80 text-slate-700 border border-slate-200'
+        }
+      `}>
+        <Icon className="w-4 h-4" />
         {zona}
       </div>
 
-      {/* Paredes SVG */}
-      {mostrarParedes && (
-        <ParedSVG
-          paredes={paredes}
-          onChange={onParedesChange}
-          dibujar={dibujarPared}
-          onDibujarChange={onDibujarParedChange}
-        />
-      )}
+      {/* Contador */}
+      <div className="absolute top-3 right-3 text-xs text-text-tertiary">
+        {mesas.length} {mesas.length === 1 ? 'mesa' : 'mesas'}
+      </div>
 
-      {/* Mesas */}
-      {mesasEnZona.map((mesa) => (
-        <MesaChip
+      {/* Paredes (SVG overlay, behind mesas) */}
+      <ParedSVG
+        paredes={paredes}
+        modo={modoPlano}
+        onAgregarPared={onAgregarPared}
+        onEliminarPared={onEliminarPared}
+        disabled={disabled}
+      />
+
+      {/* Mesas posicionadas */}
+      {mesas.map((mesa) => (
+        <div
           key={mesa.id}
-          mesa={mesa}
-          reservaProxima={getReservaProxima(mesa.id)}
-          grupoColor={grupoColores[mesa.grupoMesaId]}
-          onPedirCuenta={onPedirCuenta}
-        />
+          className="absolute"
+          style={{
+            left: mesa.posX ?? 50,
+            top: mesa.posY ?? 60
+          }}
+        >
+          <MesaChip
+            mesa={mesa}
+            disabled={disabled}
+            showActions={!disabled}
+            onRotar={onRotar}
+            onQuitar={onQuitar}
+            onEditar={onEditar}
+            enGrupo={mesa.grupoMesaId != null}
+          />
+        </div>
       ))}
 
-      {/* Mesas sin posición (stack en esquina) */}
-      <div className="absolute bottom-2 right-2 flex flex-wrap gap-1 z-20">
-        {mesasEnZona
-          .filter((m) => m.posX == null || m.posY == null)
-          .map((mesa) => (
-            <div
-              key={`unplaced-${mesa.id}`}
-              className="text-[10px] bg-surface-secondary text-text-tertiary px-1.5 py-0.5 rounded border border-border-subtle"
-            >
-              Mesa {mesa.numero} (sin ubicar)
-            </div>
-          ))}
-      </div>
+      {/* Placeholder cuando está vacío */}
+      {mesas.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center text-text-tertiary">
+            <Icon className="w-8 h-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">Arrastra mesas aqui</p>
+            <p className="text-xs mt-1 opacity-60">desde el panel superior</p>
+          </div>
+        </div>
+      )}
+
+      {/* Grid de referencia sutil */}
+      <div
+        className="absolute inset-0 opacity-[0.02] pointer-events-none rounded-xl"
+        style={{
+          backgroundImage: 'radial-gradient(circle, currentColor 1px, transparent 1px)',
+          backgroundSize: '32px 32px'
+        }}
+      />
     </div>
   )
-}
+})
+
+export default ZonaDroppable

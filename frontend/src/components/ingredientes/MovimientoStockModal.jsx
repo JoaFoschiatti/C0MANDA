@@ -1,3 +1,5 @@
+import { getDecimalesUnidad } from '../../constants/unidades'
+
 export default function MovimientoStockModal({
   ingredienteSeleccionado,
   movForm,
@@ -44,7 +46,7 @@ export default function MovimientoStockModal({
             <input
               id="ingrediente-mov-cantidad"
               type="number"
-              step="0.01"
+              step={getDecimalesUnidad(ingredienteSeleccionado?.unidad) > 0 ? '0.01' : '1'}
               className="input"
               value={movForm.cantidad}
               onChange={(event) =>

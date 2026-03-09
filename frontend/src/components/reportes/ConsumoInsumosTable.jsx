@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
+import { formatStock } from '../../constants/unidades'
 
 export default function ConsumoInsumosTable({ data }) {
   const [expandedItems, setExpandedItems] = useState({})
@@ -84,10 +85,10 @@ function FragmentRow({ ingrediente, expanded, onToggle }) {
           </div>
         </td>
         <td className="text-right text-text-secondary">
-          {ingrediente.consumoTotal.toFixed(2)} {ingrediente.unidad}
+          {formatStock(ingrediente.consumoTotal, ingrediente.unidad)} {ingrediente.unidad}
         </td>
         <td className="text-right text-text-secondary">
-          {ingrediente.stockActual.toFixed(2)} {ingrediente.unidad}
+          {formatStock(ingrediente.stockActual, ingrediente.unidad)} {ingrediente.unidad}
         </td>
         <td className="text-right">
           <span className={`badge ${ingrediente.estado === 'BAJO' ? 'badge-error' : 'badge-success'}`}>
@@ -108,7 +109,7 @@ function FragmentRow({ ingrediente, expanded, onToggle }) {
                     )}
                   </span>
                   <span>
-                    {producto.cantidad} uds = {producto.consumo.toFixed(2)} {ingrediente.unidad}
+                    {producto.cantidad} uds = {formatStock(producto.consumo, ingrediente.unidad)} {ingrediente.unidad}
                   </span>
                 </div>
               ))}

@@ -1,6 +1,8 @@
 const { z } = require('zod');
 const { booleanOptionalFromString, idParamSchema } = require('./common.schemas');
 
+const UNIDADES_VALIDAS = ['kg', 'g', 'l', 'ml', 'unidad'];
+
 const listarQuerySchema = z.object({
   activo: booleanOptionalFromString,
   stockBajo: booleanOptionalFromString
@@ -8,7 +10,7 @@ const listarQuerySchema = z.object({
 
 const crearIngredienteBodySchema = z.object({
   nombre: z.string({ required_error: 'Nombre es requerido' }).min(1, 'Nombre es requerido'),
-  unidad: z.string({ required_error: 'Unidad es requerida' }).min(1, 'Unidad es requerida'),
+  unidad: z.enum(UNIDADES_VALIDAS, { required_error: 'Unidad es requerida' }),
   stockActual: z.coerce.number().min(0),
   stockMinimo: z.coerce.number().min(0),
   costo: z.preprocess((val) => (val === '' ? null : val), z.coerce.number().min(0).nullable().optional()),
@@ -17,7 +19,7 @@ const crearIngredienteBodySchema = z.object({
 
 const actualizarIngredienteBodySchema = z.object({
   nombre: z.string().min(1).optional(),
-  unidad: z.string().min(1).optional(),
+  unidad: z.enum(UNIDADES_VALIDAS).optional(),
   stockMinimo: z.coerce.number().min(0).optional(),
   costo: z.preprocess((val) => (val === '' ? null : val), z.coerce.number().min(0).nullable().optional()),
   activo: booleanOptionalFromString

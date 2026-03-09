@@ -28,7 +28,6 @@ enum TipoPedido {
   MESA
   DELIVERY
   MOSTRADOR
-  ONLINE
 }
 
 enum EstadoPedido {
@@ -136,8 +135,9 @@ model Usuario {
   activo        Boolean          @default(true)
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
-  pedidos       Pedido[]
-  cierres       CierreCaja[]
+  pedidos         Pedido[]         @relation("PedidoCreador")
+  pedidosDelivery Pedido[]         @relation("PedidoRepartidor")
+  cierres         CierreCaja[]
   auditorias    PedidoAuditoria[]
   refreshTokens RefreshToken[]
   fichajes      Fichaje[]
@@ -367,6 +367,7 @@ model Pedido {
   clienteTelefono   String?
   clienteDireccion  String?
   clienteEmail      String?
+  repartidorId      Int?
   tipoEntrega       TipoEntrega?
   costoEnvio        Decimal            @default(0) @db.Decimal(10, 2)
   subtotal          Decimal            @db.Decimal(10, 2)
@@ -379,7 +380,8 @@ model Pedido {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   mesa              Mesa?              @relation(fields: [mesaId], references: [id])
-  usuario           Usuario?           @relation(fields: [usuarioId], references: [id])
+  usuario           Usuario?           @relation("PedidoCreador", fields: [usuarioId], references: [id])
+  repartidor        Usuario?           @relation("PedidoRepartidor", fields: [repartidorId], references: [id])
   items             PedidoItem[]
   pagos             Pago[]
   auditorias        PedidoAuditoria[]
@@ -393,6 +395,7 @@ model Pedido {
   @@index([estadoPago, createdAt])
   @@index([mesaId])
   @@index([usuarioId])
+  @@index([repartidorId])
   @@map("pedidos")
 }
 

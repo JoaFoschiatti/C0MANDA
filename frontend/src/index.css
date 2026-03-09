@@ -3,21 +3,21 @@
 @theme {
   /* ============================================ */
   /* EWALD BRAND PALETTE                              */
-  /* Verde bosque = brand/identity, Dorado = CTA/action */
+  /* Marrón = brand/identity, Dorado = CTA/action */
   /* ============================================ */
 
   /* Brand (Verde Bosque) - sidebar, navbar, headers */
-  --color-brand-950: #0F1A0D;
-  --color-brand-900: #1A2418;
-  --color-brand-800: #243022;
-  --color-brand-700: #2F3E2C;
-  --color-brand-600: #4A6044;
-  --color-brand-500: #6A8262;
-  --color-brand-400: #8EA888;
-  --color-brand-300: #B2C8AE;
-  --color-brand-200: #D4E2D1;
-  --color-brand-100: #E8F0E6;
-  --color-brand-50: #F4F8F3;
+  --color-brand-950: #1A110A;
+  --color-brand-900: #2D1E12;
+  --color-brand-800: #3F2B19;
+  --color-brand-700: #543721;
+  --color-brand-600: #6B4A2E;
+  --color-brand-500: #85603E;
+  --color-brand-400: #A67E58;
+  --color-brand-300: #C4A07E;
+  --color-brand-200: #DBBFA2;
+  --color-brand-100: #EDDCC8;
+  --color-brand-50: #F7F0E8;
 
   /* Primary (Dorado) - CTA buttons, active links, focus rings */
   --color-primary-950: #5C4813;
@@ -33,13 +33,13 @@
   --color-primary-50: #FBF5E6;
 
   /* Canvas (Backgrounds) */
-  --color-canvas: #FDFBF7;
-  --color-canvas-subtle: #F7F4EF;
+  --color-canvas: #EEE0BE;
+  --color-canvas-subtle: #E6D6B0;
 
   /* Surface (Cards, Panels) */
   --color-surface: #FFFFFF;
-  --color-surface-hover: #FDFBF7;
-  --color-surface-pressed: #F7F4EF;
+  --color-surface-hover: #F5EDDA;
+  --color-surface-pressed: #EEE0BE;
 
   /* Text Hierarchy */
   --color-text-primary: #1A1A1A;
@@ -86,11 +86,11 @@
   /* ============================================ */
   /* SHADOWS - warm tint                          */
   /* ============================================ */
-  --shadow-xs: 0 1px 2px rgba(26, 36, 24, 0.04);
-  --shadow-sm: 0 2px 4px rgba(26, 36, 24, 0.04);
-  --shadow-md: 0 4px 12px rgba(26, 36, 24, 0.06);
-  --shadow-lg: 0 8px 24px rgba(26, 36, 24, 0.08);
-  --shadow-xl: 0 16px 48px rgba(26, 36, 24, 0.12);
+  --shadow-xs: 0 1px 2px rgba(42, 28, 16, 0.04);
+  --shadow-sm: 0 2px 4px rgba(42, 28, 16, 0.04);
+  --shadow-md: 0 4px 12px rgba(42, 28, 16, 0.06);
+  --shadow-lg: 0 8px 24px rgba(42, 28, 16, 0.08);
+  --shadow-xl: 0 16px 48px rgba(42, 28, 16, 0.12);
 
   /* ============================================ */
   /* BORDER RADIUS                                */
@@ -1486,13 +1486,21 @@ body {
 .admin-sidebar-panel {
   background:
     radial-gradient(circle at top, rgba(212, 168, 67, 0.15), transparent 16rem),
-    linear-gradient(180deg, #122013 0%, #101b11 100%);
+    linear-gradient(180deg, #1A110A 0%, #150E08 100%);
 }
 
 .admin-topbar {
-  background: rgba(255, 255, 255, 0.76);
-  backdrop-filter: blur(18px);
-  border-bottom: 1px solid rgba(212, 207, 199, 0.66);
+  background:
+    radial-gradient(circle at left, rgba(212, 168, 67, 0.15), transparent 16rem),
+    linear-gradient(180deg, #1A110A 0%, #150E08 100%);
+  color: #FFFFFF;
+  border-bottom: 1px solid #543721;
+}
+.admin-topbar h2,
+.admin-topbar button,
+.admin-topbar span,
+.admin-topbar svg {
+  color: inherit;
 }
 
 .admin-main {

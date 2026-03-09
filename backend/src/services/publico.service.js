@@ -229,7 +229,7 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
 
   const pedido = await prisma.pedido.create({
     data: {
-      tipo: 'ONLINE',
+      tipo: 'DELIVERY',
       tipoEntrega,
       clienteNombre,
       clienteTelefono,

@@ -1,76 +1,156 @@
 import { useDraggable } from '@dnd-kit/core'
+import { ArrowPathIcon, XMarkIcon, PencilIcon, LinkIcon } from '@heroicons/react/20/solid'
 
-const estadoClasses = {
-  LIBRE: 'bg-success-100 border-success-300 text-success-800',
-  OCUPADA: 'bg-error-100 border-error-300 text-error-800',
-  RESERVADA: 'bg-warning-100 border-warning-300 text-warning-800',
-  ESPERANDO_CUENTA: 'bg-amber-100 border-amber-300 text-amber-800',
-  CERRADA: 'bg-slate-100 border-slate-300 text-slate-700',
+const getEstadoClasses = (estado) => {
+  switch (estado) {
+    case 'LIBRE':
+      return 'bg-success-50 border-success-300 text-success-700'
+    case 'OCUPADA':
+      return 'bg-error-50 border-error-300 text-error-700'
+    case 'RESERVADA':
+      return 'bg-warning-50 border-warning-300 text-warning-700'
+    case 'ESPERANDO_CUENTA':
+      return 'bg-amber-50 border-amber-400 text-amber-700'
+    default:
+      return 'bg-surface border-border-default text-text-primary'
+  }
 }
 
-export default function MesaChip({ mesa, isOverlay = false, reservaProxima, onPedirCuenta, grupoColor }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+// Determinar tamaño según capacidad
+const getTamanio = (capacidad) => {
+  if (capacidad >= 6) {
+    return { width: 100, height: 48 } // Rectangular alargado para 6+ personas
+  }
+  return { width: 56, height: 56 } // Cuadrado para 4 personas o menos
+}
+
+export default function MesaChip({
+  mesa,
+  disabled = false,
+  isDragging = false,
+  onRotar,
+  onQuitar,
+  onEditar,
+  showActions = false,
+  enGrupo = false,
+  seleccionada = false
+}) {
+  const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: `mesa-${mesa.id}`,
     data: { mesa },
-    disabled: isOverlay,
+    disabled
   })
 
-  const capacidad = mesa.capacidad || 4
-  const esGrande = capacidad >= 6
-  const width = esGrande ? 100 : 56
-  const height = esGrande ? 48 : 56
+  const tamanio = getTamanio(mesa.capacidad)
+  const estadoClasses = getEstadoClasses(mesa.estado)
   const rotacion = mesa.rotacion || 0
+  const esRectangular = mesa.capacidad >= 6
 
-  const style = isOverlay
-    ? { width, height, transform: `rotate(${rotacion}deg)` }
-    : {
-        position: 'absolute',
-        left: mesa.posX ?? 0,
-        top: mesa.posY ?? 0,
-        width,
-        height,
-        transform: `rotate(${rotacion}deg)`,
-        opacity: isDragging ? 0.3 : 1,
-        zIndex: isDragging ? 0 : 10,
-      }
+  // Calcular dimensiones rotadas para el contenedor
+  const esRotado90o270 = rotacion === 90 || rotacion === 270
+  const containerWidth = esRotado90o270 ? tamanio.height : tamanio.width
+  const containerHeight = esRotado90o270 ? tamanio.width : tamanio.height
 
-  const estadoClass = estadoClasses[mesa.estado] || 'bg-surface-secondary border-border-default text-text-secondary'
+  const style = {
+    width: containerWidth,
+    height: containerHeight,
+    ...(transform && {
+      transform: `translate(${transform.x}px, ${transform.y}px)`,
+      zIndex: 1000
+    })
+  }
 
   return (
     <div
       ref={setNodeRef}
-      {...listeners}
-      {...attributes}
       style={style}
-      className={`
-        flex flex-col items-center justify-center
-        rounded-lg border-2 cursor-grab active:cursor-grabbing
-        select-none text-center leading-tight
-        transition-shadow hover:shadow-md
-        ${estadoClass}
-        ${grupoColor ? `ring-2 ring-offset-1 ${grupoColor}` : ''}
-      `}
-      title={`Mesa ${mesa.numero} - ${mesa.estado} (${capacidad}p)${reservaProxima ? ` | Reserva: ${reservaProxima.clienteNombre}` : ''}`}
+      className="relative group"
     >
-      <span className="font-bold text-sm leading-none">{mesa.numero}</span>
-      <span className="text-[10px] opacity-70">{capacidad}p</span>
-
-      {reservaProxima && (
-        <div className="absolute -top-1 -right-1 w-3 h-3 bg-warning-500 rounded-full border border-white" />
+      {/* Botones de acción */}
+      {showActions && !disabled && !isDragging && (
+        <div className="absolute -top-2 -right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          {onEditar && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onEditar(mesa)
+              }}
+              className="w-5 h-5 rounded-full bg-slate-600 text-white flex items-center justify-center hover:bg-slate-700 shadow-sm"
+              title="Editar mesa"
+            >
+              <PencilIcon className="w-3 h-3" />
+            </button>
+          )}
+          {esRectangular && onRotar && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onRotar(mesa.id)
+              }}
+              className="w-5 h-5 rounded-full bg-primary-500 text-white flex items-center justify-center hover:bg-primary-600 shadow-sm"
+              title="Rotar mesa"
+            >
+              <ArrowPathIcon className="w-3 h-3" />
+            </button>
+          )}
+          {onQuitar && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onQuitar(mesa.id)
+              }}
+              className="w-5 h-5 rounded-full bg-error-500 text-white flex items-center justify-center hover:bg-error-600 shadow-sm"
+              title="Quitar de la zona"
+            >
+              <XMarkIcon className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       )}
 
-      {['OCUPADA', 'ESPERANDO_CUENTA'].includes(mesa.estado) && onPedirCuenta && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onPedirCuenta(mesa)
-          }}
-          className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary-500 text-white text-[8px] px-1.5 py-0.5 rounded-full whitespace-nowrap hover:bg-primary-600 transition-colors"
+      {/* Mesa */}
+      <div
+        {...(disabled ? {} : { ...listeners, ...attributes })}
+        style={{
+          width: tamanio.width,
+          height: tamanio.height,
+          transform: `rotate(${rotacion}deg)`,
+          transformOrigin: 'center center',
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          marginLeft: -tamanio.width / 2,
+          marginTop: -tamanio.height / 2,
+        }}
+        className={`
+          rounded-xl flex flex-col items-center justify-center
+          shadow-sm select-none transition-shadow
+          ${enGrupo ? 'border-[3px] border-purple-500' : 'border-2'}
+          ${seleccionada ? 'ring-2 ring-blue-500 ring-offset-1' : ''}
+          ${estadoClasses}
+          ${isDragging ? 'shadow-xl opacity-95 scale-105' : ''}
+          ${disabled ? 'cursor-default' : 'cursor-grab active:cursor-grabbing hover:shadow-md'}
+        `}
+      >
+        {enGrupo && (
+          <LinkIcon
+            className="absolute -top-1 -right-1 w-3 h-3 text-purple-600"
+            style={{ transform: `rotate(-${rotacion}deg)` }}
+          />
+        )}
+        <span
+          className="text-base font-bold leading-none"
+          style={{ transform: `rotate(-${rotacion}deg)` }}
         >
-          Cuenta
-        </button>
-      )}
+          {mesa.numero}
+        </span>
+        <span
+          className="text-[9px] opacity-60 leading-none mt-0.5"
+          style={{ transform: `rotate(-${rotacion}deg)` }}
+        >
+          {mesa.capacidad}p
+        </span>
+      </div>
     </div>
   )
 }

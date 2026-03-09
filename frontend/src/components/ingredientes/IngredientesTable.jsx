@@ -1,5 +1,6 @@
 import { PencilIcon, ArrowUpIcon, ArrowDownIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { Badge } from '../ui'
+import { formatStock } from '../../constants/unidades'
 
 export default function IngredientesTable({
   formatFecha,
@@ -58,7 +59,7 @@ export default function IngredientesTable({
                 )}
                 {parseFloat(ingrediente.stockNoConsumible || 0) > 0 && (
                   <div className="mt-1 text-xs text-warning-700">
-                    No utilizable: {parseFloat(ingrediente.stockNoConsumible).toFixed(2)}{' '}
+                    No utilizable: {formatStock(ingrediente.stockNoConsumible, ingrediente.unidad)}{' '}
                     {ingrediente.unidad}
                   </div>
                 )}
@@ -69,10 +70,10 @@ export default function IngredientesTable({
                 )}
               </td>
               <td className="text-text-primary">
-                {parseFloat(ingrediente.stockActual).toFixed(2)} {ingrediente.unidad}
+                {formatStock(ingrediente.stockActual, ingrediente.unidad)} {ingrediente.unidad}
               </td>
               <td className="text-text-secondary">
-                {parseFloat(ingrediente.stockMinimo).toFixed(2)} {ingrediente.unidad}
+                {formatStock(ingrediente.stockMinimo, ingrediente.unidad)} {ingrediente.unidad}
               </td>
               <td className="text-text-secondary">
                 {ingrediente.costo

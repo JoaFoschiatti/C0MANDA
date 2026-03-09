@@ -35,9 +35,10 @@ const navSections = [
       { name: 'Dashboard', href: '/dashboard', icon: HomeIcon, roles: ['ADMIN', 'COCINERO', 'CAJERO'] },
       { name: 'Tareas', href: '/tareas', icon: ListBulletIcon, roles: ['ADMIN', 'CAJERO'] },
       { name: 'Mesas', href: '/mozo/mesas', icon: TableCellsIcon, roles: ['ADMIN', 'MOZO'] },
+      { name: 'Mesas', href: '/mesas', icon: TableCellsIcon, roles: ['CAJERO'] },
       { name: 'Reservas', href: '/reservas', icon: CalendarDaysIcon, roles: ['ADMIN'] },
       { name: 'Pedidos', href: '/pedidos', icon: ClipboardDocumentListIcon, roles: ['ADMIN', 'MOZO', 'CAJERO'] },
-      { name: 'Cocina', href: '/cocina', icon: FireIcon, roles: ['ADMIN', 'COCINERO'] },
+      { name: 'Cocina', href: '/cocina', icon: FireIcon, roles: ['ADMIN', 'COCINERO', 'CAJERO'] },
       { name: 'Mis Entregas', href: '/delivery/pedidos', icon: TruckIcon, roles: ['ADMIN', 'DELIVERY'] }
     ]
   },
@@ -57,7 +58,7 @@ const navSections = [
     items: [
       { name: 'Liquidaciones', href: '/liquidaciones', icon: BanknotesIcon, roles: ['ADMIN'] },
       { name: 'Transacciones MP', href: '/transacciones-mp', icon: CreditCardIcon, roles: ['ADMIN'] },
-      { name: 'Reportes', href: '/reportes', icon: ChartBarIcon, roles: ['ADMIN', 'CAJERO'] },
+      { name: 'Reportes', href: '/reportes', icon: ChartBarIcon, roles: ['ADMIN'] },
       { name: 'Cierre de Caja', href: '/cierre-caja', icon: BanknotesIcon, roles: ['ADMIN', 'CAJERO'] }
     ]
   },
@@ -138,7 +139,6 @@ export default function AdminLayout() {
           <div className="fixed inset-y-0 left-0 w-72 admin-sidebar-panel flex flex-col shadow-xl">
             <div className="flex items-center justify-between px-4 py-5 border-b border-white/10">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.28em] text-brand-400">Restaurant OS</p>
                 <span className="text-lg font-bold text-white tracking-tight">Comanda</span>
               </div>
               <button
@@ -171,7 +171,6 @@ export default function AdminLayout() {
               <span className="text-sm font-bold text-primary-950">C</span>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-[0.28em] text-brand-400">Restaurant OS</p>
               <span className="text-lg font-bold text-white tracking-tight">Comanda</span>
             </div>
           </div>
@@ -209,12 +208,11 @@ export default function AdminLayout() {
                 onClick={() => setSidebarOpen(true)}
                 className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors lg:hidden"
               >
-                <Bars3Icon className="w-5 h-5 text-text-secondary" />
+                <Bars3Icon className="w-5 h-5" />
               </button>
 
               <div>
-                <p className="text-[11px] uppercase tracking-[0.24em] text-text-tertiary">Operacion premium</p>
-                <h2 className="text-sm font-semibold text-text-primary">{pageTitle}</h2>
+                <h2 className="text-base font-bold">{pageTitle}</h2>
               </div>
             </div>
 
@@ -225,12 +223,12 @@ export default function AdminLayout() {
                 aria-label={dark ? 'Modo claro' : 'Modo oscuro'}
               >
                 {dark ? (
-                  <SunIcon className="w-5 h-5 text-primary-500" />
+                  <SunIcon className="w-5 h-5" />
                 ) : (
-                  <MoonIcon className="w-5 h-5 text-text-tertiary" />
+                  <MoonIcon className="w-5 h-5" />
                 )}
               </button>
-              <span className="text-sm text-text-secondary">{usuario?.nombre}</span>
+              <span className="text-sm">{usuario?.nombre}</span>
               <Avatar name={usuario?.nombre} size="sm" />
             </div>
           </div>

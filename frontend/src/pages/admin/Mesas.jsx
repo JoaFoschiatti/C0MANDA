@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   DndContext,
@@ -18,10 +18,13 @@ import {
 } from '@heroicons/react/24/outline'
 
 import api from '../../services/api'
+import { useAuth } from '../../context/AuthContext'
 import useAsync from '../../hooks/useAsync'
 import usePolling from '../../hooks/usePolling'
 import useEventSource from '../../hooks/useEventSource'
+import useKeyboardShortcuts from '../../hooks/useKeyboardShortcuts'
 import { EmptyState, PageHeader, Button, Spinner } from '../../components/ui'
+import ShortcutsHelp from '../../components/ui/ShortcutsHelp'
 import MesaChip from '../../components/plano/MesaChip'
 import ZonaDroppable from '../../components/plano/ZonaDroppable'
 import { parsePositiveIntParam } from '../../utils/query-params'
@@ -42,8 +45,12 @@ const FORM_INICIAL = {
 }
 
 export default function Mesas() {
+  const { usuario } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const esAdmin = usuario?.rol === 'ADMIN'
+  const zonaRef = useRef(null)
+
   const [mesas, setMesas] = useState([])
   const [reservasProximas, setReservasProximas] = useState([])
   const [tab, setTab] = useState('operacion')
@@ -51,13 +58,14 @@ export default function Mesas() {
   const [editando, setEditando] = useState(null)
   const [form, setForm] = useState(FORM_INICIAL)
 
-  const [paredesInterior, setParedesInterior] = useState([])
-  const [paredesExterior, setParedesExterior] = useState([])
+  const [paredes, setParedes] = useState({ Interior: [], Exterior: [] })
+  const [paredesChanged, setParedesChanged] = useState(false)
   const [zonaActiva, setZonaActiva] = useState('Interior')
   const [modoDibujo, setModoDibujo] = useState('mesas')
-  const [dibujarPared, setDibujarPared] = useState(false)
   const [activeMesa, setActiveMesa] = useState(null)
   const [posicionesModificadas, setPosicionesModificadas] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
 
   const [seleccionGrupo, setSeleccionGrupo] = useState([])
   const mesaEnfocadaId = parsePositiveIntParam(searchParams.get('mesaId'))
@@ -102,14 +110,13 @@ export default function Mesas() {
     }
   }, [])
 
-  const cargarParedes = useCallback(async (zona) => {
+  const cargarParedes = useCallback(async () => {
     try {
-      const response = await api.get(`/plano/paredes?zona=${zona}`, { skipToast: true })
-      if (zona === 'Interior') {
-        setParedesInterior(response.data)
-        return
-      }
-      setParedesExterior(response.data)
+      const [interior, exterior] = await Promise.all([
+        api.get('/plano/paredes?zona=Interior', { skipToast: true }),
+        api.get('/plano/paredes?zona=Exterior', { skipToast: true })
+      ])
+      setParedes({ Interior: interior.data, Exterior: exterior.data })
     } catch {
       // La configuracion de paredes puede no existir todavia.
     }
@@ -143,8 +150,7 @@ export default function Mesas() {
       return
     }
 
-    cargarParedes('Interior')
-    cargarParedes('Exterior')
+    cargarParedes()
   }, [tab, cargarParedes])
 
   useEffect(() => {
@@ -207,35 +213,101 @@ export default function Mesas() {
   }
 
   const handleDragEnd = (event) => {
+    const { active, over } = event
     setActiveMesa(null)
-    const { active, over, delta } = event
 
-    if (!over || !active.data.current?.mesa) {
-      return
-    }
+    if (!esAdmin) return
 
-    const mesa = active.data.current.mesa
-    const newPosX = Math.max(0, (mesa.posX ?? 0) + delta.x)
-    const newPosY = Math.max(0, (mesa.posY ?? 0) + delta.y)
-    const targetZona = over.data.current?.zona || mesa.zona || 'Interior'
+    const mesa = active.data.current?.mesa
+    if (!mesa) return
 
-    setMesas((prev) =>
-      prev.map((currentMesa) =>
-        currentMesa.id === mesa.id
-          ? {
-              ...currentMesa,
-              posX: Math.round(newPosX),
-              posY: Math.round(newPosY),
-              zona: targetZona,
-            }
-          : currentMesa
-      )
-    )
+    const zonaElement = zonaRef.current
+    if (!zonaElement) return
+
+    const zonaRect = zonaElement.getBoundingClientRect()
+    const pointerX = event.activatorEvent?.clientX + (event.delta?.x || 0)
+    const pointerY = event.activatorEvent?.clientY + (event.delta?.y || 0)
+
+    // Calcular tamanio real del contenedor segun capacidad + rotacion
+    const esRectangular = mesa.capacidad >= 6
+    const baseW = esRectangular ? 100 : 56
+    const baseH = esRectangular ? 48 : 56
+    const rotacion = mesa.rotacion || 0
+    const esRotado = rotacion === 90 || rotacion === 270
+    const chipW = esRotado ? baseH : baseW
+    const chipH = esRotado ? baseW : baseH
+
+    // Convertir puntero a posicion top-left del chip
+    let newX = pointerX - zonaRect.left - chipW / 2
+    let newY = pointerY - zonaRect.top - chipH / 2
+
+    // Clamp dentro de la zona con padding
+    const padding = 10
+    const minY = 50
+    const maxX = zonaRect.width - chipW - padding
+    const maxY = zonaRect.height - chipH - padding
+    newX = Math.max(padding, Math.min(newX, maxX))
+    newY = Math.max(minY, Math.min(newY, maxY))
+
+    const targetZona = over?.data.current?.zona
+
+    setMesas(prev => prev.map(m => {
+      if (m.id !== mesa.id) return m
+
+      if (targetZona === zonaActiva) {
+        return { ...m, zona: zonaActiva, posX: Math.round(newX), posY: Math.round(newY) }
+      }
+
+      if (m.zona === zonaActiva && m.posX != null) {
+        return { ...m, posX: Math.round(newX), posY: Math.round(newY) }
+      }
+
+      return m
+    }))
 
     setPosicionesModificadas(true)
   }
 
+  // ============ PLANO: ACCIONES DE MESA ============
+
+  const handleRotar = (mesaId) => {
+    setMesas(prev => prev.map(m => {
+      if (m.id !== mesaId) return m
+      return { ...m, rotacion: ((m.rotacion || 0) + 90) % 360 }
+    }))
+    setPosicionesModificadas(true)
+  }
+
+  const handleQuitar = (mesaId) => {
+    setMesas(prev => prev.map(m => {
+      if (m.id !== mesaId) return m
+      return { ...m, zona: null, posX: null, posY: null, rotacion: 0 }
+    }))
+    setPosicionesModificadas(true)
+  }
+
+  // ============ PLANO: PAREDES ============
+
+  const handleAgregarPared = (pared) => {
+    setParedes(prev => ({
+      ...prev,
+      [zonaActiva]: [...(prev[zonaActiva] || []), pared]
+    }))
+    setParedesChanged(true)
+    setPosicionesModificadas(true)
+  }
+
+  const handleEliminarPared = (paredId) => {
+    setParedes(prev => ({
+      ...prev,
+      [zonaActiva]: (prev[zonaActiva] || []).filter(p => p.id !== paredId)
+    }))
+    setParedesChanged(true)
+    setPosicionesModificadas(true)
+  }
+
   const handleGuardarPosiciones = async () => {
+    setSaving(true)
     try {
       const posiciones = mesas
         .filter((mesa) => mesa.posX != null && mesa.posY != null)
@@ -249,24 +321,33 @@ export default function Mesas() {
 
       if (posiciones.length === 0) {
         toast.error('No hay mesas con posicion asignada')
+        setSaving(false)
         return
       }
 
-      await api.patch('/mesas/posiciones', { posiciones }, { skipToast: true })
+      const promises = [
+        api.patch('/mesas/posiciones', { posiciones }, { skipToast: true })
+      ]
+
+      if (paredesChanged) {
+        for (const zona of ['Interior', 'Exterior']) {
+          promises.push(
+            api.put('/plano/paredes', {
+              zona,
+              paredes: paredes[zona] || []
+            }, { skipToast: true })
+          )
+        }
+      }
+
+      await Promise.all(promises)
       toast.success('Posiciones guardadas')
       setPosicionesModificadas(false)
+      setParedesChanged(false)
     } catch (error) {
       toast.error(error.response?.data?.error?.message || 'Error al guardar posiciones')
-    }
-  }
-
-  const handleGuardarParedes = async () => {
-    try {
-      const paredes = zonaActiva === 'Interior' ? paredesInterior : paredesExterior
-      await api.put('/plano/paredes', { zona: zonaActiva, paredes }, { skipToast: true })
-      toast.success('Paredes guardadas')
-    } catch (error) {
-      toast.error(error.response?.data?.error?.message || 'Error al guardar paredes')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -314,7 +395,7 @@ export default function Mesas() {
 
   const handleMesaClick = (mesa) => {
     if (mesa.estado === 'LIBRE') {
-      navigate(`/mozo/nuevo-pedido/${mesa.id}`)
+      if (esAdmin) navigate(`/mozo/nuevo-pedido/${mesa.id}`)
       return
     }
 
@@ -363,7 +444,32 @@ export default function Mesas() {
   const formatHora = (fecha) =>
     new Date(fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
 
+  // ============ ATAJOS DE TECLADO ============
+
+  const shortcutsList = useMemo(() => [
+    { key: 'N', description: 'Nueva mesa' },
+    { key: '1', description: 'Tab Operacion' },
+    { key: '2', description: 'Tab Plano' },
+    { key: 'Esc', description: 'Cerrar modal / Cancelar' },
+    { key: '?', description: 'Ayuda de atajos' },
+  ], [])
+
+  useKeyboardShortcuts(useMemo(() => ({
+    'n': () => { if (esAdmin) abrirModalNuevaMesa() },
+    '1': () => setTab('operacion'),
+    '2': () => setTab('plano'),
+    'Escape': () => {
+      if (showShortcutsHelp) setShowShortcutsHelp(false)
+      else if (showModal) cerrarModal()
+    },
+    '?': () => setShowShortcutsHelp(prev => !prev),
+  }), [esAdmin, showShortcutsHelp, showModal, abrirModalNuevaMesa, cerrarModal]))
+
+  // ============ VALORES COMPUTADOS ============
+
   const mesasActivas = mesas.filter((mesa) => mesa.activa !== false)
+  const mesasSinPosicionar = mesasActivas.filter(m => !m.zona || m.posX == null || m.posY == null)
+  const mesasZonaActiva = mesasActivas.filter(m => m.zona === zonaActiva && m.posX != null && m.posY != null)
   const mesasOcupadas = mesasActivas.filter((mesa) => mesa.estado === 'OCUPADA').length
   const mesasEsperandoCuenta = mesasActivas.filter((mesa) => mesa.estado === 'ESPERANDO_CUENTA').length
   const mesasPorZona = mesasActivas.reduce((acc, mesa) => {
@@ -392,18 +498,45 @@ export default function Mesas() {
         actions={
           <div className="flex items-center gap-2">
             {tab === 'plano' && posicionesModificadas && (
-              <Button variant="primary" onClick={handleGuardarPosiciones}>
-                Guardar Posiciones
+              <Button variant="primary" onClick={handleGuardarPosiciones} disabled={saving}>
+                {saving ? 'Guardando...' : 'Guardar Posiciones'}
               </Button>
             )}
-            {tab === 'plano' && modoDibujo === 'paredes' && (
-              <Button variant="secondary" onClick={handleGuardarParedes}>
-                Guardar Paredes
+            {tab === 'plano' && esAdmin && (
+              <div className="flex gap-1 p-1 bg-surface-hover rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setModoDibujo('mesas')}
+                  className={`
+                    px-3 py-1.5 rounded-md text-xs font-medium transition-all
+                    ${modoDibujo === 'mesas'
+                      ? 'bg-surface shadow-sm text-text-primary'
+                      : 'text-text-secondary hover:text-text-primary'
+                    }
+                  `}
+                >
+                  Mover Mesas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoDibujo('paredes')}
+                  className={`
+                    px-3 py-1.5 rounded-md text-xs font-medium transition-all
+                    ${modoDibujo === 'paredes'
+                      ? 'bg-surface shadow-sm text-text-primary'
+                      : 'text-text-secondary hover:text-text-primary'
+                    }
+                  `}
+                >
+                  Dibujar Paredes
+                </button>
+              </div>
+            )}
+            {esAdmin && (
+              <Button icon={PlusIcon} onClick={abrirModalNuevaMesa}>
+                Nueva Mesa
               </Button>
             )}
-            <Button icon={PlusIcon} onClick={abrirModalNuevaMesa}>
-              Nueva Mesa
-            </Button>
           </div>
         }
       />
@@ -530,7 +663,7 @@ export default function Mesas() {
                           </div>
                         )}
 
-                        {mesa.grupoMesaId && (
+                        {esAdmin && mesa.grupoMesaId && (
                           <button
                             type="button"
                             onClick={(event) => {
@@ -578,49 +711,53 @@ export default function Mesas() {
                               Cuenta
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              handleEdit(mesa)
-                            }}
-                            aria-label={`Editar mesa ${mesa.numero}`}
-                            title={`Editar mesa ${mesa.numero}`}
-                            className="mesa-action-btn mesa-action-btn--primary"
-                          >
-                            <PencilIcon className="w-4 h-4" />
-                            <span className="hidden xl:inline">Editar</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              toggleSeleccionGrupo(mesa.id)
-                            }}
-                            aria-label={`Seleccionar mesa ${mesa.numero} para agrupar`}
-                            title={`Seleccionar mesa ${mesa.numero} para agrupar`}
-                            className={`mesa-action-btn ${
-                              isSelected
-                                ? 'border-primary-300 bg-primary-50 text-primary-700'
-                                : 'text-text-tertiary hover:text-text-secondary'
-                            }`}
-                          >
-                            <ViewColumnsIcon className="w-4 h-4" />
-                            <span className="hidden xl:inline">Agrupar</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              handleDelete(mesa.id)
-                            }}
-                            aria-label={`Desactivar mesa ${mesa.numero}`}
-                            title={`Desactivar mesa ${mesa.numero}`}
-                            className="mesa-action-btn mesa-action-btn--danger"
-                          >
-                            <TrashIcon className="w-4 h-4" />
-                            <span className="hidden xl:inline">Baja</span>
-                          </button>
+                          {esAdmin && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  handleEdit(mesa)
+                                }}
+                                aria-label={`Editar mesa ${mesa.numero}`}
+                                title={`Editar mesa ${mesa.numero}`}
+                                className="mesa-action-btn mesa-action-btn--primary"
+                              >
+                                <PencilIcon className="w-4 h-4" />
+                                <span className="hidden xl:inline">Editar</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  toggleSeleccionGrupo(mesa.id)
+                                }}
+                                aria-label={`Seleccionar mesa ${mesa.numero} para agrupar`}
+                                title={`Seleccionar mesa ${mesa.numero} para agrupar`}
+                                className={`mesa-action-btn ${
+                                  isSelected
+                                    ? 'border-primary-300 bg-primary-50 text-primary-700'
+                                    : 'text-text-tertiary hover:text-text-secondary'
+                                }`}
+                              >
+                                <ViewColumnsIcon className="w-4 h-4" />
+                                <span className="hidden xl:inline">Agrupar</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  handleDelete(mesa.id)
+                                }}
+                                aria-label={`Desactivar mesa ${mesa.numero}`}
+                                title={`Desactivar mesa ${mesa.numero}`}
+                                className="mesa-action-btn mesa-action-btn--danger"
+                              >
+                                <TrashIcon className="w-4 h-4" />
+                                <span className="hidden xl:inline">Baja</span>
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     )
@@ -633,105 +770,123 @@ export default function Mesas() {
       )}
 
       {tab === 'plano' && (
-        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="flex flex-wrap items-center gap-3 mb-4">
-            <div className="flex items-center gap-1 bg-surface-secondary rounded-lg p-1">
+        <div className="space-y-4">
+          {/* Tabs de zonas */}
+          <div className="flex gap-1 p-1 bg-surface-hover rounded-lg w-fit">
+            {['Interior', 'Exterior'].map(zona => (
               <button
+                key={zona}
                 type="button"
-                onClick={() => setZonaActiva('Interior')}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  zonaActiva === 'Interior'
-                    ? 'bg-surface-primary shadow-sm text-text-primary font-medium'
+                onClick={() => setZonaActiva(zona)}
+                className={`
+                  px-4 py-2 rounded-md text-sm font-medium transition-all
+                  ${zonaActiva === zona
+                    ? 'bg-surface shadow-sm text-text-primary'
                     : 'text-text-secondary hover:text-text-primary'
-                }`}
+                  }
+                `}
               >
-                Interior
+                {zona}
+                <span className="ml-2 text-xs opacity-60">
+                  ({mesasActivas.filter(m => m.zona === zona && m.posX != null).length})
+                </span>
               </button>
-              <button
-                type="button"
-                onClick={() => setZonaActiva('Exterior')}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  zonaActiva === 'Exterior'
-                    ? 'bg-surface-primary shadow-sm text-text-primary font-medium'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                Exterior
-              </button>
-            </div>
-
-            <div className="h-6 w-px bg-border-default" />
-
-            <div className="flex items-center gap-1 bg-surface-secondary rounded-lg p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setModoDibujo('mesas')
-                  setDibujarPared(false)
-                }}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  modoDibujo === 'mesas'
-                    ? 'bg-surface-primary shadow-sm text-text-primary font-medium'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                Mesas
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setModoDibujo('paredes')
-                  setDibujarPared(true)
-                }}
-                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                  modoDibujo === 'paredes'
-                    ? 'bg-surface-primary shadow-sm text-text-primary font-medium'
-                    : 'text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                Paredes
-              </button>
-            </div>
-
-            {posicionesModificadas && (
-              <span className="text-xs text-warning-600 bg-warning-50 px-2 py-1 rounded-full">
-                Cambios sin guardar
-              </span>
-            )}
+            ))}
           </div>
 
-          <ZonaDroppable
-            zona={zonaActiva}
-            mesas={mesasActivas}
-            paredes={zonaActiva === 'Interior' ? paredesInterior : paredesExterior}
-            reservasProximas={reservasProximas}
-            grupoColores={grupoColores}
-            onPedirCuenta={handlePedirCuenta}
-            mostrarParedes={true}
-            onParedesChange={zonaActiva === 'Interior' ? setParedesInterior : setParedesExterior}
-            dibujarPared={dibujarPared}
-            onDibujarParedChange={setDibujarPared}
-          />
+          {modoDibujo === 'paredes' && (
+            <p className="text-xs text-text-tertiary">
+              Click para iniciar una pared, click de nuevo para terminarla. Click derecho o Esc para cancelar. Shift para lineas rectas.
+            </p>
+          )}
 
-          <DragOverlay>
-            {activeMesa && <MesaChip mesa={activeMesa} isOverlay />}
-          </DragOverlay>
-
-          <div className="mt-3 text-xs text-text-tertiary space-y-1">
-            {modoDibujo === 'mesas' ? (
-              <p>
-                Arrastra las mesas para ubicarlas en el plano. Las mesas sin posicion
-                aparecen en la esquina inferior derecha.
-              </p>
-            ) : (
-              <p>
-                Hace click y arrastra para dibujar paredes. Mantene Shift para lineas
-                rectas. Click en una pared para borrarla.
-              </p>
+          <DndContext
+            sensors={sensors}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            {/* Mesas sin posicionar */}
+            {mesasSinPosicionar.length > 0 && esAdmin && (
+              <div className="card p-4">
+                <h3 className="text-sm font-medium text-text-secondary mb-3">
+                  Mesas sin posicionar ({mesasSinPosicionar.length})
+                </h3>
+                <div className="flex flex-wrap gap-4">
+                  {mesasSinPosicionar.map(mesa => (
+                    <MesaChip
+                      key={mesa.id}
+                      mesa={mesa}
+                      showActions
+                      onEditar={handleEdit}
+                      enGrupo={mesa.grupoMesaId != null}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
+
+            {/* Zona activa */}
+            <ZonaDroppable
+              ref={zonaRef}
+              zona={zonaActiva}
+              mesas={mesasZonaActiva}
+              disabled={!esAdmin}
+              onRotar={handleRotar}
+              onQuitar={handleQuitar}
+              onEditar={handleEdit}
+              paredes={paredes[zonaActiva] || []}
+              modoPlano={modoDibujo}
+              onAgregarPared={handleAgregarPared}
+              onEliminarPared={handleEliminarPared}
+            />
+
+            {/* Drag Overlay */}
+            <DragOverlay dropAnimation={null}>
+              {activeMesa ? (
+                <MesaChip mesa={activeMesa} isDragging disabled enGrupo={activeMesa.grupoMesaId != null} />
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+
+          {/* Leyenda */}
+          <div className="flex flex-wrap items-center gap-4 text-sm text-text-secondary">
+            <span className="font-medium">Estado:</span>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-success-100 border border-success-300" />
+              <span>Libre</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-error-100 border border-error-300" />
+              <span>Ocupada</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-amber-100 border border-amber-400" />
+              <span>Esperando Cuenta</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-warning-100 border border-warning-300" />
+              <span>Reservada</span>
+            </div>
+            <span className="mx-2 text-border-default">|</span>
+            <span className="font-medium">Forma:</span>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-surface border border-border-default" />
+              <span>4 personas</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-3 rounded bg-surface border border-border-default" />
+              <span>6+ personas</span>
+            </div>
           </div>
-        </DndContext>
+        </div>
       )}
+
+      <ShortcutsHelp
+        isOpen={showShortcutsHelp}
+        onClose={() => setShowShortcutsHelp(false)}
+        shortcuts={shortcutsList}
+        pageName="Mesas"
+      />
 
       {showModal && (
         <div className="modal-overlay">

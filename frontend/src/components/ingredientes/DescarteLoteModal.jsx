@@ -1,3 +1,5 @@
+import { formatStock } from '../../constants/unidades'
+
 export default function DescarteLoteModal({
   descarteForm,
   ingredienteSeleccionado,
@@ -30,14 +32,14 @@ export default function DescarteLoteModal({
                   ...current,
                   loteId: event.target.value,
                   cantidad: nextLote
-                    ? String(parseFloat(nextLote.stockActual).toFixed(2))
+                    ? String(formatStock(nextLote.stockActual, ingredienteSeleccionado?.unidad))
                     : current.cantidad,
                 }))
               }}
             >
               {lotesVencidosSeleccionados.map((lote) => (
                 <option key={lote.id} value={lote.id}>
-                  {lote.codigoLote} - {parseFloat(lote.stockActual).toFixed(2)}{' '}
+                  {lote.codigoLote} - {formatStock(lote.stockActual, ingredienteSeleccionado?.unidad)}{' '}
                   {ingredienteSeleccionado?.unidad}
                 </option>
               ))}

@@ -811,6 +811,7 @@ module.exports = {
       include: {
         mesa: { select: { numero: true, zona: true } },
         usuario: { select: { nombre: true } },
+        repartidor: { select: { id: true, nombre: true } },
         items: {
           include: {
             producto: { select: { nombre: true } },
@@ -846,6 +847,7 @@ module.exports = {
       include: {
         mesa: true,
         usuario: { select: { nombre: true, email: true } },
+        repartidor: { select: { id: true, nombre: true } },
         items: {
           include: {
             producto: true,
