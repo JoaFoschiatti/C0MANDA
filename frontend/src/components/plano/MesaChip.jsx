@@ -35,7 +35,7 @@ export default function MesaChip({
   enGrupo = false,
   seleccionada = false
 }) {
-  const { attributes, listeners, setNodeRef, transform } = useDraggable({
+  const { attributes, listeners, setNodeRef, transform, isDragging: isBeingDragged } = useDraggable({
     id: `mesa-${mesa.id}`,
     data: { mesa },
     disabled
@@ -64,7 +64,7 @@ export default function MesaChip({
     <div
       ref={setNodeRef}
       style={style}
-      className="relative group"
+      className={`relative group ${isBeingDragged ? 'opacity-0' : ''}`}
     >
       {/* Botones de acción */}
       {showActions && !disabled && !isDragging && (

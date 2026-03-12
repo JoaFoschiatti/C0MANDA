@@ -830,7 +830,8 @@ module.exports = {
               propinaMonto: true, createdAt: true
             }
           },
-          printJobs: { select: { status: true, batchId: true, createdAt: true, lastError: true } }
+          printJobs: { select: { status: true, batchId: true, createdAt: true, lastError: true } },
+          comprobanteFiscal: { select: { id: true, estado: true, cae: true } }
         },
         orderBy: { createdAt: 'desc' },
         take: limit,

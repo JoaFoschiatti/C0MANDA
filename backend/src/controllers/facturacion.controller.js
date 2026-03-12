@@ -19,8 +19,15 @@ const guardarConfiguracion = async (req, res) => {
   res.json(result);
 };
 
+const listarComprobantes = async (req, res) => {
+  const prisma = getPrisma(req);
+  const result = await facturacionService.listarComprobantes(prisma, req.query);
+  res.json(result);
+};
+
 module.exports = {
   crearComprobante,
   obtenerComprobante,
-  guardarConfiguracion
+  guardarConfiguracion,
+  listarComprobantes
 };

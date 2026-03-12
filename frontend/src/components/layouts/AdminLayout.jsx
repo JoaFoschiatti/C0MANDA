@@ -24,6 +24,7 @@ import {
   CalendarDaysIcon,
   AdjustmentsHorizontalIcon,
   CreditCardIcon,
+  DocumentTextIcon,
   SunIcon,
   MoonIcon
 } from '@heroicons/react/24/outline'
@@ -58,6 +59,7 @@ const navSections = [
     items: [
       { name: 'Liquidaciones', href: '/liquidaciones', icon: BanknotesIcon, roles: ['ADMIN'] },
       { name: 'Transacciones MP', href: '/transacciones-mp', icon: CreditCardIcon, roles: ['ADMIN'] },
+      { name: 'Facturacion', href: '/facturacion', icon: DocumentTextIcon, roles: ['ADMIN', 'CAJERO'] },
       { name: 'Reportes', href: '/reportes', icon: ChartBarIcon, roles: ['ADMIN'] },
       { name: 'Cierre de Caja', href: '/cierre-caja', icon: BanknotesIcon, roles: ['ADMIN', 'CAJERO'] }
     ]

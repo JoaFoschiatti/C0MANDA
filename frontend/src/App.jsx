@@ -24,6 +24,7 @@ const CierreCaja = lazy(() => import('./pages/admin/CierreCaja'))
 const Reservas = lazy(() => import('./pages/admin/Reservas'))
 const Modificadores = lazy(() => import('./pages/admin/Modificadores'))
 const TransaccionesMercadoPago = lazy(() => import('./pages/admin/TransaccionesMercadoPago'))
+const Facturacion = lazy(() => import('./pages/admin/Facturacion'))
 const Pedidos = lazy(() => import('./pages/admin/Pedidos'))
 const Tareas = lazy(() => import('./pages/admin/Tareas'))
 
@@ -102,6 +103,7 @@ export default function App() {
         <Route path="reservas" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Reservas /></LazyScreen></ProtectedRoute>} />
         <Route path="modificadores" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Modificadores /></LazyScreen></ProtectedRoute>} />
         <Route path="transacciones-mp" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><TransaccionesMercadoPago /></LazyScreen></ProtectedRoute>} />
+        <Route path="facturacion" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><Facturacion /></LazyScreen></ProtectedRoute>} />
         <Route path="pedidos" element={<LazyScreen><Pedidos /></LazyScreen>} />
         <Route path="mozo/mesas" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><MozoMesas /></LazyScreen></ProtectedRoute>} />
         <Route path="mozo/nuevo-pedido" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><NuevoPedido /></LazyScreen></ProtectedRoute>} />

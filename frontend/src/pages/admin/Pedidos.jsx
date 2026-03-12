@@ -8,6 +8,7 @@ import {
   EyeIcon,
   PrinterIcon,
   CurrencyDollarIcon,
+  DocumentTextIcon,
   PlusIcon,
   QrCodeIcon,
   ArrowPathIcon,
@@ -16,6 +17,7 @@ import {
 import { Alert, Button, EmptyState, Modal, PageHeader, Spinner, Table } from '../../components/ui'
 import useEventSource from '../../hooks/useEventSource'
 import NuevoPedidoModal from '../../components/pedidos/NuevoPedidoModal'
+import EmitirComprobanteModal from '../../components/facturacion/EmitirComprobanteModal'
 import useAsync from '../../hooks/useAsync'
 import { parseBooleanFlag, parsePositiveIntParam } from '../../utils/query-params'
 
@@ -194,6 +196,13 @@ export default function Pedidos() {
   const [repartidores, setRepartidores] = useState([])
   const [repartidorSeleccionado, setRepartidorSeleccionado] = useState('')
   const [asignandoDelivery, setAsignandoDelivery] = useState(false)
+  const [showFacturacionModal, setShowFacturacionModal] = useState(false)
+  const [pedidoParaFacturar, setPedidoParaFacturar] = useState(null)
+
+  const abrirFacturacion = (pedido) => {
+    setPedidoParaFacturar(pedido)
+    setShowFacturacionModal(true)
+  }
 
   useEffect(() => {
     pedidosRef.current = pedidos
@@ -861,6 +870,16 @@ export default function Pedidos() {
                         <CurrencyDollarIcon className="w-5 h-5" />
                       </button>
                     )}
+                    {['COBRADO', 'CERRADO'].includes(pedido.estado) && !pedido.comprobanteFiscal && !esSoloMozo && (
+                      <button
+                        onClick={() => abrirFacturacion(pedido)}
+                        type="button"
+                        aria-label={`Facturar pedido #${pedido.id}`}
+                        className="text-primary-500 hover:text-primary-600 transition-colors"
+                      >
+                        <DocumentTextIcon className="w-5 h-5" />
+                      </button>
+                    )}
                   </Table.Cell>
                 </Table.Row>
               ))}
@@ -958,12 +977,31 @@ export default function Pedidos() {
               )}
 
               {pedidoSeleccionado.estado === 'COBRADO' && (
-                <div className="border-t border-border-default pt-3">
+                <div className="border-t border-border-default pt-3 flex flex-wrap gap-2">
                   <button
                     onClick={() => cerrarPedido(pedidoSeleccionado)}
                     className="btn btn-primary text-sm"
                   >
                     Cerrar pedido
+                  </button>
+                  {!pedidoSeleccionado.comprobanteFiscal && !esSoloMozo && (
+                    <button
+                      onClick={() => abrirFacturacion(pedidoSeleccionado)}
+                      className="btn btn-secondary text-sm"
+                    >
+                      Facturar
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {pedidoSeleccionado.estado === 'CERRADO' && !pedidoSeleccionado.comprobanteFiscal && !esSoloMozo && (
+                <div className="border-t border-border-default pt-3">
+                  <button
+                    onClick={() => abrirFacturacion(pedidoSeleccionado)}
+                    className="btn btn-secondary text-sm"
+                  >
+                    Facturar
                   </button>
                 </div>
               )}
@@ -1283,6 +1321,21 @@ export default function Pedidos() {
           setShowNuevoPedidoModal(false)
           refetchPedidosWindow().catch(() => {})
         }}
+      />
+
+      <EmitirComprobanteModal
+        open={showFacturacionModal}
+        onClose={() => {
+          setShowFacturacionModal(false)
+          setPedidoParaFacturar(null)
+        }}
+        onSuccess={() => {
+          refetchPedidosWindow().catch(() => {})
+          if (pedidoSeleccionado) {
+            obtenerPedidoPorId(pedidoSeleccionado.id).then(setPedidoSeleccionado).catch(() => {})
+          }
+        }}
+        pedido={pedidoParaFacturar}
       />
     </div>
   )

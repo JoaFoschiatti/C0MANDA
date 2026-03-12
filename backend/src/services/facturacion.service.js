@@ -345,9 +345,43 @@ const crearComprobante = async (prisma, payload) => {
   }
 };
 
+const listarComprobantes = async (prisma, query) => {
+  const { estado, tipoComprobante, desde, hasta, limit = 20, offset = 0 } = query;
+  const where = {};
+  if (estado) where.estado = estado;
+  if (tipoComprobante) where.tipoComprobante = tipoComprobante;
+  if (desde || hasta) {
+    where.createdAt = {};
+    if (desde) where.createdAt.gte = new Date(desde);
+    if (hasta) {
+      const hastaDate = new Date(hasta);
+      hastaDate.setDate(hastaDate.getDate() + 1);
+      where.createdAt.lt = hastaDate;
+    }
+  }
+
+  const [comprobantes, total] = await Promise.all([
+    prisma.comprobanteFiscal.findMany({
+      where,
+      include: {
+        pedido: { select: { id: true, total: true, estado: true, mesa: { select: { numero: true } } } },
+        clienteFiscal: { select: { id: true, nombre: true, cuit: true, condicionIva: true } },
+        puntoVentaFiscal: { select: { puntoVenta: true } }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Number(limit),
+      skip: Number(offset)
+    }),
+    prisma.comprobanteFiscal.count({ where })
+  ]);
+
+  return { data: comprobantes, total };
+};
+
 module.exports = {
   hasArcaRuntimeConfig: hasArcaRuntimeConfigFor,
   obtenerComprobante,
   guardarConfiguracion,
-  crearComprobante
+  crearComprobante,
+  listarComprobantes
 };

@@ -12,6 +12,12 @@ const {
 
 router.use(verificarToken);
 
+router.get(
+  '/comprobantes',
+  verificarRol('ADMIN', 'CAJERO'),
+  asyncHandler(facturacionController.listarComprobantes)
+);
+
 router.post(
   '/comprobantes',
   verificarRol('ADMIN', 'CAJERO'),
