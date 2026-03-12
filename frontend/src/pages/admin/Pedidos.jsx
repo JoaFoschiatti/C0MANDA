@@ -112,6 +112,47 @@ const getQrStatusLabel = (status) => {
   }
 }
 
+const normalizePedidosResponse = (payload) => {
+  if (Array.isArray(payload)) {
+    return {
+      data: payload,
+      total: payload.length
+    }
+  }
+
+  const data = Array.isArray(payload?.data) ? payload.data : []
+  const fallbackTotal = data.length
+  const total = Number.isFinite(payload?.total) ? payload.total : fallbackTotal
+
+  return { data, total }
+}
+
+const PEDIDOS_PAGE_SIZE = 50
+
+const buildPedidosQuery = (filtroEstado, { limit = PEDIDOS_PAGE_SIZE, offset = 0 } = {}) => {
+  const params = new URLSearchParams()
+
+  if (filtroEstado) params.set('estado', filtroEstado)
+  if (filtroEstado === 'CERRADO' || filtroEstado === 'CANCELADO') params.set('incluirCerrados', 'true')
+
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+
+  return params.toString()
+}
+
+const matchesPedidoFilter = (pedido, filtroEstado) => {
+  if (!pedido?.estado) {
+    return false
+  }
+
+  if (filtroEstado) {
+    return pedido.estado === filtroEstado
+  }
+
+  return !['CERRADO', 'CANCELADO'].includes(pedido.estado)
+}
+
 export default function Pedidos() {
   const { usuario } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -122,10 +163,15 @@ export default function Pedidos() {
 
   const [pedidos, setPedidos] = useState([])
   const [totalPedidos, setTotalPedidos] = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [filtroEstado, setFiltroEstado] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState(null)
   const [showPagoModal, setShowPagoModal] = useState(false)
+  const pedidosRef = useRef([])
+  const pedidoSeleccionadoRef = useRef(null)
+  const loadedLimitRef = useRef(PEDIDOS_PAGE_SIZE)
+  const loadingMoreRef = useRef(false)
   const qrSyncInFlightRef = useRef(false)
   const deliveryModalPedidoRef = useRef(null)
   const [pagoForm, setPagoForm] = useState({
@@ -149,24 +195,29 @@ export default function Pedidos() {
   const [repartidorSeleccionado, setRepartidorSeleccionado] = useState('')
   const [asignandoDelivery, setAsignandoDelivery] = useState(false)
 
-  const cargarPedidos = useCallback(async () => {
-    const params = new URLSearchParams()
-    if (filtroEstado) params.set('estado', filtroEstado)
-    if (filtroEstado === 'CERRADO' || filtroEstado === 'CANCELADO') params.set('incluirCerrados', 'true')
-    const qs = params.toString()
-    const response = await api.get(`/pedidos${qs ? `?${qs}` : ''}`)
-    const { data, total } = response.data
+  useEffect(() => {
+    pedidosRef.current = pedidos
+  }, [pedidos])
+
+  useEffect(() => {
+    pedidoSeleccionadoRef.current = pedidoSeleccionado
+  }, [pedidoSeleccionado])
+
+  const cargarPedidos = useCallback(async ({ limit = loadedLimitRef.current, offset = 0 } = {}) => {
+    const response = await api.get(`/pedidos?${buildPedidosQuery(filtroEstado, { limit, offset })}`)
+    const result = normalizePedidosResponse(response.data)
+    const { data, total } = result
     setPedidos(data)
     setTotalPedidos(total)
-    return data
+    return result
   }, [filtroEstado])
 
   const handleLoadError = useCallback((error) => {
     console.error('Error:', error)
   }, [])
 
-  const cargarPedidosRequest = useCallback(async (_ctx) => (
-    cargarPedidos()
+  const cargarPedidosRequest = useCallback(async (_ctx, options = {}) => (
+    cargarPedidos(options)
   ), [cargarPedidos])
 
   const { loading, execute: cargarPedidosAsync } = useAsync(
@@ -174,28 +225,38 @@ export default function Pedidos() {
     { immediate: false, onError: handleLoadError }
   )
 
-  const actualizarPedidoLocal = useCallback((pedidoActualizado) => {
+  const refetchPedidosWindow = useCallback((limit = loadedLimitRef.current) => (
+    cargarPedidosAsync({ limit })
+  ), [cargarPedidosAsync])
+
+  const sincronizarPedidoVisible = useCallback((pedidoActualizado) => {
     if (!pedidoActualizado?.id) {
-      return
+      return 'ignored'
     }
 
-    setPedidos((current) => {
-      const exists = current.some(p => p.id === pedidoActualizado.id)
-      if (exists) {
-        return current.map(p => p.id === pedidoActualizado.id
-          ? { ...p, ...pedidoActualizado, impresion: pedidoActualizado.impresion ?? p.impresion }
-          : p
-        )
-      }
-      return [pedidoActualizado, ...current]
-    })
-  }, [])
+    const wasVisible = pedidosRef.current.some((pedido) => pedido.id === pedidoActualizado.id)
+    if (!wasVisible) {
+      return 'ignored'
+    }
+
+    if (!matchesPedidoFilter(pedidoActualizado, filtroEstado)) {
+      setPedidos((current) => current.filter((pedido) => pedido.id !== pedidoActualizado.id))
+      return 'removed'
+    }
+
+    setPedidos((current) => current.map((pedido) => (
+      pedido.id === pedidoActualizado.id
+        ? { ...pedido, ...pedidoActualizado, impresion: pedidoActualizado.impresion ?? pedido.impresion }
+        : pedido
+    )))
+
+    return 'updated'
+  }, [filtroEstado])
 
   const obtenerPedidoPorId = useCallback(async (id) => {
     const response = await api.get(`/pedidos/${id}`)
-    actualizarPedidoLocal(response.data)
     return response.data
-  }, [actualizarPedidoLocal])
+  }, [])
 
   const clearFocusParams = useCallback(() => {
     if (!searchParams.get('pedidoId') && !searchParams.get('openPago')) {
@@ -228,7 +289,7 @@ export default function Pedidos() {
     setShowAsignarDeliveryModal(true)
   }, [])
 
-  const handleSseUpdate = useCallback((event) => {
+  const handleSseUpdate = useCallback(async (eventName, event) => {
     let data = null
     try { data = JSON.parse(event.data) } catch {}
     const pedidoId = data?.id || data?.pedidoId
@@ -239,8 +300,32 @@ export default function Pedidos() {
       abrirAsignarDelivery(data.id)
     }
 
-    obtenerPedidoPorId(pedidoId).catch(() => {})
-  }, [obtenerPedidoPorId, puedeCrearPedido, abrirAsignarDelivery])
+    const isVisible = pedidosRef.current.some((pedido) => pedido.id === pedidoId)
+    const isSelected = pedidoSeleccionadoRef.current?.id === pedidoId
+
+    if (!isVisible) {
+      if (isSelected) {
+        const pedidoActualizado = await obtenerPedidoPorId(pedidoId)
+        setPedidoSeleccionado(pedidoActualizado)
+      }
+
+      if (eventName !== 'impresion.updated') {
+        await refetchPedidosWindow()
+      }
+      return
+    }
+
+    const pedidoActualizado = await obtenerPedidoPorId(pedidoId)
+
+    if (isSelected) {
+      setPedidoSeleccionado(pedidoActualizado)
+    }
+
+    const syncResult = sincronizarPedidoVisible(pedidoActualizado)
+    if (syncResult === 'removed') {
+      await refetchPedidosWindow()
+    }
+  }, [abrirAsignarDelivery, obtenerPedidoPorId, puedeCrearPedido, refetchPedidosWindow, sincronizarPedidoVisible])
 
   const handleSseError = useCallback((err) => {
     console.error('[SSE] Error en conexión:', err)
@@ -252,9 +337,15 @@ export default function Pedidos() {
 
   useEventSource({
     events: {
-      'pedido.updated': handleSseUpdate,
-      'pago.updated': handleSseUpdate,
-      'impresion.updated': handleSseUpdate
+      'pedido.updated': (event) => {
+        handleSseUpdate('pedido.updated', event).catch(() => {})
+      },
+      'pago.updated': (event) => {
+        handleSseUpdate('pago.updated', event).catch(() => {})
+      },
+      'impresion.updated': (event) => {
+        handleSseUpdate('impresion.updated', event).catch(() => {})
+      }
     },
     onError: handleSseError,
     onOpen: handleSseOpen
@@ -458,7 +549,6 @@ export default function Pedidos() {
 
       if (response.data?.pedido) {
         setPedidoSeleccionado(response.data.pedido)
-        actualizarPedidoLocal(response.data.pedido)
       }
 
       toast.success('Pago registrado')
@@ -528,6 +618,26 @@ export default function Pedidos() {
     }
   }
 
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMoreRef.current || pedidos.length >= totalPedidos) {
+      return
+    }
+
+    const nextLimit = loadedLimitRef.current + PEDIDOS_PAGE_SIZE
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+
+    try {
+      const result = await refetchPedidosWindow(nextLimit)
+      if (result) {
+        loadedLimitRef.current = nextLimit
+      }
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }, [pedidos.length, refetchPedidosWindow, totalPedidos])
+
 
   const renderImpresion = (impresion) => {
     if (!impresion) {
@@ -564,9 +674,10 @@ export default function Pedidos() {
   const esQrPresencial = pagoForm.canalCobro === 'QR_PRESENCIAL'
   const qrStatusLabel = getQrStatusLabel(qrPresencial?.status)
   const metricas = useMemo(() => {
-    const pedidosPendientes = pedidos.filter((pedido) => !['COBRADO', 'CERRADO', 'CANCELADO'].includes(pedido.estado)).length
-    const pedidosPorCerrar = pedidos.filter((pedido) => pedido.estado === 'COBRADO').length
-    const pedidosConQrPendiente = pedidos.filter((pedido) => getLatestQrPresencialPago(pedido)?.estado === 'PENDIENTE').length
+    const pedidosList = Array.isArray(pedidos) ? pedidos : []
+    const pedidosPendientes = pedidosList.filter((pedido) => !['COBRADO', 'CERRADO', 'CANCELADO'].includes(pedido.estado)).length
+    const pedidosPorCerrar = pedidosList.filter((pedido) => pedido.estado === 'COBRADO').length
+    const pedidosConQrPendiente = pedidosList.filter((pedido) => getLatestQrPresencialPago(pedido)?.estado === 'PENDIENTE').length
     return [
       {
         label: 'Pedidos activos',
@@ -614,7 +725,10 @@ export default function Pedidos() {
               id="pedidos-filtro-estado"
               className="input w-48"
               value={filtroEstado}
-              onChange={(e) => setFiltroEstado(e.target.value)}
+              onChange={(e) => {
+                loadedLimitRef.current = PEDIDOS_PAGE_SIZE
+                setFiltroEstado(e.target.value)
+              }}
             >
               <option value="">Activos</option>
               <option value="PENDIENTE">Pendiente</option>
@@ -759,14 +873,9 @@ export default function Pedidos() {
         <div className="mt-4 text-center">
           <Button
             variant="secondary"
-            onClick={async () => {
-              const params = new URLSearchParams()
-              if (filtroEstado) params.set('estado', filtroEstado)
-              if (filtroEstado === 'CERRADO' || filtroEstado === 'CANCELADO') params.set('incluirCerrados', 'true')
-              params.set('offset', String(pedidos.length))
-              const res = await api.get(`/pedidos?${params.toString()}`)
-              const { data } = res.data
-              setPedidos(prev => [...prev, ...data])
+            loading={loadingMore}
+            onClick={() => {
+              handleLoadMore().catch(() => {})
             }}
           >
             Cargar mas ({pedidos.length} de {totalPedidos})
@@ -1172,7 +1281,7 @@ export default function Pedidos() {
         onClose={() => setShowNuevoPedidoModal(false)}
         onSuccess={() => {
           setShowNuevoPedidoModal(false)
-          cargarPedidos()
+          refetchPedidosWindow().catch(() => {})
         }}
       />
     </div>

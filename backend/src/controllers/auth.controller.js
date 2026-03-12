@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { prisma, getNegocio } = require('../db/prisma');
 const { createHttpError } = require('../utils/http-error');
+const { normalizeEmail } = require('../utils/email');
 
 const buildNegocioPayload = (negocio) => {
   if (!negocio) {
@@ -22,7 +23,8 @@ const buildNegocioPayload = (negocio) => {
 };
 
 const registrar = async (req, res) => {
-  const { email, password, nombre, rol } = req.body;
+  const { password, nombre, rol } = req.body;
+  const email = normalizeEmail(req.body.email);
 
   const existente = await prisma.usuario.findUnique({
     where: { email }
@@ -54,7 +56,8 @@ const registrar = async (req, res) => {
 };
 
 const login = async (req, res) => {
-  const { email, password } = req.body;
+  const { password } = req.body;
+  const email = normalizeEmail(req.body.email);
 
   const usuario = await prisma.usuario.findUnique({
     where: { email }

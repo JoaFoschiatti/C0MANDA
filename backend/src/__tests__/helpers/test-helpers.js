@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { prisma } = require('../../db/prisma');
+const { normalizeEmail } = require('../../utils/email');
 
 const uniqueId = (prefix = 'test') => {
   const worker = process.env.JEST_WORKER_ID || '0';
@@ -32,7 +33,7 @@ const createUsuario = async (overrides = {}) => {
   ensureTestEnv();
   await ensureNegocio();
 
-  const email = overrides.email || `${uniqueId('user')}@example.com`;
+  const email = normalizeEmail(overrides.email || `${uniqueId('user')}@example.com`);
   const passwordPlano = overrides.passwordPlano || 'password';
   const passwordHash = await bcrypt.hash(passwordPlano, 4);
 

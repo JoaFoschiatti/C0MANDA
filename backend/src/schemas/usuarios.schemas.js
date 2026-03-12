@@ -11,7 +11,7 @@ const listarQuerySchema = z.object({
 const crearUsuarioBodySchema = z.object({
   nombre: z.string({ required_error: 'Nombre es requerido' }).min(1, 'Nombre es requerido'),
   apellido: z.string().optional(),
-  email: z.string({ required_error: 'Email es requerido' }).email('Email invalido'),
+  email: z.string({ required_error: 'Email es requerido' }).trim().toLowerCase().min(1, 'Email es requerido').email('Email invalido'),
   password: z.string({ required_error: 'Password es requerido' }).min(6, 'Password debe tener al menos 6 caracteres'),
   rol: rolSchema,
   dni: z.string().optional(),
@@ -23,7 +23,7 @@ const crearUsuarioBodySchema = z.object({
 const actualizarUsuarioBodySchema = z.object({
   nombre: z.string().min(1).optional(),
   apellido: z.string().optional(),
-  email: z.string().email('Email invalido').optional(),
+  email: z.string().trim().toLowerCase().min(1, 'Email es requerido').email('Email invalido').optional(),
   rol: rolSchema.optional(),
   activo: booleanOptionalFromString,
   dni: z.string().optional(),

@@ -1,8 +1,11 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 const authController = require('../controllers/auth.controller');
 const { verificarToken, esAdmin } = require('../middlewares/auth.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const { asyncHandler } = require('../utils/async-handler');
+const { normalizeEmail } = require('../utils/email');
 const {
   loginBodySchema,
   registrarBodySchema,
@@ -11,7 +14,21 @@ const {
 
 const router = express.Router();
 
-router.post('/login', validate({ body: loginBodySchema }), asyncHandler(authController.login));
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: 'draft-6',
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = normalizeEmail(req.body?.email) || 'anonymous';
+    return `${email}|${ipKeyGenerator(req.ip)}`;
+  },
+  message: {
+    error: { message: 'Demasiados intentos de login. Intente nuevamente en unos minutos.' }
+  }
+});
+
+router.post('/login', loginLimiter, validate({ body: loginBodySchema }), asyncHandler(authController.login));
 router.post('/logout', asyncHandler(authController.logout));
 
 router.post('/registrar', verificarToken, esAdmin, validate({ body: registrarBodySchema }), asyncHandler(authController.registrar));

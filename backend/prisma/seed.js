@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
+const { normalizeEmail } = require('../src/utils/email');
 
 const prisma = new PrismaClient();
 
@@ -15,7 +16,7 @@ async function upsertConfig(clave, valor) {
 async function main() {
   const negocioNombre = process.env.SEED_NEGOCIO_NOMBRE || 'Comanda Demo';
   const negocioEmail = process.env.SEED_NEGOCIO_EMAIL || 'admin@comanda.local';
-  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@comanda.local';
+  const adminEmail = normalizeEmail(process.env.SEED_ADMIN_EMAIL || 'admin@comanda.local');
   const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'admin123';
 
   await prisma.negocio.upsert({
@@ -43,11 +44,11 @@ async function main() {
 
   const usuarios = [
     { email: adminEmail, password: passwordHash, nombre: 'Administrador', rol: 'ADMIN' },
-    { email: 'mozo@comanda.local', password: await bcrypt.hash('mozo123', 10), nombre: 'Juan', apellido: 'Perez', dni: '30123456', telefono: '1155551234', rol: 'MOZO', tarifaHora: 1500 },
-    { email: 'mozo2@comanda.local', password: await bcrypt.hash('mozo123', 10), nombre: 'Maria', apellido: 'Garcia', dni: '31234567', telefono: '1155552345', rol: 'MOZO', tarifaHora: 1500 },
-    { email: 'cocinero@comanda.local', password: await bcrypt.hash('cocinero123', 10), nombre: 'Pedro', apellido: 'Lopez', dni: '32345678', telefono: '1155553456', rol: 'COCINERO', tarifaHora: 1800 },
-    { email: 'cajero@comanda.local', password: await bcrypt.hash('cajero123', 10), nombre: 'Carla', apellido: 'Suarez', dni: '33456789', telefono: '1155554567', rol: 'CAJERO', tarifaHora: 1700 },
-    { email: 'delivery@comanda.local', password: await bcrypt.hash('delivery123', 10), nombre: 'Diego', apellido: 'Delivery', rol: 'DELIVERY' }
+    { email: normalizeEmail('mozo@comanda.local'), password: await bcrypt.hash('mozo123', 10), nombre: 'Juan', apellido: 'Perez', dni: '30123456', telefono: '1155551234', rol: 'MOZO', tarifaHora: 1500 },
+    { email: normalizeEmail('mozo2@comanda.local'), password: await bcrypt.hash('mozo123', 10), nombre: 'Maria', apellido: 'Garcia', dni: '31234567', telefono: '1155552345', rol: 'MOZO', tarifaHora: 1500 },
+    { email: normalizeEmail('cocinero@comanda.local'), password: await bcrypt.hash('cocinero123', 10), nombre: 'Pedro', apellido: 'Lopez', dni: '32345678', telefono: '1155553456', rol: 'COCINERO', tarifaHora: 1800 },
+    { email: normalizeEmail('cajero@comanda.local'), password: await bcrypt.hash('cajero123', 10), nombre: 'Carla', apellido: 'Suarez', dni: '33456789', telefono: '1155554567', rol: 'CAJERO', tarifaHora: 1700 },
+    { email: normalizeEmail('delivery@comanda.local'), password: await bcrypt.hash('delivery123', 10), nombre: 'Diego', apellido: 'Delivery', rol: 'DELIVERY' }
   ];
 
   for (const usuario of usuarios) {

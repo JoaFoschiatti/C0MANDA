@@ -21,6 +21,7 @@ fi
 cd "${APP_DIR}/backend"
 npm ci
 npx prisma generate
+node scripts/maintenance/check-user-email-collisions.js
 npx prisma migrate deploy
 npm run db:seed
 

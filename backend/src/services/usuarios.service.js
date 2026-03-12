@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { createHttpError } = require('../utils/http-error');
 const { createCrudService } = require('./crud-factory.service');
+const { normalizeEmail } = require('../utils/email');
 
 // Campos que nunca se exponen al cliente
 const selectSinPassword = {
@@ -23,8 +24,17 @@ const baseCrud = createCrudService('usuario', {
 
   // Hashear password antes de crear
   beforeCreate: async (_prisma, data) => {
+    if (data.email !== undefined) {
+      data.email = normalizeEmail(data.email);
+    }
     if (data.password) {
       data.password = await bcrypt.hash(data.password, 10);
+    }
+    return data;
+  },
+  beforeUpdate: async (_prisma, _id, data) => {
+    if (data.email !== undefined) {
+      data.email = normalizeEmail(data.email);
     }
     return data;
   }

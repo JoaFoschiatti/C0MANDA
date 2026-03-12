@@ -21,12 +21,12 @@ vi.mock('../services/api', () => ({
   }
 }))
 
-vi.mock('react-hot-toast', () => ({
-  default: {
-    success: vi.fn(),
-    error: vi.fn()
-  }
-}))
+vi.mock('react-hot-toast', () => {
+  const toastFn = vi.fn()
+  toastFn.success = vi.fn()
+  toastFn.error = vi.fn()
+  return { default: toastFn }
+})
 
 vi.mock('../context/AuthContext', () => ({
   useAuth: vi.fn()
@@ -39,6 +39,46 @@ vi.mock('../services/eventos', () => ({
 vi.mock('../components/pedidos/NuevoPedidoModal', () => ({
   default: () => null
 }))
+
+const buildPedidosUrl = ({ estado = '', limit = 50, offset = 0 } = {}) => {
+  const params = new URLSearchParams()
+
+  if (estado) params.set('estado', estado)
+  if (estado === 'CERRADO' || estado === 'CANCELADO') params.set('incluirCerrados', 'true')
+
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+
+  return `/pedidos?${params.toString()}`
+}
+
+const createMockEventSource = () => {
+  const listeners = new Map()
+
+  return {
+    addEventListener: vi.fn((eventName, handler) => {
+      listeners.set(eventName, handler)
+    }),
+    removeEventListener: vi.fn((eventName, handler) => {
+      if (listeners.get(eventName) === handler) {
+        listeners.delete(eventName)
+      }
+    }),
+    close: vi.fn(),
+    emit(eventName, payload) {
+      listeners.get(eventName)?.({ data: JSON.stringify(payload) })
+    }
+  }
+}
+
+const createDeferred = () => {
+  let resolve
+  const promise = new Promise((resolver) => {
+    resolve = resolver
+  })
+
+  return { promise, resolve }
+}
 
 describe('Pedidos page', () => {
   beforeEach(() => {
@@ -67,8 +107,8 @@ describe('Pedidos page', () => {
     }
 
     api.get
-      .mockResolvedValueOnce({ data: [pedido] })
-      .mockResolvedValueOnce({ data: [pedido] })
+      .mockResolvedValueOnce({ data: { data: [pedido], total: 1 } })
+      .mockResolvedValueOnce({ data: { data: [pedido], total: 1 } })
 
     const user = userEvent.setup()
     renderPage()
@@ -78,7 +118,7 @@ describe('Pedidos page', () => {
     await user.selectOptions(screen.getByLabelText('Filtrar por estado'), 'PENDIENTE')
 
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/pedidos?estado=PENDIENTE')
+      expect(api.get).toHaveBeenCalledWith(buildPedidosUrl({ estado: 'PENDIENTE' }))
     })
   })
 
@@ -108,11 +148,11 @@ describe('Pedidos page', () => {
     }
 
     api.get.mockImplementation((url) => {
-      if (url === '/pedidos') return Promise.resolve({ data: [pedido] })
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
       if (url === `/pedidos/${pedido.id}`) return Promise.resolve({ data: pedidoDetalle })
       return Promise.resolve({ data: [] })
     })
-    api.post.mockResolvedValueOnce({ data: { id: 1 } })
+    api.post.mockResolvedValueOnce({ data: { pago: { id: 1 }, pedido: { ...pedidoDetalle, estado: 'COBRADO' } } })
 
     const user = userEvent.setup()
     renderPage()
@@ -170,12 +210,12 @@ describe('Pedidos page', () => {
     }
 
     api.get.mockImplementation((url) => {
-      if (url === '/pedidos') return Promise.resolve({ data: [pedido] })
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
       if (url === `/pedidos/${pedido.id}`) return Promise.resolve({ data: pedidoDetalle })
       return Promise.resolve({ data: [] })
     })
 
-    api.post.mockImplementation((url, payload) => {
+    api.post.mockImplementation((url) => {
       if (url === '/pagos/qr/orden') {
         pedidoDetalle = {
           ...pedidoDetalle,
@@ -251,7 +291,7 @@ describe('Pedidos page', () => {
     }
 
     api.get.mockImplementation((url) => {
-      if (url === '/pedidos') return Promise.resolve({ data: [pedido] })
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
       if (url === `/pedidos/${pedido.id}`) {
         return Promise.resolve({
           data: {
@@ -272,5 +312,112 @@ describe('Pedidos page', () => {
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(`/pedidos/${pedido.id}`)
     })
+  })
+
+  it('mantiene el filtro activo cuando llega una actualizacion SSE de un pedido que ya no califica', async () => {
+    const source = createMockEventSource()
+    createEventSource.mockReturnValue(source)
+    let pendingFilterCalls = 0
+
+    const pedidoPendiente = {
+      id: 44,
+      tipo: 'MOSTRADOR',
+      total: '180',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: null,
+      clienteNombre: 'Mostrador',
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedidoPendiente], total: 1 } })
+      if (url === buildPedidosUrl({ estado: 'PENDIENTE' })) {
+        pendingFilterCalls += 1
+
+        return Promise.resolve({
+          data: pendingFilterCalls === 1
+            ? { data: [pedidoPendiente], total: 1 }
+            : { data: [], total: 0 }
+        })
+      }
+      if (url === `/pedidos/${pedidoPendiente.id}`) {
+        return Promise.resolve({
+          data: {
+            ...pedidoPendiente,
+            estado: 'COBRADO',
+            items: [],
+            pagos: []
+          }
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#44')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Filtrar por estado'), 'PENDIENTE')
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(buildPedidosUrl({ estado: 'PENDIENTE' }))
+    })
+
+    source.emit('pedido.updated', {
+      id: pedidoPendiente.id,
+      estado: 'COBRADO',
+      tipo: pedidoPendiente.tipo
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('#44')).not.toBeInTheDocument()
+    })
+
+    expect(screen.getByText('No hay pedidos para mostrar')).toBeInTheDocument()
+  })
+
+  it('evita multiples cargas concurrentes al usar "Cargar mas"', async () => {
+    const primerPedido = {
+      id: 71,
+      tipo: 'MOSTRADOR',
+      total: '100',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: null,
+      clienteNombre: 'Mostrador',
+      pagos: []
+    }
+
+    const segundoPedido = {
+      ...primerPedido,
+      id: 72
+    }
+
+    const deferred = createDeferred()
+
+    api.get
+      .mockResolvedValueOnce({ data: { data: [primerPedido], total: 60 } })
+      .mockImplementationOnce(() => deferred.promise)
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#71')).toBeInTheDocument()
+
+    const loadMoreButton = screen.getByRole('button', { name: /Cargar mas/i })
+    await user.click(loadMoreButton)
+    await user.click(loadMoreButton)
+
+    expect(
+      api.get.mock.calls.filter(([url]) => url === buildPedidosUrl({ limit: 100, offset: 0 }))
+    ).toHaveLength(1)
+
+    deferred.resolve({ data: { data: [primerPedido, segundoPedido], total: 60 } })
+
+    expect(await screen.findByText('#72')).toBeInTheDocument()
   })
 })
