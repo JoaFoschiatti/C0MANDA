@@ -4,9 +4,18 @@ const rateLimit = require('express-rate-limit');
 const emailService = require('../services/email.service');
 const eventBus = require('../services/event-bus');
 const { prisma, getNegocio } = require('../db/prisma');
+const { validate } = require('../middlewares/validate.middleware');
 const { asyncHandler } = require('../utils/async-handler');
 const publicoService = require('../services/publico.service');
 const { logger } = require('../utils/logger');
+const {
+  pedidoIdParamSchema,
+  qrTokenParamSchema,
+  publicOrderAccessQuerySchema,
+  publicOrderPaymentBodySchema,
+  createPublicOrderBodySchema,
+  createPublicTableOrderBodySchema
+} = require('../schemas/publico.schemas');
 
 const publicOrderLimiter = process.env.NODE_ENV === 'test'
   ? (req, res, next) => next()
@@ -53,6 +62,7 @@ const createOrderHandler = asyncHandler(async (req, res) => {
     costoEnvio: result.costoEnvio,
     total: result.total,
     initPoint: result.initPoint,
+    accessToken: result.accessToken,
     message: 'Pedido creado correctamente'
   });
 });
@@ -62,7 +72,8 @@ const startPaymentHandler = asyncHandler(async (req, res) => {
   const negocio = await getNegocio();
   const result = await publicoService.startMercadoPagoPaymentForOrder(prisma, {
     negocio,
-    pedidoId
+    pedidoId,
+    accessToken: req.body.token
   });
 
   res.json(result);
@@ -70,7 +81,10 @@ const startPaymentHandler = asyncHandler(async (req, res) => {
 
 const getOrderStatusHandler = asyncHandler(async (req, res) => {
   const pedidoId = parseInt(req.params.id, 10);
-  const result = await publicoService.getPublicOrderStatus(prisma, { pedidoId });
+  const result = await publicoService.getPublicOrderStatus(prisma, {
+    pedidoId,
+    accessToken: req.query.token
+  });
   result.events.forEach((event) => eventBus.publish(event.topic, event.payload));
   res.json(result.pedido);
 });
@@ -130,10 +144,15 @@ const createMesaOrderHandler = asyncHandler(async (req, res) => {
 
 router.get('/config', getConfigHandler);
 router.get('/menu', getMenuHandler);
-router.post('/pedido', publicOrderLimiter, createOrderHandler);
-router.post('/pedido/:id/pagar', startPaymentHandler);
-router.get('/pedido/:id', getOrderStatusHandler);
-router.get('/mesa/:qrToken', getMesaContextHandler);
-router.post('/mesa/:qrToken/pedido', publicOrderLimiter, createMesaOrderHandler);
+router.post('/pedido', publicOrderLimiter, validate({ body: createPublicOrderBodySchema }), createOrderHandler);
+router.post('/pedido/:id/pagar', validate({ params: pedidoIdParamSchema, body: publicOrderPaymentBodySchema }), startPaymentHandler);
+router.get('/pedido/:id', validate({ params: pedidoIdParamSchema, query: publicOrderAccessQuerySchema }), getOrderStatusHandler);
+router.get('/mesa/:qrToken', validate({ params: qrTokenParamSchema }), getMesaContextHandler);
+router.post(
+  '/mesa/:qrToken/pedido',
+  publicOrderLimiter,
+  validate({ params: qrTokenParamSchema, body: createPublicTableOrderBodySchema }),
+  createMesaOrderHandler
+);
 
 module.exports = router;

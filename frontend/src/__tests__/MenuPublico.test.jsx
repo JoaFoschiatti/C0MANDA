@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
@@ -96,5 +96,31 @@ describe('MenuPublico page', () => {
     renderMenu('/menu?pago=error&pedido=123')
 
     expect(await screen.findByText(/El pago no pudo ser procesado/i)).toBeInTheDocument()
+  })
+
+  it('persiste y usa accessToken al volver de MercadoPago', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => configData })
+      .mockResolvedValueOnce({ ok: true, json: async () => menuData })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 123,
+          estadoPago: 'APROBADO',
+          total: 1200,
+          accessToken: 'abc-token'
+        })
+      })
+
+    renderMenu('/menu?pago=exito&pedido=123&token=abc-token')
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/publico/pedido/123?token=abc-token', {})
+    })
+
+    expect(localStorage.setItem).toHaveBeenCalledWith(
+      'mp_pedido_pendiente',
+      expect.stringContaining('"accessToken":"abc-token"')
+    )
   })
 })

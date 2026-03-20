@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 import SubscriptionBanner from '../SubscriptionBanner'
-import { Avatar } from '../ui'
+import { Avatar, OfflineBanner, SyncStatusIndicator } from '../ui'
 import {
   HomeIcon,
   UsersIcon,
@@ -200,6 +200,7 @@ export default function AdminLayout() {
 
       <div className="lg:pl-64">
         <SubscriptionBanner />
+        <OfflineBanner />
 
         <header className="admin-topbar sticky top-0 z-40">
           <div className="flex items-center justify-between px-4 lg:px-8 h-16">
@@ -217,6 +218,7 @@ export default function AdminLayout() {
             </div>
 
             <div className="hidden lg:flex items-center gap-3">
+              <SyncStatusIndicator />
               <button
                 onClick={toggleTheme}
                 className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors"

@@ -88,4 +88,31 @@ describe('AuthContext', () => {
     expect(localStorage.removeItem).toHaveBeenCalledWith('usuario')
     expect(localStorage.removeItem).toHaveBeenCalledWith('negocio')
   })
+
+  it('ignora localStorage corrupto sin romper el arranque', async () => {
+    localStorage.getItem.mockImplementation((key) => {
+      if (key === 'usuario') {
+        return '{bad-json'
+      }
+
+      if (key === 'negocio') {
+        return JSON.stringify({ id: 1, nombre: 'Comanda Test' })
+      }
+
+      return null
+    })
+
+    render(
+      <AuthProvider>
+        <AuthTester />
+      </AuthProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('user')).toHaveTextContent('')
+      expect(screen.getByTestId('negocio')).toHaveTextContent('Comanda Test')
+    })
+
+    expect(localStorage.removeItem).toHaveBeenCalledWith('usuario')
+  })
 })

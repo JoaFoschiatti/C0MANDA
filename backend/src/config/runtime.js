@@ -15,6 +15,11 @@ const REQUIRED_PRODUCTION_VARS = [
   'BRIDGE_TOKEN'
 ];
 
+const DEMO_MODE_OPTIONAL_VARS = [
+  'MERCADOPAGO_WEBHOOK_SECRET',
+  'BRIDGE_TOKEN'
+];
+
 const getBackendRoot = (rootDir = path.resolve(__dirname, '../..')) => rootDir;
 
 const getRuntimePaths = (rootDir = getBackendRoot()) => ({
@@ -73,8 +78,13 @@ const validateProductionEnvironment = (env = process.env) => {
   }
 
   const errors = [];
+  const isDemoMode = env.DEMO_MODE === 'true';
 
-  REQUIRED_PRODUCTION_VARS
+  const requiredVars = isDemoMode
+    ? REQUIRED_PRODUCTION_VARS.filter((key) => !DEMO_MODE_OPTIONAL_VARS.includes(key))
+    : REQUIRED_PRODUCTION_VARS;
+
+  requiredVars
     .filter((key) => !env[key])
     .forEach((key) => errors.push(`Falta ${key} en produccion`));
 
@@ -92,6 +102,8 @@ const validateProductionEnvironment = (env = process.env) => {
 
   if (env.BRIDGE_TOKEN && String(env.BRIDGE_TOKEN).trim().length < 16) {
     errors.push('BRIDGE_TOKEN debe tener al menos 16 caracteres');
+  } else if (isDemoMode && !env.BRIDGE_TOKEN) {
+    // BRIDGE_TOKEN is optional in demo mode - skip validation
   }
 
   if (env.FRONTEND_URL) {

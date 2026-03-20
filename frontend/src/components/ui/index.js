@@ -16,3 +16,5 @@ export { default as Dropdown } from './Dropdown';
 export { default as PageHeader } from './PageHeader';
 export { default as Tooltip } from './Tooltip';
 export { default as ColorPicker } from './ColorPicker';
+export { default as OfflineBanner } from './OfflineBanner';
+export { default as SyncStatusIndicator } from './SyncStatusIndicator';

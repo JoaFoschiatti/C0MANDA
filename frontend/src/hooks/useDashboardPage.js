@@ -16,9 +16,31 @@ import useEventSource from './useEventSource'
 
 const baseStat = (name, value, icon, extra = {}) => ({ name, value, icon, ...extra })
 
-export default function useDashboardPage({ puedeVerTareas }) {
+const allowedLinksByRole = {
+  ADMIN: new Set(['/pedidos', '/mesas', '/mozo/nuevo-pedido', '/mozo/mesas', '/cocina', '/tareas', '/reportes', '/ingredientes']),
+  CAJERO: new Set(['/pedidos', '/mesas', '/cocina', '/tareas']),
+  MOZO: new Set(['/pedidos', '/mozo/nuevo-pedido', '/mozo/mesas']),
+  COCINERO: new Set(['/cocina'])
+}
+
+const canUseLink = (rol, path) => allowedLinksByRole[rol]?.has(path) || false
+
+const getMesaLink = (rol) => {
+  if (rol === 'MOZO') {
+    return '/mozo/mesas'
+  }
+
+  if (rol === 'ADMIN' || rol === 'CAJERO') {
+    return '/mesas'
+  }
+
+  return null
+}
+
+export default function useDashboardPage({ puedeVerTareas, rol } = {}) {
   const [data, setData] = useState(null)
   const [errorMessage, setErrorMessage] = useState(null)
+  const rolActual = rol || null
 
   const cargarDashboard = useCallback(async () => {
     const response = await api.get('/reportes/dashboard', { skipToast: true })
@@ -94,52 +116,74 @@ export default function useDashboardPage({ puedeVerTareas }) {
   })
 
   const stats = useMemo(() => {
+    const mesaLink = getMesaLink(rolActual)
     const items = [
       baseStat('Ventas de Hoy', `$${data?.ventasHoy?.toLocaleString('es-AR') || 0}`, CurrencyDollarIcon),
       baseStat('Pedidos Hoy', data?.pedidosHoy || 0, ShoppingCartIcon),
       baseStat('Pedidos Pendientes', data?.pedidosPendientes || 0, ClockIcon, {
         highlight: data?.pedidosPendientes > 0,
-        link: '/pedidos',
+        link: canUseLink(rolActual, '/pedidos') ? '/pedidos' : undefined,
       }),
       baseStat('Mesas Ocupadas', `${data?.mesasOcupadas || 0} / ${data?.mesasTotal || 0}`, TableCellsIcon, {
-        link: '/mozo/mesas',
+        link: mesaLink,
       }),
       baseStat('Alertas de Stock', data?.alertasStock || 0, ExclamationTriangleIcon, {
         highlight: data?.alertasStock > 0,
         isWarning: data?.alertasStock > 0,
-        link: '/ingredientes',
+        link: canUseLink(rolActual, '/ingredientes') ? '/ingredientes' : undefined,
       }),
       baseStat('Descartes Pendientes', data?.lotesVencidosPendientes || 0, ExclamationTriangleIcon, {
         highlight: data?.lotesVencidosPendientes > 0,
         isWarning: data?.lotesVencidosPendientes > 0,
-        link: '/ingredientes',
+        link: canUseLink(rolActual, '/ingredientes') ? '/ingredientes' : undefined,
       }),
       ...(puedeVerTareas
         ? [
             baseStat('Tareas Operativas', data?.tareasPendientes || 0, ListBulletIcon, {
               highlight: data?.tareasPendientes > 0,
               isWarning: data?.tareasAltaPrioridad > 0,
-              link: '/tareas',
+              link: canUseLink(rolActual, '/tareas') ? '/tareas' : undefined,
             }),
           ]
         : []),
       baseStat('Empleados Trabajando', data?.empleadosTrabajando || 0, UsersIcon),
     ]
 
-    return items
-  }, [data, puedeVerTareas])
+    return items.filter((item) => !item.link || canUseLink(rolActual, item.link))
+  }, [data, puedeVerTareas, rolActual])
 
   const quickLinks = useMemo(
-    () => [
-      ...(puedeVerTareas
-        ? [{ to: '/tareas', label: 'Tareas', icon: ListBulletIcon }]
-        : []),
-      { to: '/mozo/nuevo-pedido', label: 'Nuevo Pedido', icon: ShoppingCartIcon },
-      { to: '/mozo/mesas', label: 'Ver Mesas', icon: TableCellsIcon },
-      { to: '/cocina', label: 'Cocina', icon: ClockIcon },
-      { to: '/reportes', label: 'Reportes', icon: CurrencyDollarIcon },
-    ],
-    [puedeVerTareas]
+    () => {
+      const items = []
+
+      if (canUseLink(rolActual, '/pedidos')) {
+        items.push({ to: '/pedidos', label: 'Pedidos', icon: ClockIcon })
+      }
+
+      if (canUseLink(rolActual, '/mozo/nuevo-pedido')) {
+        items.push({ to: '/mozo/nuevo-pedido', label: 'Nuevo Pedido', icon: ShoppingCartIcon })
+      }
+
+      const mesaLink = getMesaLink(rolActual)
+      if (mesaLink) {
+        items.push({ to: mesaLink, label: 'Ver Mesas', icon: TableCellsIcon })
+      }
+
+      if (canUseLink(rolActual, '/cocina')) {
+        items.push({ to: '/cocina', label: 'Cocina', icon: ClockIcon })
+      }
+
+      if (puedeVerTareas && canUseLink(rolActual, '/tareas')) {
+        items.push({ to: '/tareas', label: 'Tareas', icon: ListBulletIcon })
+      }
+
+      if (canUseLink(rolActual, '/reportes')) {
+        items.push({ to: '/reportes', label: 'Reportes', icon: CurrencyDollarIcon })
+      }
+
+      return items
+    },
+    [puedeVerTareas, rolActual]
   )
 
   return {

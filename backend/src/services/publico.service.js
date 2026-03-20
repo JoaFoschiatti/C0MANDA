@@ -1,6 +1,7 @@
 const { createHttpError } = require('../utils/http-error');
 const { logger } = require('../utils/logger');
 const { getNegocio } = require('../db/prisma');
+const { signPublicOrderToken, matchesPublicOrderToken } = require('../utils/public-order-access');
 const {
   isMercadoPagoConfigured,
   createPreference,
@@ -16,7 +17,51 @@ const buildConfigMap = (configs) => {
   return configMap;
 };
 
-const buildPreferenceData = ({ pedidoId, negocioNombre, items, costoEnvio }) => {
+const sanitizeOptionalText = (value) => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
+
+const normalizePublicOrderItems = (items = []) => items.map((item, index) => {
+  const productoId = Number.parseInt(item.productoId, 10);
+  const cantidad = Number.parseInt(item.cantidad, 10);
+
+  if (!Number.isInteger(productoId) || productoId <= 0) {
+    throw createHttpError.badRequest(`El item ${index + 1} tiene un producto invalido`);
+  }
+
+  if (!Number.isInteger(cantidad) || cantidad <= 0) {
+    throw createHttpError.badRequest(`El item ${index + 1} tiene una cantidad invalida`);
+  }
+
+  return {
+    productoId,
+    cantidad,
+    observaciones: sanitizeOptionalText(item.observaciones)
+  };
+});
+
+const assertPublicOrderAccess = (pedidoId, accessToken) => {
+  if (!matchesPublicOrderToken(accessToken, pedidoId)) {
+    throw createHttpError.notFound('Pedido no encontrado');
+  }
+};
+
+const buildPublicPaymentReturnUrl = ({ frontendUrl, status, pedidoId, accessToken }) => {
+  const params = new URLSearchParams({
+    pago: status,
+    pedido: String(pedidoId),
+    token: accessToken
+  });
+
+  return `${frontendUrl}/menu?${params.toString()}`;
+};
+
+const buildPreferenceData = ({ pedidoId, negocioNombre, items, costoEnvio, accessToken }) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
   const isLocalhost = frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1');
@@ -42,9 +87,9 @@ const buildPreferenceData = ({ pedidoId, negocioNombre, items, costoEnvio }) => 
   const preferenceData = {
     items: mpItems,
     back_urls: {
-      success: `${frontendUrl}/menu?pago=exito&pedido=${pedidoId}`,
-      failure: `${frontendUrl}/menu?pago=error&pedido=${pedidoId}`,
-      pending: `${frontendUrl}/menu?pago=pendiente&pedido=${pedidoId}`
+      success: buildPublicPaymentReturnUrl({ frontendUrl, status: 'exito', pedidoId, accessToken }),
+      failure: buildPublicPaymentReturnUrl({ frontendUrl, status: 'error', pedidoId, accessToken }),
+      pending: buildPublicPaymentReturnUrl({ frontendUrl, status: 'pendiente', pedidoId, accessToken })
     },
     external_reference: `pedido-${pedidoId}`,
     notification_url: `${backendUrl}/api/pagos/webhook/mercadopago`,
@@ -141,6 +186,12 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
     montoAbonado,
     observaciones
   } = body;
+  const normalizedItems = normalizePublicOrderItems(items);
+  const clienteNombreValue = sanitizeOptionalText(clienteNombre);
+  const clienteTelefonoValue = sanitizeOptionalText(clienteTelefono);
+  const clienteDireccionValue = sanitizeOptionalText(clienteDireccion);
+  const clienteEmailValue = sanitizeOptionalText(clienteEmail);
+  const observacionesValue = sanitizeOptionalText(observaciones);
 
   const configs = await prisma.configuracion.findMany({
     where: {
@@ -155,15 +206,15 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
   const efectivoHabilitado = configMap.efectivo_enabled !== 'false';
   const mercadopagoHabilitado = configMap.mercadopago_enabled === 'true';
 
-  if (!Array.isArray(items) || items.length === 0) {
+  if (!Array.isArray(normalizedItems) || normalizedItems.length === 0) {
     throw createHttpError.badRequest('El pedido debe tener al menos un producto');
   }
 
-  if (!clienteNombre || !clienteTelefono) {
+  if (!clienteNombreValue || !clienteTelefonoValue) {
     throw createHttpError.badRequest('Nombre y telefono son requeridos');
   }
 
-  if (tipoEntrega === 'DELIVERY' && !clienteDireccion) {
+  if (tipoEntrega === 'DELIVERY' && !clienteDireccionValue) {
     throw createHttpError.badRequest('La direccion es requerida para delivery');
   }
 
@@ -196,7 +247,7 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
     costoEnvio = configMap.costo_delivery ? parseFloat(configMap.costo_delivery) : 0;
   }
 
-  const productoIds = [...new Set(items.map((item) => item.productoId))];
+  const productoIds = [...new Set(normalizedItems.map((item) => item.productoId))];
   const productos = await prisma.producto.findMany({
     where: {
       id: { in: productoIds },
@@ -209,9 +260,9 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
   }
 
   let subtotal = 0;
-  const itemsData = items.map((item) => {
+  const itemsData = normalizedItems.map((item) => {
     const producto = productos.find((candidate) => candidate.id === item.productoId);
-    const cantidad = parseInt(item.cantidad, 10);
+    const cantidad = item.cantidad;
     const precioUnitario = parseFloat(producto.precio);
     const itemSubtotal = precioUnitario * cantidad;
     subtotal += itemSubtotal;
@@ -231,14 +282,14 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
     data: {
       tipo: 'DELIVERY',
       tipoEntrega,
-      clienteNombre,
-      clienteTelefono,
-      clienteDireccion: tipoEntrega === 'DELIVERY' ? clienteDireccion : null,
-      clienteEmail,
+      clienteNombre: clienteNombreValue,
+      clienteTelefono: clienteTelefonoValue,
+      clienteDireccion: tipoEntrega === 'DELIVERY' ? clienteDireccionValue : null,
+      clienteEmail: clienteEmailValue,
       costoEnvio,
       subtotal,
       total,
-      observaciones,
+      observaciones: observacionesValue,
       origen: 'MENU_PUBLICO',
       estadoPago: 'PENDIENTE',
       items: {
@@ -251,17 +302,19 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
       }
     }
   });
+  const accessToken = signPublicOrderToken(pedido.id);
 
   let initPoint = null;
 
   if (metodoPago === 'MERCADOPAGO') {
     try {
-      const preferenceData = buildPreferenceData({
-        pedidoId: pedido.id,
-        negocioNombre: negocio.nombre,
-        items: pedido.items,
-        costoEnvio
-      });
+        const preferenceData = buildPreferenceData({
+          pedidoId: pedido.id,
+          negocioNombre: negocio.nombre,
+          items: pedido.items,
+          costoEnvio,
+          accessToken
+        });
 
       const mpResponse = await createPreference(preferenceData);
 
@@ -308,6 +361,7 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
     costoEnvio,
     total,
     initPoint,
+    accessToken,
     shouldSendEmail,
     events: [
       {
@@ -324,7 +378,9 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
   };
 };
 
-const startMercadoPagoPaymentForOrder = async (prisma, { negocio, pedidoId }) => {
+const startMercadoPagoPaymentForOrder = async (prisma, { negocio, pedidoId, accessToken }) => {
+  assertPublicOrderAccess(pedidoId, accessToken);
+
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
     include: {
@@ -333,6 +389,10 @@ const startMercadoPagoPaymentForOrder = async (prisma, { negocio, pedidoId }) =>
   });
 
   if (!pedido) {
+    throw createHttpError.notFound('Pedido no encontrado');
+  }
+
+  if (pedido.origen !== 'MENU_PUBLICO') {
     throw createHttpError.notFound('Pedido no encontrado');
   }
 
@@ -358,7 +418,8 @@ const startMercadoPagoPaymentForOrder = async (prisma, { negocio, pedidoId }) =>
     pedidoId,
     negocioNombre: negocio.nombre,
     items: pedido.items,
-    costoEnvio: parseFloat(pedido.costoEnvio)
+    costoEnvio: parseFloat(pedido.costoEnvio),
+    accessToken
   });
 
   let response;
@@ -390,7 +451,9 @@ const startMercadoPagoPaymentForOrder = async (prisma, { negocio, pedidoId }) =>
   };
 };
 
-const getPublicOrderStatus = async (prisma, { pedidoId }) => {
+const getPublicOrderStatus = async (prisma, { pedidoId, accessToken }) => {
+  assertPublicOrderAccess(pedidoId, accessToken);
+
   let pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
     include: {
@@ -400,6 +463,10 @@ const getPublicOrderStatus = async (prisma, { pedidoId }) => {
   });
 
   if (!pedido) {
+    throw createHttpError.notFound('Pedido no encontrado');
+  }
+
+  if (pedido.origen !== 'MENU_PUBLICO') {
     throw createHttpError.notFound('Pedido no encontrado');
   }
 
@@ -423,7 +490,10 @@ const getPublicOrderStatus = async (prisma, { pedidoId }) => {
 
         await prisma.pedido.update({
           where: { id: pedidoId },
-          data: { estadoPago: 'APROBADO' }
+          data: {
+            estadoPago: 'APROBADO',
+            estado: 'COBRADO'
+          }
         });
 
         await saveTransaction(pagoAprobado, pagoMP.id);
@@ -432,7 +502,7 @@ const getPublicOrderStatus = async (prisma, { pedidoId }) => {
           topic: 'pedido.updated',
           payload: {
             id: pedidoId,
-            estado: pedido.estado,
+            estado: 'COBRADO',
             estadoPago: 'APROBADO',
             tipo: pedido.tipo,
             mesaId: pedido.mesaId || null,
@@ -442,6 +512,7 @@ const getPublicOrderStatus = async (prisma, { pedidoId }) => {
 
         pedido = {
           ...pedido,
+          estado: 'COBRADO',
           estadoPago: 'APROBADO',
           pagos: pedido.pagos.map((pago) =>
             pago.id === pagoMP.id
@@ -478,12 +549,15 @@ const getPublicTableSession = async (prisma, qrToken) => {
 
 const createPublicTableOrder = async (prisma, { qrToken, body }) => {
   const { items, clienteNombre, observaciones } = body;
+  const normalizedItems = normalizePublicOrderItems(items);
+  const clienteNombreValue = sanitizeOptionalText(clienteNombre);
+  const observacionesValue = sanitizeOptionalText(observaciones);
 
-  if (!Array.isArray(items) || items.length === 0) {
+  if (!Array.isArray(normalizedItems) || normalizedItems.length === 0) {
     throw createHttpError.badRequest('El pedido debe tener al menos un producto');
   }
 
-  if (!clienteNombre?.trim()) {
+  if (!clienteNombreValue) {
     throw createHttpError.badRequest('El nombre es requerido para identificar el pedido de mesa');
   }
 
@@ -509,7 +583,7 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
     throw createHttpError.badRequest('La mesa no esta disponible para pedidos en este momento.');
   }
 
-  const productoIds = [...new Set(items.map((item) => item.productoId))];
+  const productoIds = [...new Set(normalizedItems.map((item) => item.productoId))];
   const productos = await prisma.producto.findMany({
     where: {
       id: { in: productoIds },
@@ -522,9 +596,9 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
   }
 
   let subtotal = 0;
-  const itemsData = items.map((item) => {
+  const itemsData = normalizedItems.map((item) => {
     const producto = productos.find((candidate) => candidate.id === item.productoId);
-    const cantidad = parseInt(item.cantidad, 10);
+    const cantidad = item.cantidad;
     const precioUnitario = parseFloat(producto.precio);
     const itemSubtotal = precioUnitario * cantidad;
     subtotal += itemSubtotal;
@@ -567,9 +641,9 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
         data: {
           subtotal: { increment: subtotal },
           total: { increment: subtotal },
-          clienteNombre: pedidoAbierto.clienteNombre || clienteNombre.trim(),
-          observaciones: observaciones
-            ? [pedidoAbierto.observaciones, observaciones].filter(Boolean).join(' | ')
+          clienteNombre: pedidoAbierto.clienteNombre || clienteNombreValue,
+          observaciones: observacionesValue
+            ? [pedidoAbierto.observaciones, observacionesValue].filter(Boolean).join(' | ')
             : pedidoAbierto.observaciones
         },
         include: {
@@ -582,10 +656,10 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
         data: {
           tipo: 'MESA',
           mesaId: mesa.id,
-          clienteNombre: clienteNombre.trim(),
+          clienteNombre: clienteNombreValue,
           subtotal,
           total: subtotal,
-          observaciones: observaciones || null,
+          observaciones: observacionesValue,
           origen: 'MENU_PUBLICO',
           estadoPago: 'PENDIENTE',
           items: {

@@ -6,6 +6,7 @@ import App from './App'
 import AppErrorBoundary from './components/AppErrorBoundary'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
+import { NetworkStatusProvider } from './context/NetworkStatusContext'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -13,17 +14,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <AppErrorBoundary>
       <BrowserRouter>
         <ThemeProvider>
-          <AuthProvider>
-            <App />
-            <Toaster
-              position="top-right"
-              toastOptions={{
-                className: 'app-toast',
-                success: { className: 'app-toast app-toast-success' },
-                error: { className: 'app-toast app-toast-error' }
-              }}
-            />
-          </AuthProvider>
+          <NetworkStatusProvider>
+            <AuthProvider>
+              <App />
+              <Toaster
+                position="top-right"
+                toastOptions={{
+                  className: 'app-toast',
+                  success: { className: 'app-toast app-toast-success' },
+                  error: { className: 'app-toast app-toast-error' }
+                }}
+              />
+            </AuthProvider>
+          </NetworkStatusProvider>
         </ThemeProvider>
       </BrowserRouter>
     </AppErrorBoundary>

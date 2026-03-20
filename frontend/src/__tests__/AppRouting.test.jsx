@@ -90,4 +90,15 @@ describe('App routing', () => {
 
     expect(await screen.findByText('Dashboard')).toBeInTheDocument()
   })
+
+  it('redirige pedidos para un rol no autorizado', async () => {
+    authState = { usuario: { rol: 'COCINERO' }, loading: false }
+    render(
+      <MemoryRouter initialEntries={['/pedidos']}>
+        <App />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByTestId('redirect-by-role')).toBeInTheDocument()
+  })
 })

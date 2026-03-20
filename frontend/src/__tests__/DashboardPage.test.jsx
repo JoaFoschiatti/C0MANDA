@@ -30,7 +30,13 @@ describe('Dashboard page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     createEventSource.mockReturnValue(null)
-    useAuth.mockReturnValue({ esAdmin: true, esCajero: false })
+    useAuth.mockReturnValue({
+      usuario: { rol: 'ADMIN' },
+      esAdmin: true,
+      esCajero: false,
+      esMozo: false,
+      esCocinero: false
+    })
   })
 
   it('carga dashboard y muestra estadisticas', async () => {
@@ -106,7 +112,13 @@ describe('Dashboard page', () => {
   })
 
   it('oculta el resumen de tareas para cocinero', async () => {
-    useAuth.mockReturnValue({ esAdmin: false, esCajero: false })
+    useAuth.mockReturnValue({
+      usuario: { rol: 'COCINERO' },
+      esAdmin: false,
+      esCajero: false,
+      esMozo: false,
+      esCocinero: true
+    })
     api.get.mockResolvedValueOnce({
       data: {
         ventasHoy: 70,
@@ -133,5 +145,7 @@ describe('Dashboard page', () => {
     expect(await screen.findByText('$70')).toBeInTheDocument()
     expect(screen.queryByText('Tareas Operativas')).toBeNull()
     expect(screen.queryByText('Hay 1 tareas operativas de alta prioridad pendientes.')).toBeNull()
+    expect(screen.queryByRole('link', { name: /Reportes/i })).toBeNull()
+    expect(screen.getByRole('link', { name: /Cocina/i })).toHaveAttribute('href', '/cocina')
   })
 })

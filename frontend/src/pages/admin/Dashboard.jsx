@@ -7,10 +7,11 @@ import DashboardStatGrid from '../../components/dashboard/DashboardStatGrid'
 import QuickAccessGrid from '../../components/dashboard/QuickAccessGrid'
 
 export default function Dashboard() {
-  const { esAdmin, esCajero } = useAuth()
+  const { usuario, esAdmin, esCajero } = useAuth()
   const puedeVerTareas = esAdmin || esCajero
   const { data, errorMessage, loading, quickLinks, reload, stats } = useDashboardPage({
     puedeVerTareas,
+    rol: usuario?.rol,
   })
 
   if (loading && !data) {

@@ -7,6 +7,26 @@ const buildDayRange = (fecha) => {
   return { gte: inicio, lt: finExclusive };
 };
 
+const assertReservaSinConflicto = async (tx, { mesaId, fechaHora, excludeReservaId = null }) => {
+  const dosHoras = 2 * 60 * 60 * 1000;
+  const rangoInicio = new Date(fechaHora.getTime() - dosHoras);
+  const rangoFin = new Date(fechaHora.getTime() + dosHoras);
+
+  const conflicto = await tx.reserva.findFirst({
+    where: {
+      mesaId,
+      estado: { in: ['CONFIRMADA', 'CLIENTE_PRESENTE'] },
+      fechaHora: { gte: rangoInicio, lte: rangoFin },
+      ...(excludeReservaId ? { id: { not: excludeReservaId } } : {})
+    },
+    select: { id: true }
+  });
+
+  if (conflicto) {
+    throw createHttpError.badRequest('Ya existe una reserva para esta mesa cercana a esa hora');
+  }
+};
+
 const listar = async (prisma, query) => {
   const { fecha, mesaId, estado } = query;
 
@@ -72,22 +92,7 @@ const crear = async (prisma, data) => {
       throw createHttpError.badRequest(`La mesa ${mesa.numero} tiene capacidad para ${mesa.capacidad} personas`);
     }
 
-    const dosHoras = 2 * 60 * 60 * 1000;
-    const rangoInicio = new Date(fechaHora.getTime() - dosHoras);
-    const rangoFin = new Date(fechaHora.getTime() + dosHoras);
-
-    const conflicto = await tx.reserva.findFirst({
-      where: {
-        mesaId,
-        estado: { in: ['CONFIRMADA', 'CLIENTE_PRESENTE'] },
-        fechaHora: { gte: rangoInicio, lte: rangoFin }
-      },
-      select: { id: true }
-    });
-
-    if (conflicto) {
-      throw createHttpError.badRequest('Ya existe una reserva para esta mesa cercana a esa hora');
-    }
+    await assertReservaSinConflicto(tx, { mesaId, fechaHora });
 
     const created = await tx.reserva.create({
       data,
@@ -114,8 +119,8 @@ const crear = async (prisma, data) => {
   return { reserva, events };
 };
 
-const actualizar = async (prisma, id, data) => {
-  const reserva = await prisma.reserva.findUnique({
+const actualizar = async (prisma, id, data) => prisma.$transaction(async (tx) => {
+  const reserva = await tx.reserva.findUnique({
     where: { id },
     include: { mesa: true }
   });
@@ -132,14 +137,22 @@ const actualizar = async (prisma, id, data) => {
     throw createHttpError.badRequest(`La mesa ${reserva.mesa.numero} tiene capacidad para ${reserva.mesa.capacidad} personas`);
   }
 
-  return prisma.reserva.update({
+  if (data.fechaHora) {
+    await assertReservaSinConflicto(tx, {
+      mesaId: reserva.mesaId,
+      fechaHora: data.fechaHora,
+      excludeReservaId: id
+    });
+  }
+
+  return tx.reserva.update({
     where: { id },
     data,
     include: {
       mesa: { select: { numero: true, zona: true } }
     }
   });
-};
+});
 
 const cambiarEstado = async (prisma, id, estado) => {
   const { reservaActualizada, mesaUpdated } = await prisma.$transaction(async (tx) => {
@@ -238,4 +251,3 @@ module.exports = {
   cambiarEstado,
   eliminar
 };
-

@@ -163,9 +163,31 @@ describe('Publico Endpoints', () => {
 
     expect(response.body.message).toBe('Pedido creado correctamente');
     expect(response.body.initPoint).toBeNull();
+    expect(response.body.accessToken).toEqual(expect.any(String));
     expect(response.body.pedido.origen).toBe('MENU_PUBLICO');
     expect(response.body.pedido.items).toHaveLength(2);
     expect(response.body.pedido.clienteNombre).toBe('Cliente Test');
+  });
+
+  it('POST /api/publico/mesa/:qrToken/pedido rechaza cantidades invalidas', async () => {
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 77,
+        capacidad: 4,
+        estado: 'LIBRE',
+        activa: true
+      }
+    });
+
+    const response = await request(app)
+      .post(`/api/publico/mesa/${mesa.qrToken}/pedido`)
+      .send({
+        clienteNombre: 'Mesa Test',
+        items: [{ productoId: 1, cantidad: -1 }]
+      })
+      .expect(400);
+
+    expect(response.body.error.message).toBe('Datos inválidos');
   });
 
   it('POST /api/publico/pedido rechaza delivery si esta deshabilitado', async () => {

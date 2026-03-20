@@ -104,7 +104,7 @@ export default function App() {
         <Route path="modificadores" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Modificadores /></LazyScreen></ProtectedRoute>} />
         <Route path="transacciones-mp" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><TransaccionesMercadoPago /></LazyScreen></ProtectedRoute>} />
         <Route path="facturacion" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><Facturacion /></LazyScreen></ProtectedRoute>} />
-        <Route path="pedidos" element={<LazyScreen><Pedidos /></LazyScreen>} />
+        <Route path="pedidos" element={<ProtectedRoute roles={['ADMIN', 'CAJERO', 'MOZO']}><LazyScreen><Pedidos /></LazyScreen></ProtectedRoute>} />
         <Route path="mozo/mesas" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><MozoMesas /></LazyScreen></ProtectedRoute>} />
         <Route path="mozo/nuevo-pedido" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><NuevoPedido /></LazyScreen></ProtectedRoute>} />
         <Route path="mozo/nuevo-pedido/:mesaId" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><NuevoPedido /></LazyScreen></ProtectedRoute>} />

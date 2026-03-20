@@ -25,6 +25,14 @@ const emitMesaUpdated = (mesaId, estado) => {
   });
 };
 
+const allowedStatesByRole = {
+  ADMIN: ['EN_PREPARACION', 'LISTO', 'ENTREGADO'],
+  CAJERO: ['EN_PREPARACION', 'LISTO', 'ENTREGADO'],
+  COCINERO: ['EN_PREPARACION', 'LISTO'],
+  MOZO: ['ENTREGADO'],
+  DELIVERY: ['ENTREGADO']
+};
+
 const listar = async (req, res) => {
   const prisma = getPrisma(req);
   const result = await pedidosService.listar(prisma, req.query);
@@ -66,8 +74,9 @@ const cambiarEstado = async (req, res) => {
   const { id } = req.params;
   const { estado } = req.body;
   const usuarioRol = req.usuario.rol;
+  const allowedStates = allowedStatesByRole[usuarioRol] || [];
 
-  if ((usuarioRol === 'MOZO' || usuarioRol === 'DELIVERY') && estado !== 'ENTREGADO') {
+  if (!allowedStates.includes(estado)) {
     throw createHttpError.forbidden('No tienes permiso para cambiar a este estado');
   }
 

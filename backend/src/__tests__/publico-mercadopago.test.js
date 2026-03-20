@@ -1,4 +1,5 @@
 const request = require('supertest');
+const { signPublicOrderToken } = require('../utils/public-order-access');
 
 const mockCreatePreference = jest.fn();
 const mockSearchPaymentByReference = jest.fn();
@@ -83,6 +84,7 @@ describe('Publico MercadoPago', () => {
       .expect(201);
 
     expect(response.body.initPoint).toBe('https://mercadopago.test/init');
+    expect(response.body.accessToken).toEqual(expect.any(String));
     expect(response.body.pedido.origen).toBe('MENU_PUBLICO');
 
     const pagos = await prisma.pago.findMany({ where: { pedidoId: response.body.pedido.id } });
@@ -143,7 +145,7 @@ describe('Publico MercadoPago', () => {
 
     const response = await request(app)
       .post(`/api/publico/pedido/${pedido.id}/pagar`)
-      .send({})
+      .send({ token: signPublicOrderToken(pedido.id) })
       .expect(200);
 
     expect(response.body.preferenceId).toBe('PREF_PAY');
@@ -210,9 +212,11 @@ describe('Publico MercadoPago', () => {
     try {
       const response = await request(app)
         .get(`/api/publico/pedido/${pedido.id}`)
+        .query({ token: signPublicOrderToken(pedido.id) })
         .expect(200);
 
       expect(response.body.estadoPago).toBe('APROBADO');
+      expect(response.body.estado).toBe('COBRADO');
       const pagoEnRespuesta = response.body.pagos.find((item) => item.id === pago.id);
       expect(pagoEnRespuesta.estado).toBe('APROBADO');
       expect(pagoEnRespuesta.mpPaymentId).toBe('555');
@@ -222,6 +226,7 @@ describe('Publico MercadoPago', () => {
 
       const pedidoActualizado = await prisma.pedido.findUnique({ where: { id: pedido.id } });
       expect(pedidoActualizado.estadoPago).toBe('APROBADO');
+      expect(pedidoActualizado.estado).toBe('COBRADO');
 
       const evento = captured.find((event) => event.type === 'pedido.updated' && event.payload?.id === pedido.id);
       expect(evento).toBeDefined();
@@ -233,5 +238,22 @@ describe('Publico MercadoPago', () => {
     } finally {
       unsubscribe();
     }
+  });
+
+  it('GET /api/publico/pedido/:id rechaza acceso sin token valido', async () => {
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MOSTRADOR',
+        subtotal: 50,
+        total: 50,
+        estadoPago: 'PENDIENTE',
+        origen: 'MENU_PUBLICO'
+      }
+    });
+
+    await request(app)
+      .get(`/api/publico/pedido/${pedido.id}`)
+      .query({ token: 'token-invalido' })
+      .expect(404);
   });
 });

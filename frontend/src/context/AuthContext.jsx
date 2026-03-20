@@ -3,23 +3,28 @@ import api from '../services/api'
 
 const AuthContext = createContext(null)
 
+const readStoredJson = (key) => {
+  try {
+    const rawValue = localStorage.getItem(key)
+    if (!rawValue) {
+      return null
+    }
+
+    return JSON.parse(rawValue)
+  } catch (error) {
+    localStorage.removeItem(key)
+    return null
+  }
+}
+
 export function AuthProvider({ children }) {
   const [usuario, setUsuario] = useState(null)
   const [negocio, setNegocio] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const usuarioGuardado = localStorage.getItem('usuario')
-    const negocioGuardado = localStorage.getItem('negocio')
-
-    if (usuarioGuardado) {
-      setUsuario(JSON.parse(usuarioGuardado))
-    }
-
-    if (negocioGuardado) {
-      setNegocio(JSON.parse(negocioGuardado))
-    }
-
+    setUsuario(readStoredJson('usuario'))
+    setNegocio(readStoredJson('negocio'))
     setLoading(false)
   }, [])
 

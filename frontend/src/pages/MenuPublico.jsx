@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   MinusIcon,
   PlusIcon,
-  ShoppingCartIcon,
-  XMarkIcon
+  ShoppingCartIcon
 } from '@heroicons/react/24/outline'
 
 import PublicCategoryTabs from '../components/public/PublicCategoryTabs'
@@ -23,6 +22,7 @@ import { Alert, Button, Card, Drawer, EmptyState } from '../components/ui'
 import { openExternalUrl, navigateExternalUrl, buildWhatsAppUrl } from '../utils/external-links'
 import { fetchJson, PUBLIC_API_URL, PUBLIC_BACKEND_URL } from '../utils/public-fetch'
 import {
+  appendPublicOrderToken,
   clearPendingMercadoPagoOrder,
   loadPendingMercadoPagoOrder,
   savePendingMercadoPagoOrder
@@ -192,6 +192,9 @@ function CartPanel({
 export default function MenuPublico() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const pedidoIdDesdeQuery = parsePositiveIntParam(searchParams.get('pedido'))
+  const accessTokenDesdeQuery = searchParams.get('token')?.trim() || null
+  const pagoResultadoDesdeQuery = parseEnumParam(searchParams.get('pago'), PAYMENT_RESULTS)
 
   const [config, setConfig] = useState(null)
   const [categorias, setCategorias] = useState([])
@@ -211,7 +214,17 @@ export default function MenuPublico() {
   const [metodoPago, setMetodoPago] = useState('EFECTIVO')
   const [montoAbonado, setMontoAbonado] = useState('')
   const [pedidoExitoso, setPedidoExitoso] = useState(null)
-  const [pedidoPendienteMp, setPedidoPendienteMp] = useState(null)
+  const [pedidoPendienteMp, setPedidoPendienteMp] = useState(() => {
+    const pendingOrder = loadPendingMercadoPagoOrder()
+
+    return pendingOrder
+      ? {
+          id: pendingOrder.pedidoId,
+          accessToken: pendingOrder.accessToken,
+          total: null
+        }
+      : null
+  })
   const [verificandoPago, setVerificandoPago] = useState(false)
   const [tiempoEspera, setTiempoEspera] = useState(0)
   const [pageError, setPageError] = useState(null)
@@ -219,6 +232,7 @@ export default function MenuPublico() {
   const [loadError, setLoadError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [enviandoPedido, setEnviandoPedido] = useState(false)
+  const verificandoPagoDesdeQueryRef = useRef(false)
 
   const publicMenuPath = '/menu'
 
@@ -258,11 +272,30 @@ export default function MenuPublico() {
   }, [loadMenu])
 
   useEffect(() => {
-    const pendingOrder = loadPendingMercadoPagoOrder()
-    if (pendingOrder) {
-      setPedidoPendienteMp({ id: pendingOrder.pedidoId })
+    if (!pedidoIdDesdeQuery || !accessTokenDesdeQuery) {
+      return
     }
-  }, [])
+
+    savePendingMercadoPagoOrder({
+      pedidoId: pedidoIdDesdeQuery,
+      accessToken: accessTokenDesdeQuery
+    })
+
+    setPedidoPendienteMp((current) => {
+      if (current?.id === pedidoIdDesdeQuery) {
+        return {
+          ...current,
+          accessToken: accessTokenDesdeQuery
+        }
+      }
+
+      return {
+        id: pedidoIdDesdeQuery,
+        accessToken: accessTokenDesdeQuery,
+        total: current?.total ?? null
+      }
+    })
+  }, [accessTokenDesdeQuery, pedidoIdDesdeQuery])
 
   useEffect(() => {
     if (showCheckout) {
@@ -271,18 +304,35 @@ export default function MenuPublico() {
   }, [showCheckout])
 
   useEffect(() => {
-    const pagoResult = parseEnumParam(searchParams.get('pago'), PAYMENT_RESULTS)
-    const pedidoId = parsePositiveIntParam(searchParams.get('pedido'))
-
-    if (!pagoResult || !pedidoId) {
+    if (!pagoResultadoDesdeQuery || !pedidoIdDesdeQuery) {
+      verificandoPagoDesdeQueryRef.current = false
       return undefined
     }
 
+    if (verificandoPagoDesdeQueryRef.current) {
+      return undefined
+    }
+
+    verificandoPagoDesdeQueryRef.current = true
+
     let cancelled = false
     let intervalId = null
+    const accessToken = accessTokenDesdeQuery || pedidoPendienteMp?.accessToken
+    const pedidoUrl = appendPublicOrderToken(
+      `${PUBLIC_API_BASE}/pedido/${pedidoIdDesdeQuery}`,
+      accessToken
+    )
 
-    if (pagoResult === 'error') {
+    if (pagoResultadoDesdeQuery === 'error') {
       setPageError('El pago no pudo ser procesado. Intenta nuevamente.')
+      navigate(publicMenuPath, { replace: true })
+      return undefined
+    }
+
+    if (!accessToken) {
+      clearPendingMercadoPagoOrder()
+      setPedidoPendienteMp(null)
+      setPageError('No pudimos recuperar el acceso al pedido. Volve a abrir el enlace original.')
       navigate(publicMenuPath, { replace: true })
       return undefined
     }
@@ -292,11 +342,7 @@ export default function MenuPublico() {
 
     const verificarPago = async () => {
       try {
-        const pedido = await fetchJson(
-          `${PUBLIC_API_BASE}/pedido/${pedidoId}`,
-          {},
-          'Error al verificar el pago'
-        )
+        const pedido = await fetchJson(pedidoUrl, {}, 'Error al verificar el pago')
 
         if (cancelled) {
           return false
@@ -340,7 +386,7 @@ export default function MenuPublico() {
 
           if (!paid && attempts >= maxAttempts) {
             setVerificandoPago(false)
-            setPageError(`No pudimos confirmar tu pago. Si ya pagaste, usa el pedido #${pedidoId}.`)
+            setPageError(`No pudimos confirmar tu pago. Si ya pagaste, usa el pedido #${pedidoIdDesdeQuery}.`)
             navigate(publicMenuPath, { replace: true })
           }
         }
@@ -355,30 +401,48 @@ export default function MenuPublico() {
         window.clearInterval(intervalId)
       }
     }
-  }, [navigate, publicMenuPath, searchParams])
+  }, [
+    accessTokenDesdeQuery,
+    navigate,
+    pedidoIdDesdeQuery,
+    pedidoPendienteMp?.accessToken,
+    pagoResultadoDesdeQuery,
+    publicMenuPath
+  ])
 
   useEffect(() => {
-    if (!pedidoPendienteMp?.id) {
+    if (!pedidoPendienteMp?.id || (pedidoIdDesdeQuery && pagoResultadoDesdeQuery)) {
       return undefined
     }
 
     let cancelled = false
     let attempts = 0
     const maxAttempts = 60
+    const accessToken = pedidoPendienteMp.accessToken || accessTokenDesdeQuery
+
+    if (!accessToken) {
+      clearPendingMercadoPagoOrder()
+      setPedidoPendienteMp(null)
+      return undefined
+    }
 
     const verifyPendingPayment = async () => {
       try {
-        const pedido = await fetchJson(
+        const pedidoUrl = appendPublicOrderToken(
           `${PUBLIC_API_BASE}/pedido/${pedidoPendienteMp.id}`,
-          {},
-          'Error al verificar el pago'
+          accessToken
         )
+        const pedido = await fetchJson(pedidoUrl, {}, 'Error al verificar el pago')
 
         if (cancelled) {
           return false
         }
 
-        setPedidoPendienteMp({ id: pedido.id, total: pedido.total })
+        setPedidoPendienteMp((current) => ({
+          id: pedido.id,
+          accessToken: current?.accessToken || accessToken,
+          total: pedido.total
+        }))
 
         if (pedido.estadoPago === 'APROBADO') {
           clearPendingMercadoPagoOrder()
@@ -418,7 +482,13 @@ export default function MenuPublico() {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [pedidoPendienteMp?.id])
+  }, [
+    accessTokenDesdeQuery,
+    pagoResultadoDesdeQuery,
+    pedidoIdDesdeQuery,
+    pedidoPendienteMp?.accessToken,
+    pedidoPendienteMp?.id
+  ])
 
   const seleccionarVariante = useCallback((productoId, varianteId) => {
     setVariantesSeleccionadas((current) => ({
@@ -549,12 +619,22 @@ export default function MenuPublico() {
       )
 
       if (metodoPago === 'MERCADOPAGO' && data.initPoint) {
-        savePendingMercadoPagoOrder({ pedidoId: data.pedido.id })
+        const accessToken = data.pedido?.accessToken || null
+        savePendingMercadoPagoOrder({
+          pedidoId: data.pedido.id,
+          accessToken
+        })
+        setPedidoPendienteMp({
+          id: data.pedido.id,
+          accessToken,
+          total: data.pedido.total
+        })
 
         const isMobile = /iPhone|iPad|iPod|Android/i.test(window.navigator.userAgent)
         if (isMobile) {
           if (!navigateExternalUrl(data.initPoint)) {
             clearPendingMercadoPagoOrder()
+            setPedidoPendienteMp(null)
             setCheckoutError('No pudimos abrir Mercado Pago. Intenta nuevamente.')
             return
           }
@@ -562,12 +642,12 @@ export default function MenuPublico() {
           const opened = openExternalUrl(data.initPoint)
           if (!opened && !navigateExternalUrl(data.initPoint)) {
             clearPendingMercadoPagoOrder()
+            setPedidoPendienteMp(null)
             setCheckoutError('No pudimos abrir Mercado Pago. Revisa el navegador e intenta nuevamente.')
             return
           }
 
           if (opened) {
-            setPedidoPendienteMp({ id: data.pedido.id, total: data.pedido.total })
             setShowCheckout(false)
           }
         }
