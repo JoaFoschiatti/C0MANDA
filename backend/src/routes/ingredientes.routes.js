@@ -7,6 +7,7 @@ const { asyncHandler } = require('../utils/async-handler');
 const {
   idParamSchema,
   listarQuerySchema,
+  sucursalQuerySchema,
   crearIngredienteBodySchema,
   actualizarIngredienteBodySchema,
   registrarMovimientoBodySchema,
@@ -17,8 +18,8 @@ const {
 router.use(verificarToken);
 
 router.get('/', validate({ query: listarQuerySchema }), asyncHandler(ingredientesController.listar));
-router.get('/alertas', asyncHandler(ingredientesController.alertasStock));
-router.get('/:id', validate({ params: idParamSchema }), asyncHandler(ingredientesController.obtener));
+router.get('/alertas', validate({ query: sucursalQuerySchema }), asyncHandler(ingredientesController.alertasStock));
+router.get('/:id', validate({ params: idParamSchema, query: sucursalQuerySchema }), asyncHandler(ingredientesController.obtener));
 router.post('/', esAdmin, validate({ body: crearIngredienteBodySchema }), asyncHandler(ingredientesController.crear));
 router.put('/:id', esAdmin, validate({ params: idParamSchema, body: actualizarIngredienteBodySchema }), asyncHandler(ingredientesController.actualizar));
 router.post(

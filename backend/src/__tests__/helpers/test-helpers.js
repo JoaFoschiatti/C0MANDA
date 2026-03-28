@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { prisma } = require('../../db/prisma');
 const { normalizeEmail } = require('../../utils/email');
+const { ensureBaseSucursales } = require('../../services/sucursales.service');
 
 const uniqueId = (prefix = 'test') => {
   const worker = process.env.JEST_WORKER_ID || '0';
@@ -27,6 +28,8 @@ const ensureNegocio = async () => {
       email: 'tests@comanda.local'
     }
   });
+
+  await ensureBaseSucursales(prisma);
 };
 
 const createUsuario = async (overrides = {}) => {
@@ -56,6 +59,7 @@ const signTokenForUser = (usuario, overrides = {}) => {
 
   const payload = {
     id: usuario.id,
+    sv: usuario.sessionVersion ?? 0,
     ...(overrides.payload || {})
   };
 
@@ -82,10 +86,11 @@ const cleanupOperationalData = async () => {
   await prisma.pedido.deleteMany();
   await prisma.reserva.deleteMany();
   await prisma.loteStock.deleteMany();
+  await prisma.ingredienteStock.deleteMany();
   await prisma.cierreCaja.deleteMany();
   await prisma.fichaje.deleteMany();
-  await prisma.liquidacion.deleteMany();
   await prisma.refreshToken.deleteMany();
+  await prisma.operationalEvent.deleteMany();
   await prisma.usuario.deleteMany({
     where: {
       email: {
@@ -102,6 +107,9 @@ const cleanupOperationalData = async () => {
   await prisma.mercadoPagoConfig.deleteMany();
   await prisma.clienteFiscal.deleteMany();
   await prisma.puntoVentaFiscal.deleteMany();
+  await prisma.sucursal.deleteMany();
+
+  await ensureBaseSucursales(prisma);
 };
 
 module.exports = {

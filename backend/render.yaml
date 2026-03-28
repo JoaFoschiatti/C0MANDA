@@ -6,8 +6,8 @@ services:
     plan: free
     rootDir: backend
     buildCommand: npm install && npx prisma generate
-    startCommand: npm start
-    healthCheckPath: /api/health
+    startCommand: npm run db:deploy && npm run db:bootstrap && npm start
+    healthCheckPath: /api/ready
     envVars:
       - key: NODE_ENV
         value: production

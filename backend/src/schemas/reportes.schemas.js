@@ -8,8 +8,8 @@ const booleanFromString = (defaultValue) => z.preprocess((val) => {
 }, z.boolean());
 
 const dateOnlySchema = z.string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida')
-  .refine((value) => !Number.isNaN(new Date(`${value}T00:00:00`).getTime()), 'Fecha inválida');
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha invalida')
+  .refine((value) => !Number.isNaN(new Date(`${value}T00:00:00`).getTime()), 'Fecha invalida');
 
 const dateRangeRequiredFields = {
   fechaDesde: dateOnlySchema,
@@ -60,19 +60,10 @@ const consumoInsumosQuerySchema = z.object({
   path: ['fechaDesde']
 });
 
-const sueldosReporteQuerySchema = z.object({
-  mes: z.coerce.number().int().min(1).max(12).optional(),
-  anio: z.coerce.number().int().min(2000).max(2100).optional()
-}).strip().refine((data) => (data.mes && data.anio) || (!data.mes && !data.anio), {
-  message: 'Mes y año requeridos',
-  path: ['mes']
-});
-
 module.exports = {
   ventasReporteQuerySchema,
   productosMasVendidosQuerySchema,
   ventasPorMozoQuerySchema,
   ventasPorProductoBaseQuerySchema,
-  consumoInsumosQuerySchema,
-  sueldosReporteQuerySchema
+  consumoInsumosQuerySchema
 };

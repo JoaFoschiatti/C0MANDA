@@ -9,8 +9,7 @@ const {
   productosMasVendidosQuerySchema,
   ventasPorMozoQuerySchema,
   ventasPorProductoBaseQuerySchema,
-  consumoInsumosQuerySchema,
-  sueldosReporteQuerySchema
+  consumoInsumosQuerySchema
 } = require('../schemas/reportes.schemas');
 
 router.use(verificarToken);
@@ -26,7 +25,6 @@ router.get(
 );
 router.get('/ventas-por-mozo', esAdmin, validate({ query: ventasPorMozoQuerySchema }), asyncHandler(reportesController.ventasPorMozo));
 router.get('/inventario', esAdmin, asyncHandler(reportesController.inventarioReporte));
-router.get('/sueldos', esAdmin, validate({ query: sueldosReporteQuerySchema }), asyncHandler(reportesController.sueldosReporte));
 
 // Reportes de variantes de productos
 router.get(

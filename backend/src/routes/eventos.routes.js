@@ -5,13 +5,7 @@ const { logger } = require('../utils/logger');
 
 const router = express.Router();
 
-router.get('/', (req, res, next) => {
-  const token = req.query.token;
-  if (token && !req.headers.authorization) {
-    req.headers.authorization = `Bearer ${token}`;
-  }
-  return verificarToken(req, res, next);
-}, (req, res) => {
+router.get('/', verificarToken, (req, res) => {
   logger.info(`[SSE] Cliente conectado - Usuario: ${req.usuario?.email}`);
 
   res.setHeader('Content-Type', 'text/event-stream');

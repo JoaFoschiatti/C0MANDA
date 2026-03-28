@@ -15,11 +15,15 @@
     "format:check": "prettier . --check",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "db:bootstrap": "node scripts/bootstrap.js",
     "db:status": "prisma migrate status",
-    "db:reset": "prisma migrate reset --force",
+    "db:reset": "prisma migrate reset --force --skip-generate",
+    "db:status:test": "node scripts/prisma-env.js .env.test migrate status",
+    "db:reset:test": "node scripts/prisma-env.js .env.test migrate reset --force --skip-generate",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
-    "db:seed": "node prisma/seed.js"
+    "db:seed": "node prisma/seed.js",
+    "stock:reconcile": "node scripts/stock-reconcile.js"
   },
   "keywords": [
     "restaurant",
@@ -29,6 +33,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
   "engines": {
     "node": ">=18.0.0"
   },

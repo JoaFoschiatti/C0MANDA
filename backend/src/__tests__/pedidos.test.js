@@ -10,6 +10,46 @@ const {
   ensureNegocio
 } = require('./helpers/test-helpers');
 
+const seedStockSucursal = async (ingredienteId, stockActual, options = {}) => {
+  const {
+    stockMinimo = 0,
+    sucursalId = 1,
+    codigoLote = `LOT-${uniqueId('seed-stock')}`
+  } = options;
+
+  await prisma.ingredienteStock.upsert({
+    where: {
+      ingredienteId_sucursalId: {
+        ingredienteId,
+        sucursalId
+      }
+    },
+    update: {
+      stockActual,
+      stockMinimo,
+      activo: true
+    },
+    create: {
+      ingredienteId,
+      sucursalId,
+      stockActual,
+      stockMinimo,
+      activo: true
+    }
+  });
+
+  await prisma.loteStock.create({
+    data: {
+      ingredienteId,
+      sucursalId,
+      codigoLote,
+      stockInicial: stockActual,
+      stockActual,
+      fechaIngreso: new Date('2026-01-01T10:00:00.000Z')
+    }
+  });
+};
+
 describe('Pedidos Endpoints', () => {
     let tokenAdmin;
   let tokenMozo;
@@ -101,7 +141,7 @@ describe('Pedidos Endpoints', () => {
   });
 
   it('MOZO solo puede cambiar estado a ENTREGADO', async () => {
-    const pedido = await prisma.pedido.create({
+    const pedidoPendiente = await prisma.pedido.create({
       data: {
         tipo: 'MOSTRADOR',
         subtotal: 10,
@@ -110,15 +150,24 @@ describe('Pedidos Endpoints', () => {
     });
 
     const forbidden = await request(app)
-      .patch(`/api/pedidos/${pedido.id}/estado`)
+      .patch(`/api/pedidos/${pedidoPendiente.id}/estado`)
       .set('Authorization', authHeader(tokenMozo))
       .send({ estado: 'EN_PREPARACION' })
       .expect(403);
 
     expect(forbidden.body.error.message).toBe('No tienes permiso para cambiar a este estado');
 
+    const pedidoListo = await prisma.pedido.create({
+      data: {
+        tipo: 'MOSTRADOR',
+        estado: 'LISTO',
+        subtotal: 10,
+        total: 10
+      }
+    });
+
     const ok = await request(app)
-      .patch(`/api/pedidos/${pedido.id}/estado`)
+      .patch(`/api/pedidos/${pedidoListo.id}/estado`)
       .set('Authorization', authHeader(tokenMozo))
       .send({ estado: 'ENTREGADO' })
       .expect(200);
@@ -140,6 +189,7 @@ describe('Pedidos Endpoints', () => {
         activo: true
       }
     });
+    await seedStockSucursal(ingrediente.id, 10);
 
     const producto = await prisma.producto.create({
       data: {
@@ -239,6 +289,7 @@ describe('Pedidos Endpoints', () => {
         activo: true
       }
     });
+    await seedStockSucursal(ingrediente.id, 10);
 
     const producto = await prisma.producto.create({
       data: {

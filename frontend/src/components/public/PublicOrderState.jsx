@@ -63,7 +63,7 @@ export function PublicClosedState({ config }) {
   )
 }
 
-export function PublicPendingPaymentState({ pedido, total, onCancel }) {
+export function PublicPendingPaymentState({ pedido, total, onCancel, onRetry }) {
   return (
     <div className="max-w-lg mx-auto px-4 py-10">
       <Card className="text-center space-y-5">
@@ -82,9 +82,16 @@ export function PublicPendingPaymentState({ pedido, total, onCancel }) {
             ${Number(total || pedido?.total || 0).toLocaleString('es-AR')}
           </p>
         </div>
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancelar seguimiento
-        </Button>
+        <div className="flex flex-col gap-2">
+          {onRetry && (
+            <Button type="button" onClick={onRetry}>
+              Verificar pago
+            </Button>
+          )}
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancelar seguimiento
+          </Button>
+        </div>
       </Card>
     </div>
   )

@@ -35,7 +35,7 @@ const getConfigHandler = asyncHandler(async (_req, res) => {
 });
 
 const getMenuHandler = asyncHandler(async (_req, res) => {
-  const categorias = await publicoService.getPublicMenu(prisma);
+  const categorias = await publicoService.getPublicMenu(prisma, { sucursalId: null });
   res.json(categorias);
 });
 
@@ -101,7 +101,7 @@ const getMesaContextHandler = asyncHandler(async (req, res) => {
   const negocio = await getNegocio();
   const [config, categorias] = await Promise.all([
     publicoService.getPublicConfig(prisma, negocio),
-    publicoService.getPublicMenu(prisma)
+    publicoService.getPublicMenu(prisma, { sucursalId: mesa.sucursalId })
   ]);
 
   res.json({

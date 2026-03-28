@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 
 import api from '../services/api'
 import useAsync from './useAsync'
+import { SUCURSAL_IDS, SUCURSALES, getSucursalById } from '../constants/sucursales'
 import { parseEnumParam, parsePositiveIntParam } from '../utils/query-params'
 
 const initialIngredienteForm = {
@@ -30,7 +31,7 @@ const initialDescarteForm = {
 }
 
 export default function useIngredientesPage() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [ingredientes, setIngredientes] = useState([])
   const [showModal, setShowModal] = useState(false)
   const [showMovModal, setShowMovModal] = useState(false)
@@ -45,11 +46,19 @@ export default function useIngredientesPage() {
   const ingredienteEnfocadoId = parsePositiveIntParam(searchParams.get('ingredienteId'))
   const loteEnfocadoId = parsePositiveIntParam(searchParams.get('loteId'))
   const accionEnfocada = parseEnumParam(searchParams.get('action'), ['descartar'])
+  const sucursalActiva = getSucursalById(searchParams.get('sucursalId') || SUCURSAL_IDS.SALON)
+
+  const cambiarSucursalActiva = useCallback((sucursalId) => {
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.set('sucursalId', String(sucursalId))
+    setSearchParams(nextParams, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const cargarIngredientes = useCallback(async () => {
+    const query = new URLSearchParams({ sucursalId: String(sucursalActiva.id) }).toString()
     const [ingredientesResponse, alertasResponse] = await Promise.all([
-      Promise.resolve(api.get('/ingredientes')),
-      Promise.resolve(api.get('/ingredientes/alertas')).catch(() => ({ data: [] })),
+      Promise.resolve(api.get(`/ingredientes?${query}`)),
+      Promise.resolve(api.get(`/ingredientes/alertas?${query}`)).catch(() => ({ data: [] })),
     ])
 
     const ingredientesData = Array.isArray(ingredientesResponse?.data)
@@ -79,7 +88,7 @@ export default function useIngredientesPage() {
 
     setIngredientes(mergedIngredientes)
     return mergedIngredientes
-  }, [])
+  }, [sucursalActiva.id])
 
   const { loading, execute: cargarIngredientesAsync } = useAsync(
     useCallback(async () => cargarIngredientes(), [cargarIngredientes]),
@@ -131,6 +140,7 @@ export default function useIngredientesPage() {
         stockActual: parseFloat(form.stockActual),
         stockMinimo: parseFloat(form.stockMinimo),
         costo: form.costo ? parseFloat(form.costo) : null,
+        sucursalId: sucursalActiva.id,
       }
       if (editando) {
         await api.put(`/ingredientes/${editando.id}`, data)
@@ -162,6 +172,7 @@ export default function useIngredientesPage() {
           movForm.tipo === 'ENTRADA' && movForm.costoUnitario
             ? parseFloat(movForm.costoUnitario)
             : null,
+        sucursalId: sucursalActiva.id,
       })
       toast.success('Movimiento registrado')
       cerrarMovimientoModal()
@@ -311,6 +322,7 @@ export default function useIngredientesPage() {
     abrirMovimiento,
     abrirNuevoIngrediente,
     accionEnfocada,
+    cambiarSucursalActiva,
     cargarIngredientesAsync,
     cerrarDescarteModal,
     cerrarIngredienteModal,
@@ -338,5 +350,7 @@ export default function useIngredientesPage() {
     showModal,
     showMovModal,
     stockBajo,
+    sucursalActiva,
+    sucursales: SUCURSALES,
   }
 }

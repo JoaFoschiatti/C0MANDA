@@ -1,9 +1,11 @@
 import { ClockIcon, MapPinIcon, TruckIcon } from '@heroicons/react/24/outline'
+import { resolvePublicAssetUrl } from '../../utils/public-assets'
 
 export default function PublicHero({ config, backendUrl }) {
-  const backgroundStyle = config?.banner_imagen
+  const bannerUrl = resolvePublicAssetUrl(config?.banner_imagen, backendUrl)
+  const backgroundStyle = bannerUrl
     ? {
-        backgroundImage: `linear-gradient(135deg, rgba(26, 17, 10, 0.84), rgba(45, 30, 18, 0.74)), url(${backendUrl}${config.banner_imagen})`,
+        backgroundImage: `linear-gradient(135deg, rgba(26, 17, 10, 0.84), rgba(45, 30, 18, 0.74)), url(${bannerUrl})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center'
       }

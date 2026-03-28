@@ -1,5 +1,6 @@
 const request = require('supertest');
 const app = require('../app');
+const { SUCURSAL_IDS } = require('../constants/sucursales');
 const {
   prisma,
   uniqueId,
@@ -77,9 +78,30 @@ describe('Ingredientes Endpoints', () => {
       data: {
         nombre: `Ing-${uniqueId('aj')}`,
         unidad: 'kg',
+        stockActual: 0,
+        stockMinimo: 0,
+        activo: true
+      }
+    });
+
+    await prisma.ingredienteStock.create({
+      data: {
+        ingredienteId: ingrediente.id,
+        sucursalId: SUCURSAL_IDS.SALON,
         stockActual: 2,
         stockMinimo: 0,
         activo: true
+      }
+    });
+
+    await prisma.loteStock.create({
+      data: {
+        ingredienteId: ingrediente.id,
+        sucursalId: SUCURSAL_IDS.SALON,
+        codigoLote: `LOT-${uniqueId('aj')}`,
+        stockInicial: 2,
+        stockActual: 2,
+        fechaIngreso: new Date('2026-03-20T10:00:00.000Z')
       }
     });
 

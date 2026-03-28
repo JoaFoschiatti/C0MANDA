@@ -25,12 +25,17 @@ const verificarToken = async (req, res, next) => {
         email: true,
         nombre: true,
         rol: true,
-        activo: true
+        activo: true,
+        sessionVersion: true
       }
     });
 
     if (!usuario || !usuario.activo) {
       return res.status(401).json({ error: { message: 'Usuario no valido o inactivo' } });
+    }
+
+    if ((decoded.sv ?? 0) !== (usuario.sessionVersion ?? 0)) {
+      return res.status(401).json({ error: { message: 'Sesion expirada' } });
     }
 
     req.usuario = usuario;

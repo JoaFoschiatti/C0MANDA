@@ -1,9 +1,11 @@
 const { createHttpError } = require('../utils/http-error');
 const { decimalToNumber } = require('../utils/decimal');
+const {
+  ensureIngredienteStock,
+  roundStock
+} = require('./ingrediente-stock.service');
 
 const EPSILON = 0.0001;
-
-const roundStock = (value) => Number.parseFloat(Math.max(0, value).toFixed(3));
 
 const sumStock = (items = [], field = 'stockActual') => items
   .reduce((sum, item) => sum + decimalToNumber(item[field]), 0);
@@ -39,14 +41,22 @@ const isLoteConsumible = (lote, referenceDate = new Date()) => (
   !isLoteVencido(lote.fechaVencimiento, referenceDate)
 );
 
-const buildConsumibleLoteWhere = (referenceDate = new Date()) => ({
-  activo: true,
-  stockActual: { gt: 0 },
-  OR: [
-    { fechaVencimiento: null },
-    { fechaVencimiento: { gte: referenceDate } }
-  ]
-});
+const buildConsumibleLoteWhere = (referenceDate = new Date(), sucursalId = null) => {
+  const where = {
+    activo: true,
+    stockActual: { gt: 0 },
+    OR: [
+      { fechaVencimiento: null },
+      { fechaVencimiento: { gte: referenceDate } }
+    ]
+  };
+
+  if (sucursalId) {
+    where.sucursalId = sucursalId;
+  }
+
+  return where;
+};
 
 const startOfDay = (value = new Date()) => {
   const nextDate = new Date(value);
@@ -54,23 +64,92 @@ const startOfDay = (value = new Date()) => {
   return nextDate;
 };
 
-const buildExpiredLotsWhere = (referenceDate = new Date()) => ({
-  activo: true,
-  stockActual: { gt: 0 },
-  fechaVencimiento: { lt: referenceDate }
-});
+const buildExpiredLotsWhere = (referenceDate = new Date(), sucursalId = null) => {
+  const where = {
+    activo: true,
+    stockActual: { gt: 0 },
+    fechaVencimiento: { lt: referenceDate }
+  };
 
-const buildExpiredPendingNotificationWhere = (referenceDate = new Date()) => ({
-  ...buildExpiredLotsWhere(referenceDate),
+  if (sucursalId) {
+    where.sucursalId = sucursalId;
+  }
+
+  return where;
+};
+
+const buildExpiredPendingNotificationWhere = (referenceDate = new Date(), sucursalId = null) => ({
+  ...buildExpiredLotsWhere(referenceDate, sucursalId),
   OR: [
     { ultimaNotificacionVencimiento: null },
     { ultimaNotificacionVencimiento: { lt: startOfDay(referenceDate) } }
   ]
 });
 
-const obtenerLotesActivos = async (tx, ingredienteId) => tx.loteStock.findMany({
+const lockConsumibleLotes = async (tx, ingredienteId, sucursalId, referenceDate = new Date()) => tx.$queryRaw`
+  SELECT
+    id,
+    "ingredienteId",
+    "sucursalId",
+    "codigoLote",
+    "stockInicial",
+    "stockActual",
+    "costoUnitario",
+    "fechaIngreso",
+    "fechaVencimiento",
+    "ultimaNotificacionVencimiento",
+    activo,
+    "createdAt",
+    "updatedAt"
+  FROM "lotes_stock"
+  WHERE
+    "ingredienteId" = ${ingredienteId}
+    AND "sucursalId" = ${sucursalId}
+    AND activo = true
+    AND "stockActual" > 0
+    AND ("fechaVencimiento" IS NULL OR "fechaVencimiento" >= ${referenceDate})
+  ORDER BY "fechaIngreso" ASC, id ASC
+  FOR UPDATE
+`;
+
+const syncIngredienteAggregate = async (tx, ingredienteId) => {
+  const [ingrediente, stocks] = await Promise.all([
+    tx.ingrediente.findUnique({ where: { id: ingredienteId } }),
+    tx.ingredienteStock.findMany({
+      where: {
+        ingredienteId,
+        activo: true
+      }
+    })
+  ]);
+
+  if (!ingrediente) {
+    throw createHttpError.notFound('Ingrediente no encontrado');
+  }
+
+  const stockActual = roundStock(sumStock(stocks));
+  const stockMinimo = roundStock(sumStock(stocks, 'stockMinimo'));
+
+  if (
+    Math.abs(decimalToNumber(ingrediente.stockActual) - stockActual) <= EPSILON &&
+    Math.abs(decimalToNumber(ingrediente.stockMinimo) - stockMinimo) <= EPSILON
+  ) {
+    return ingrediente;
+  }
+
+  return tx.ingrediente.update({
+    where: { id: ingredienteId },
+    data: {
+      stockActual,
+      stockMinimo
+    }
+  });
+};
+
+const obtenerLotesActivos = async (tx, ingredienteId, sucursalId) => tx.loteStock.findMany({
   where: {
     ingredienteId,
+    sucursalId,
     activo: true,
     stockActual: { gt: 0 }
   },
@@ -80,9 +159,10 @@ const obtenerLotesActivos = async (tx, ingredienteId) => tx.loteStock.findMany({
   ]
 });
 
-const obtenerLotesConsumibles = async (tx, ingredienteId, referenceDate = new Date()) => tx.loteStock.findMany({
+const obtenerLotesConsumibles = async (tx, ingredienteId, sucursalId, referenceDate = new Date()) => tx.loteStock.findMany({
   where: {
     ingredienteId,
+    sucursalId,
     ...buildConsumibleLoteWhere(referenceDate)
   },
   orderBy: [
@@ -92,16 +172,24 @@ const obtenerLotesConsumibles = async (tx, ingredienteId, referenceDate = new Da
 });
 
 const obtenerLotesVencidosPendientes = async (tx, options = {}) => {
-  const { referenceDate = new Date() } = options;
+  const { referenceDate = new Date(), sucursalId = null } = options;
+  const where = buildExpiredPendingNotificationWhere(referenceDate, sucursalId);
 
   return tx.loteStock.findMany({
-    where: buildExpiredPendingNotificationWhere(referenceDate),
+    where,
     include: {
       ingrediente: {
         select: {
           id: true,
           nombre: true,
           unidad: true
+        }
+      },
+      sucursal: {
+        select: {
+          id: true,
+          nombre: true,
+          codigo: true
         }
       }
     },
@@ -113,15 +201,20 @@ const obtenerLotesVencidosPendientes = async (tx, options = {}) => {
   });
 };
 
-const ensureLegacyLotesCoverage = async (tx, ingrediente, options = {}) => {
+const ensureLegacyLotesCoverage = async (tx, ingrediente, sucursalId, options = {}) => {
   const { allowPartialCoverage = false } = options;
-  const lotes = await obtenerLotesActivos(tx, ingrediente.id);
+  const { stock } = await ensureIngredienteStock(tx, {
+    ingredienteId: ingrediente.id,
+    sucursalId,
+    useLegacyFallback: true
+  });
+  const lotes = await obtenerLotesActivos(tx, ingrediente.id, sucursalId);
   const totalEnLotes = sumStock(lotes);
-  const stockIngrediente = decimalToNumber(ingrediente.stockActual);
+  const stockSucursal = decimalToNumber(stock.stockActual);
 
   const crearLoteLegacy = (
-    (lotes.length === 0 && stockIngrediente > EPSILON) ||
-    (allowPartialCoverage && stockIngrediente - totalEnLotes > EPSILON)
+    (lotes.length === 0 && stockSucursal > EPSILON) ||
+    (allowPartialCoverage && stockSucursal - totalEnLotes > EPSILON)
   );
 
   if (!crearLoteLegacy) {
@@ -129,12 +222,13 @@ const ensureLegacyLotesCoverage = async (tx, ingrediente, options = {}) => {
   }
 
   const faltante = lotes.length === 0
-    ? roundStock(stockIngrediente)
-    : roundStock(stockIngrediente - totalEnLotes);
+    ? roundStock(stockSucursal)
+    : roundStock(stockSucursal - totalEnLotes);
   const loteLegacy = await tx.loteStock.create({
     data: {
       ingredienteId: ingrediente.id,
-      codigoLote: buildAutoLoteCode(`LEGACY-${ingrediente.id}`),
+      sucursalId,
+      codigoLote: buildAutoLoteCode(`LEGACY-${ingrediente.id}-${sucursalId}`),
       stockInicial: faltante,
       stockActual: faltante,
       costoUnitario: ingrediente.costo ?? null,
@@ -145,7 +239,13 @@ const ensureLegacyLotesCoverage = async (tx, ingrediente, options = {}) => {
   return [...lotes, loteLegacy];
 };
 
-const sincronizarStockIngrediente = async (tx, ingredienteOrId, referenceDate = new Date(), options = {}) => {
+const sincronizarStockIngrediente = async (
+  tx,
+  ingredienteOrId,
+  sucursalId,
+  referenceDate = new Date(),
+  options = {}
+) => {
   const { migrateLegacy = false } = options;
   const ingrediente = typeof ingredienteOrId === 'object'
     ? ingredienteOrId
@@ -155,21 +255,30 @@ const sincronizarStockIngrediente = async (tx, ingredienteOrId, referenceDate = 
     throw createHttpError.notFound('Ingrediente no encontrado');
   }
 
+  const { stock } = await ensureIngredienteStock(tx, {
+    ingredienteId: ingrediente.id,
+    sucursalId,
+    useLegacyFallback: false
+  });
+
   const lotes = migrateLegacy
-    ? await ensureLegacyLotesCoverage(tx, ingrediente)
-    : await obtenerLotesActivos(tx, ingrediente.id);
+    ? await ensureLegacyLotesCoverage(tx, ingrediente, sucursalId)
+    : await obtenerLotesActivos(tx, ingrediente.id, sucursalId);
   const stockConsumible = roundStock(
     sumStock(lotes.filter((lote) => isLoteConsumible(lote, referenceDate)))
   );
 
-  if (Math.abs(decimalToNumber(ingrediente.stockActual) - stockConsumible) <= EPSILON) {
-    return { ...ingrediente, stockActual: stockConsumible };
+  let updatedStock = stock;
+  if (Math.abs(decimalToNumber(stock.stockActual) - stockConsumible) > EPSILON) {
+    updatedStock = await tx.ingredienteStock.update({
+      where: { id: stock.id },
+      data: { stockActual: stockConsumible }
+    });
   }
 
-  return tx.ingrediente.update({
-    where: { id: ingrediente.id },
-    data: { stockActual: stockConsumible }
-  });
+  await syncIngredienteAggregate(tx, ingrediente.id);
+
+  return updatedStock;
 };
 
 const actualizarLote = async (tx, lote, changes = {}) => {
@@ -190,6 +299,7 @@ const actualizarLote = async (tx, lote, changes = {}) => {
 const registrarEntradaEnLote = async (tx, payload) => {
   const {
     ingredienteId,
+    sucursalId,
     cantidad,
     motivo = null,
     tipoMovimiento = 'ENTRADA',
@@ -212,7 +322,11 @@ const registrarEntradaEnLote = async (tx, payload) => {
     throw createHttpError.notFound('Ingrediente no encontrado');
   }
 
-  await ensureLegacyLotesCoverage(tx, ingrediente);
+  await ensureIngredienteStock(tx, {
+    ingredienteId,
+    sucursalId,
+    useLegacyFallback: false
+  });
 
   const normalizedExpiryDate = normalizeExpiryDate(fechaVencimiento);
 
@@ -221,14 +335,15 @@ const registrarEntradaEnLote = async (tx, payload) => {
 
   if (loteStockId) {
     lote = await tx.loteStock.findUnique({ where: { id: loteStockId } });
-    if (!lote || lote.ingredienteId !== ingredienteId) {
+    if (!lote || lote.ingredienteId !== ingredienteId || lote.sucursalId !== sucursalId) {
       throw createHttpError.badRequest('El lote indicado no pertenece al ingrediente');
     }
   } else {
-    const codigo = codigoLote || buildAutoLoteCode(`LOTE-${ingredienteId}`);
+    const codigo = codigoLote || buildAutoLoteCode(`LOTE-${ingredienteId}-${sucursalId}`);
     lote = await tx.loteStock.findFirst({
       where: {
         ingredienteId,
+        sucursalId,
         codigoLote: codigo
       }
     });
@@ -238,6 +353,7 @@ const registrarEntradaEnLote = async (tx, payload) => {
       lote = await tx.loteStock.create({
         data: {
           ingredienteId,
+          sucursalId,
           codigoLote: codigo,
           stockInicial: cantidadValue,
           stockActual: cantidadValue,
@@ -273,6 +389,7 @@ const registrarEntradaEnLote = async (tx, payload) => {
   const movimiento = await tx.movimientoStock.create({
     data: {
       ingredienteId,
+      sucursalId,
       loteStockId: lote.id,
       tipo: tipoMovimiento,
       cantidad: cantidadValue,
@@ -281,10 +398,10 @@ const registrarEntradaEnLote = async (tx, payload) => {
     }
   });
 
-  const ingredienteActualizado = await sincronizarStockIngrediente(tx, ingredienteId);
+  await sincronizarStockIngrediente(tx, ingredienteId, sucursalId);
 
   return {
-    ingrediente: ingredienteActualizado,
+    ingrediente: await syncIngredienteAggregate(tx, ingredienteId),
     lote,
     movimiento,
     cantidad: cantidadValue
@@ -294,6 +411,7 @@ const registrarEntradaEnLote = async (tx, payload) => {
 const consumirLotesFIFO = async (tx, payload) => {
   const {
     ingredienteId,
+    sucursalId,
     cantidad,
     motivo = null,
     pedidoId = null,
@@ -311,8 +429,8 @@ const consumirLotesFIFO = async (tx, payload) => {
   }
 
   const referenceDate = new Date();
-  await sincronizarStockIngrediente(tx, ingrediente, referenceDate, { migrateLegacy: true });
-  const lotes = await obtenerLotesConsumibles(tx, ingredienteId, referenceDate);
+  await sincronizarStockIngrediente(tx, ingrediente, sucursalId, referenceDate);
+  const lotes = await lockConsumibleLotes(tx, ingredienteId, sucursalId, referenceDate);
   const stockDisponible = roundStock(sumStock(lotes));
 
   if (stockDisponible + EPSILON < cantidadValue) {
@@ -340,6 +458,7 @@ const consumirLotesFIFO = async (tx, payload) => {
     const movimiento = await tx.movimientoStock.create({
       data: {
         ingredienteId,
+        sucursalId,
         loteStockId: lote.id,
         tipo: tipoMovimiento,
         cantidad: cantidadConsumida,
@@ -357,10 +476,10 @@ const consumirLotesFIFO = async (tx, payload) => {
     restante = roundStock(restante - cantidadConsumida);
   }
 
-  const ingredienteActualizado = await sincronizarStockIngrediente(tx, ingredienteId, referenceDate);
+  await sincronizarStockIngrediente(tx, ingredienteId, sucursalId, referenceDate);
 
   return {
-    ingrediente: ingredienteActualizado,
+    ingrediente: await syncIngredienteAggregate(tx, ingredienteId),
     consumos,
     totalConsumido: cantidadValue
   };
@@ -369,6 +488,7 @@ const consumirLotesFIFO = async (tx, payload) => {
 const ajustarStockPorLotes = async (tx, payload) => {
   const {
     ingredienteId,
+    sucursalId,
     stockReal,
     motivo = null
   } = payload;
@@ -378,8 +498,8 @@ const ajustarStockPorLotes = async (tx, payload) => {
     throw createHttpError.notFound('Ingrediente no encontrado');
   }
 
-  const ingredienteActualizado = await sincronizarStockIngrediente(tx, ingrediente, new Date(), { migrateLegacy: true });
-  const stockActual = decimalToNumber(ingredienteActualizado.stockActual);
+  const stockSucursal = await sincronizarStockIngrediente(tx, ingrediente, sucursalId);
+  const stockActual = decimalToNumber(stockSucursal.stockActual);
   const stockRealValue = roundStock(decimalToNumber(stockReal));
   const diferencia = roundStock(stockRealValue - stockActual);
   const motivoFinal = motivo || `Ajuste de inventario (${diferencia >= 0 ? '+' : ''}${diferencia})`;
@@ -391,11 +511,12 @@ const ajustarStockPorLotes = async (tx, payload) => {
   if (diferencia > 0) {
     const ingreso = await registrarEntradaEnLote(tx, {
       ingredienteId,
+      sucursalId,
       cantidad: diferencia,
       motivo: motivoFinal,
       tipoMovimiento: 'AJUSTE',
       incrementStockInicial: false,
-      codigoLote: buildAutoLoteCode(`AJUSTE-${ingredienteId}`),
+      codigoLote: buildAutoLoteCode(`AJUSTE-${ingredienteId}-${sucursalId}`),
       costoUnitario: ingrediente.costo ?? null
     });
 
@@ -408,6 +529,7 @@ const ajustarStockPorLotes = async (tx, payload) => {
 
   const consumo = await consumirLotesFIFO(tx, {
     ingredienteId,
+    sucursalId,
     cantidad: Math.abs(diferencia),
     motivo: motivoFinal,
     tipoMovimiento: 'AJUSTE'
@@ -467,6 +589,7 @@ const descartarLoteVencido = async (tx, payload) => {
   const movimiento = await tx.movimientoStock.create({
     data: {
       ingredienteId: lote.ingredienteId,
+      sucursalId: lote.sucursalId,
       loteStockId: lote.id,
       tipo: 'AJUSTE',
       cantidad: cantidadValue,
@@ -474,10 +597,10 @@ const descartarLoteVencido = async (tx, payload) => {
     }
   });
 
-  const ingredienteActualizado = await sincronizarStockIngrediente(tx, lote.ingredienteId);
+  await sincronizarStockIngrediente(tx, lote.ingredienteId, lote.sucursalId);
 
   return {
-    ingrediente: ingredienteActualizado,
+    ingrediente: await syncIngredienteAggregate(tx, lote.ingredienteId),
     lote: loteActualizado,
     movimiento,
     cantidad: cantidadValue
@@ -504,5 +627,6 @@ module.exports = {
   roundStock,
   startOfDay,
   sincronizarStockIngrediente,
-  sumStock
+  sumStock,
+  syncIngredienteAggregate
 };

@@ -1,5 +1,6 @@
 import { CubeIcon, PlusIcon } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
+import { resolvePublicAssetUrl } from '../../utils/public-assets'
 
 function getDisplayedVariant(product, selectedVariantId) {
   if (!product.variantes?.length) {
@@ -20,9 +21,7 @@ export default function PublicProductCard({
 }) {
   const selectedVariant = getDisplayedVariant(product, selectedVariantId)
   const displayPrice = Number(selectedVariant?.precio ?? product.precio ?? 0)
-  const imageUrl = product.imagen
-    ? (product.imagen.startsWith('http') ? product.imagen : `${backendUrl}${product.imagen}`)
-    : null
+  const imageUrl = resolvePublicAssetUrl(selectedVariant?.imagen || product.imagen, backendUrl)
 
   return (
     <article className="public-product-card">

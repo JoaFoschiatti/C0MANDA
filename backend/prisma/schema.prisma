@@ -105,6 +105,11 @@ enum TipoModificador {
   ADICION
 }
 
+enum CodigoSucursal {
+  SALON
+  DELIVERY
+}
+
 model Negocio {
   id              Int      @id @default(1)
   nombre          String
@@ -121,39 +126,55 @@ model Negocio {
   @@map("negocios")
 }
 
+model Sucursal {
+  id          Int                @id @default(autoincrement())
+  codigo      CodigoSucursal     @unique
+  nombre      String             @unique
+  activa      Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  stocks      IngredienteStock[]
+  mesas       Mesa[]
+  pedidos     Pedido[]
+  lotes       LoteStock[]
+  movimientos MovimientoStock[]
+
+  @@map("sucursales")
+}
+
 model Usuario {
-  id            Int              @id @default(autoincrement())
-  email         String           @unique
-  password      String
-  nombre        String
-  apellido      String?
-  dni           String?          @unique
-  telefono      String?
-  direccion     String?
-  rol           Rol              @default(MOZO)
-  tarifaHora    Decimal?         @db.Decimal(10, 2)
-  activo        Boolean          @default(true)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  pedidos         Pedido[]         @relation("PedidoCreador")
-  pedidosDelivery Pedido[]         @relation("PedidoRepartidor")
+  id              Int               @id @default(autoincrement())
+  email           String            @unique
+  password        String
+  sessionVersion  Int               @default(0)
+  nombre          String
+  apellido        String?
+  dni             String?           @unique
+  telefono        String?
+  direccion       String?
+  rol             Rol               @default(MOZO)
+  tarifaHora      Decimal?          @db.Decimal(10, 2)
+  activo          Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  pedidos         Pedido[]          @relation("PedidoCreador")
+  pedidosDelivery Pedido[]          @relation("PedidoRepartidor")
   cierres         CierreCaja[]
-  auditorias    PedidoAuditoria[]
-  refreshTokens RefreshToken[]
-  fichajes      Fichaje[]
-  liquidaciones Liquidacion[]
+  auditorias      PedidoAuditoria[]
+  refreshTokens   RefreshToken[]
+  fichajes        Fichaje[]
 
   @@map("usuarios")
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
+  id        String    @id @default(uuid())
+  token     String    @unique
   usuarioId Int
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   revokedAt DateTime?
-  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@index([usuarioId])
   @@index([expiresAt])
@@ -174,44 +195,26 @@ model Fichaje {
   @@map("fichajes")
 }
 
-model Liquidacion {
-  id            Int       @id @default(autoincrement())
-  usuarioId     Int
-  periodoDesde  DateTime  @db.Date
-  periodoHasta  DateTime  @db.Date
-  horasTotales  Decimal   @db.Decimal(10, 2)
-  tarifaHora    Decimal   @db.Decimal(10, 2)
-  subtotal      Decimal   @db.Decimal(10, 2)
-  descuentos    Decimal   @default(0) @db.Decimal(10, 2)
-  adicionales   Decimal   @default(0) @db.Decimal(10, 2)
-  totalPagar    Decimal   @db.Decimal(10, 2)
-  observaciones String?
-  pagado        Boolean   @default(false)
-  fechaPago     DateTime?
-  createdAt     DateTime  @default(now())
-  usuario       Usuario   @relation(fields: [usuarioId], references: [id])
-
-  @@index([usuarioId])
-  @@map("liquidaciones")
-}
-
 model Mesa {
-  id          Int         @id @default(autoincrement())
-  numero      Int         @unique
+  id          Int        @id @default(autoincrement())
+  numero      Int        @unique
+  sucursalId  Int        @default(1)
   zona        String?
-  capacidad   Int         @default(4)
-  estado      EstadoMesa  @default(LIBRE)
-  activa      Boolean     @default(true)
+  capacidad   Int        @default(4)
+  estado      EstadoMesa @default(LIBRE)
+  activa      Boolean    @default(true)
   posX        Int?
   posY        Int?
-  rotacion    Int         @default(0)
+  rotacion    Int        @default(0)
   grupoMesaId Int?
-  qrToken     String      @default(uuid()) @unique
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  qrToken     String     @unique @default(uuid())
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  sucursal    Sucursal   @relation(fields: [sucursalId], references: [id])
   pedidos     Pedido[]
   reservas    Reserva[]
 
+  @@index([sucursalId])
   @@index([estado])
   @@index([zona, activa])
   @@index([grupoMesaId])
@@ -238,40 +241,40 @@ model Reserva {
 }
 
 model Categoria {
-  id          Int      @id @default(autoincrement())
-  nombre      String   @unique
+  id          Int        @id @default(autoincrement())
+  nombre      String     @unique
   descripcion String?
-  orden       Int      @default(0)
-  activa      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  orden       Int        @default(0)
+  activa      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   productos   Producto[]
 
   @@map("categorias")
 }
 
 model Producto {
-  id                       Int                    @id @default(autoincrement())
+  id                       Int                   @id @default(autoincrement())
   nombre                   String
   descripcion              String?
-  precio                   Decimal                @db.Decimal(10, 2)
+  precio                   Decimal               @db.Decimal(10, 2)
   imagen                   String?
   categoriaId              Int
-  disponible               Boolean                @default(true)
-  destacado                Boolean                @default(false)
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
+  disponible               Boolean               @default(true)
+  destacado                Boolean               @default(false)
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
   productoBaseId           Int?
   nombreVariante           String?
-  multiplicadorInsumos     Decimal                @default(1.0) @db.Decimal(3, 1)
-  ordenVariante            Int                    @default(0)
-  esVariantePredeterminada Boolean                @default(false)
-  categoria                Categoria              @relation(fields: [categoriaId], references: [id])
+  multiplicadorInsumos     Decimal               @default(1.0) @db.Decimal(3, 1)
+  ordenVariante            Int                   @default(0)
+  esVariantePredeterminada Boolean               @default(false)
+  categoria                Categoria             @relation(fields: [categoriaId], references: [id])
   ingredientes             ProductoIngrediente[]
   pedidoItems              PedidoItem[]
   modificadores            ProductoModificador[]
-  productoBase             Producto?              @relation("ProductoVariantes", fields: [productoBaseId], references: [id], onDelete: SetNull)
-  variantes                Producto[]             @relation("ProductoVariantes")
+  productoBase             Producto?             @relation("ProductoVariantes", fields: [productoBaseId], references: [id], onDelete: SetNull)
+  variantes                Producto[]            @relation("ProductoVariantes")
 
   @@index([categoriaId])
   @@index([productoBaseId])
@@ -307,20 +310,39 @@ model ProductoModificador {
 }
 
 model Ingrediente {
-  id           Int                @id @default(autoincrement())
-  nombre       String             @unique
-  unidad       String
-  stockActual  Decimal            @db.Decimal(10, 3)
-  stockMinimo  Decimal            @db.Decimal(10, 3)
-  costo        Decimal?           @db.Decimal(10, 2)
-  activo       Boolean            @default(true)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  productos    ProductoIngrediente[]
-  movimientos  MovimientoStock[]
-  lotes        LoteStock[]
+  id          Int                   @id @default(autoincrement())
+  nombre      String                @unique
+  unidad      String
+  stockActual Decimal               @db.Decimal(10, 3)
+  stockMinimo Decimal               @db.Decimal(10, 3)
+  costo       Decimal?              @db.Decimal(10, 2)
+  activo      Boolean               @default(true)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  productos   ProductoIngrediente[]
+  movimientos MovimientoStock[]
+  lotes       LoteStock[]
+  stocks      IngredienteStock[]
 
   @@map("ingredientes")
+}
+
+model IngredienteStock {
+  id            Int         @id @default(autoincrement())
+  ingredienteId Int
+  sucursalId    Int
+  stockActual   Decimal     @db.Decimal(10, 3)
+  stockMinimo   Decimal     @db.Decimal(10, 3)
+  activo        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  ingrediente   Ingrediente @relation(fields: [ingredienteId], references: [id], onDelete: Cascade)
+  sucursal      Sucursal    @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+
+  @@unique([ingredienteId, sucursalId])
+  @@index([sucursalId, activo])
+  @@index([ingredienteId, activo])
+  @@map("ingredientes_stock")
 }
 
 model ProductoIngrediente {
@@ -338,19 +360,23 @@ model ProductoIngrediente {
 }
 
 model MovimientoStock {
-  id            Int                  @id @default(autoincrement())
+  id            Int                 @id @default(autoincrement())
   ingredienteId Int
+  sucursalId    Int                 @default(1)
   loteStockId   Int?
   tipo          TipoMovimientoStock
-  cantidad      Decimal              @db.Decimal(10, 3)
+  cantidad      Decimal             @db.Decimal(10, 3)
   motivo        String?
   pedidoId      Int?
-  createdAt     DateTime             @default(now())
-  ingrediente    Ingrediente         @relation(fields: [ingredienteId], references: [id])
-  loteStock      LoteStock?          @relation(fields: [loteStockId], references: [id], onDelete: SetNull)
-  pedido         Pedido?             @relation(fields: [pedidoId], references: [id])
+  createdAt     DateTime            @default(now())
+  ingrediente   Ingrediente         @relation(fields: [ingredienteId], references: [id])
+  sucursal      Sucursal            @relation(fields: [sucursalId], references: [id])
+  loteStock     LoteStock?          @relation(fields: [loteStockId], references: [id], onDelete: SetNull)
+  pedido        Pedido?             @relation(fields: [pedidoId], references: [id])
 
   @@index([ingredienteId])
+  @@index([sucursalId])
+  @@index([ingredienteId, sucursalId])
   @@index([loteStockId])
   @@index([createdAt])
   @@index([pedidoId])
@@ -361,6 +387,7 @@ model Pedido {
   id                Int                @id @default(autoincrement())
   tipo              TipoPedido
   estado            EstadoPedido       @default(PENDIENTE)
+  sucursalId        Int                @default(1)
   mesaId            Int?
   usuarioId         Int?
   clienteNombre     String?
@@ -379,6 +406,7 @@ model Pedido {
   impreso           Boolean            @default(false)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+  sucursal          Sucursal           @relation(fields: [sucursalId], references: [id])
   mesa              Mesa?              @relation(fields: [mesaId], references: [id])
   usuario           Usuario?           @relation("PedidoCreador", fields: [usuarioId], references: [id])
   repartidor        Usuario?           @relation("PedidoRepartidor", fields: [repartidorId], references: [id])
@@ -391,6 +419,7 @@ model Pedido {
 
   @@index([estado])
   @@index([tipo])
+  @@index([sucursalId])
   @@index([createdAt])
   @@index([estadoPago, createdAt])
   @@index([mesaId])
@@ -518,10 +547,10 @@ model PrintJob {
   updatedAt     DateTime       @updatedAt
   pedido        Pedido         @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
 
+  @@unique([pedidoId, tipo, batchId])
   @@index([status, nextAttemptAt])
   @@index([status, claimedAt])
   @@index([pedidoId, batchId])
-  @@unique([pedidoId, tipo, batchId])
   @@map("print_jobs")
 }
 
@@ -535,7 +564,7 @@ model Configuracion {
 }
 
 model ClienteFiscal {
-  id              Int                @id @default(autoincrement())
+  id              Int                 @id @default(autoincrement())
   nombre          String
   tipoDocumento   String?
   numeroDocumento String?
@@ -543,8 +572,8 @@ model ClienteFiscal {
   condicionIva    String?
   email           String?
   domicilioFiscal String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
   comprobantes    ComprobanteFiscal[]
 
   @@index([cuit])
@@ -552,14 +581,14 @@ model ClienteFiscal {
 }
 
 model PuntoVentaFiscal {
-  id           Int                @id @default(autoincrement())
-  puntoVenta   Int                @unique
+  id           Int                 @id @default(autoincrement())
+  puntoVenta   Int                 @unique
   descripcion  String?
-  ambiente     String             @default("homologacion")
+  ambiente     String              @default("homologacion")
   cuitEmisor   String?
-  activo       Boolean            @default(true)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  activo       Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
   comprobantes ComprobanteFiscal[]
 
   @@index([activo])
@@ -567,23 +596,23 @@ model PuntoVentaFiscal {
 }
 
 model ComprobanteFiscal {
-  id                 Int                @id @default(autoincrement())
-  pedidoId           Int                @unique
+  id                 Int               @id @default(autoincrement())
+  pedidoId           Int               @unique
   clienteFiscalId    Int?
   puntoVentaFiscalId Int?
   tipoComprobante    String
   numeroComprobante  String?
   cae                String?
   caeVencimiento     DateTime?
-  estado             String             @default("BORRADOR")
+  estado             String            @default("BORRADOR")
   observaciones      String?
   payload            Json?
   respuestaArca      Json?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  pedido             Pedido             @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  clienteFiscal      ClienteFiscal?     @relation(fields: [clienteFiscalId], references: [id], onDelete: SetNull)
-  puntoVentaFiscal   PuntoVentaFiscal?  @relation(fields: [puntoVentaFiscalId], references: [id], onDelete: SetNull)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  pedido             Pedido            @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  clienteFiscal      ClienteFiscal?    @relation(fields: [clienteFiscalId], references: [id], onDelete: SetNull)
+  puntoVentaFiscal   PuntoVentaFiscal? @relation(fields: [puntoVentaFiscalId], references: [id], onDelete: SetNull)
 
   @@index([estado, createdAt])
   @@index([clienteFiscalId])
@@ -592,40 +621,44 @@ model ComprobanteFiscal {
 }
 
 model LoteStock {
-  id                            Int                @id @default(autoincrement())
+  id                            Int               @id @default(autoincrement())
   ingredienteId                 Int
+  sucursalId                    Int               @default(1)
   codigoLote                    String
-  stockInicial                  Decimal            @db.Decimal(10, 3)
-  stockActual                   Decimal            @db.Decimal(10, 3)
-  costoUnitario                 Decimal?           @db.Decimal(10, 2)
-  fechaIngreso                  DateTime           @default(now())
+  stockInicial                  Decimal           @db.Decimal(10, 3)
+  stockActual                   Decimal           @db.Decimal(10, 3)
+  costoUnitario                 Decimal?          @db.Decimal(10, 2)
+  fechaIngreso                  DateTime          @default(now())
   fechaVencimiento              DateTime?
   ultimaNotificacionVencimiento DateTime?
-  activo                        Boolean            @default(true)
-  createdAt                     DateTime           @default(now())
-  updatedAt                     DateTime           @updatedAt
-  ingrediente                   Ingrediente        @relation(fields: [ingredienteId], references: [id], onDelete: Cascade)
+  activo                        Boolean           @default(true)
+  createdAt                     DateTime          @default(now())
+  updatedAt                     DateTime          @updatedAt
+  ingrediente                   Ingrediente       @relation(fields: [ingredienteId], references: [id], onDelete: Cascade)
+  sucursal                      Sucursal          @relation(fields: [sucursalId], references: [id])
   movimientos                   MovimientoStock[]
 
+  @@unique([ingredienteId, sucursalId, codigoLote])
+  @@index([sucursalId, activo])
   @@index([ingredienteId, activo])
+  @@index([ingredienteId, sucursalId, activo])
   @@index([fechaVencimiento])
   @@index([ultimaNotificacionVencimiento])
-  @@unique([ingredienteId, codigoLote])
   @@map("lotes_stock")
 }
 
 model MercadoPagoConfig {
-  id           Int      @id @default(1)
+  id           Int       @id @default(1)
   accessToken  String
   refreshToken String?
   publicKey    String?
   userId       String?
   email        String?
   expiresAt    DateTime?
-  isOAuth      Boolean  @default(false)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isOAuth      Boolean   @default(false)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@map("mercadopago_configs")
 }
@@ -654,4 +687,16 @@ model TransaccionMercadoPago {
   @@index([status])
   @@index([pagoId])
   @@map("transacciones_mercadopago")
+}
+
+model OperationalEvent {
+  id             Int      @id @default(autoincrement())
+  type           String
+  payload        Json
+  sourceInstance String?
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([sourceInstance, id])
+  @@map("operational_events")
 }

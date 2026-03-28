@@ -52,8 +52,7 @@ const obtener = async (prisma, id) => {
     where: { id },
     select: {
       ...selectSinPassword,
-      fichajes: { orderBy: { fecha: 'desc' }, take: 10 },
-      liquidaciones: { orderBy: { createdAt: 'desc' }, take: 5 }
+      fichajes: { orderBy: { fecha: 'desc' }, take: 10 }
     }
   });
 

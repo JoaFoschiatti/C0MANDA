@@ -19,7 +19,7 @@ import {
 } from '../components/public/PublicOrderState'
 import PublicProductCard from '../components/public/PublicProductCard'
 import { Alert, Button, Card, Drawer, EmptyState } from '../components/ui'
-import { openExternalUrl, navigateExternalUrl, buildWhatsAppUrl } from '../utils/external-links'
+import { navigateExternalUrl, openExternalUrl, buildWhatsAppUrl } from '../utils/external-links'
 import { fetchJson, PUBLIC_API_URL, PUBLIC_BACKEND_URL } from '../utils/public-fetch'
 import {
   appendPublicOrderToken,
@@ -369,7 +369,7 @@ export default function MenuPublico() {
       }
 
       let attempts = 0
-      const maxAttempts = 20
+      const maxAttempts = 40
 
       intervalId = window.setInterval(async () => {
         attempts += 1
@@ -386,7 +386,6 @@ export default function MenuPublico() {
 
           if (!paid && attempts >= maxAttempts) {
             setVerificandoPago(false)
-            setPageError(`No pudimos confirmar tu pago. Si ya pagaste, usa el pedido #${pedidoIdDesdeQuery}.`)
             navigate(publicMenuPath, { replace: true })
           }
         }
@@ -630,26 +629,11 @@ export default function MenuPublico() {
           total: data.pedido.total
         })
 
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(window.navigator.userAgent)
-        if (isMobile) {
-          if (!navigateExternalUrl(data.initPoint)) {
-            clearPendingMercadoPagoOrder()
-            setPedidoPendienteMp(null)
-            setCheckoutError('No pudimos abrir Mercado Pago. Intenta nuevamente.')
-            return
-          }
-        } else {
-          const opened = openExternalUrl(data.initPoint)
-          if (!opened && !navigateExternalUrl(data.initPoint)) {
-            clearPendingMercadoPagoOrder()
-            setPedidoPendienteMp(null)
-            setCheckoutError('No pudimos abrir Mercado Pago. Revisa el navegador e intenta nuevamente.')
-            return
-          }
-
-          if (opened) {
-            setShowCheckout(false)
-          }
+        if (!navigateExternalUrl(data.initPoint)) {
+          clearPendingMercadoPagoOrder()
+          setPedidoPendienteMp(null)
+          setCheckoutError('No pudimos abrir Mercado Pago. Intenta nuevamente.')
+          return
         }
 
         return
@@ -695,6 +679,25 @@ export default function MenuPublico() {
       <PublicPendingPaymentState
         pedido={pedidoPendienteMp}
         total={pedidoPendienteMp.total}
+        onRetry={async () => {
+          const accessToken = pedidoPendienteMp.accessToken
+          if (!accessToken) return
+          try {
+            const pedidoUrl = appendPublicOrderToken(
+              `${PUBLIC_API_BASE}/pedido/${pedidoPendienteMp.id}`,
+              accessToken
+            )
+            const pedido = await fetchJson(pedidoUrl, {}, 'Error al verificar')
+            if (pedido.estadoPago === 'APROBADO') {
+              clearPendingMercadoPagoOrder()
+              setPedidoPendienteMp(null)
+              setPedidoExitoso({ ...pedido, pagoAprobado: true })
+              setCarrito([])
+            }
+          } catch (e) {
+            console.error('Error verificando pago:', e)
+          }
+        }}
         onCancel={() => {
           clearPendingMercadoPagoOrder()
           setPedidoPendienteMp(null)

@@ -20,6 +20,52 @@ const {
   registrarEntradaEnLote,
   sincronizarStockIngrediente
 } = require('./lotes-stock.service');
+const { ensureBaseSucursales } = require('./sucursales.service');
+const { SUCURSAL_IDS } = require('../constants/sucursales');
+const { buildPedidoCobroSummary } = require('./payment-state.service');
+const {
+  assertPedidoTransition,
+  canAddItemsToPedido
+} = require('./order-state.service');
+
+const resolvePedidoSucursal = async (tx, { tipo, mesaId, sucursalId }) => {
+  await ensureBaseSucursales(tx);
+
+  if (tipo === 'MESA') {
+    const mesa = await tx.mesa.findUnique({
+      where: { id: mesaId },
+      select: { id: true, sucursalId: true }
+    });
+
+    if (!mesa) {
+      throw createHttpError.notFound('Mesa no encontrada');
+    }
+
+    return {
+      mesa,
+      sucursalId: mesa.sucursalId
+    };
+  }
+
+  const fallbackSucursalId = tipo === 'DELIVERY'
+    ? SUCURSAL_IDS.DELIVERY
+    : SUCURSAL_IDS.SALON;
+  const resolvedSucursalId = sucursalId || fallbackSucursalId;
+
+  const sucursal = await tx.sucursal.findUnique({
+    where: { id: resolvedSucursalId },
+    select: { id: true, activa: true }
+  });
+
+  if (!sucursal || sucursal.activa === false) {
+    throw createHttpError.badRequest('Sucursal no disponible');
+  }
+
+  return {
+    mesa: null,
+    sucursalId: resolvedSucursalId
+  };
+};
 
 /**
  * Construye los items de un pedido con precios calculados.
@@ -164,6 +210,7 @@ const crearPedido = async (prisma, payload) => {
   const {
     tipo,
     mesaId,
+    sucursalId,
     items,
     clienteNombre,
     clienteTelefono,
@@ -180,16 +227,13 @@ const crearPedido = async (prisma, payload) => {
 
   const { pedidoId, mesaUpdated } = await prisma.$transaction(async (tx) => {
     let mesaUpdatedLocal = null;
+    const pedidoScope = await resolvePedidoSucursal(tx, {
+      tipo,
+      mesaId,
+      sucursalId
+    });
 
     if (tipo === 'MESA' && mesaId) {
-      const mesa = await tx.mesa.findUnique({
-        where: { id: mesaId },
-        select: { id: true }
-      });
-      if (!mesa) {
-        throw createHttpError.notFound('Mesa no encontrada');
-      }
-
       await tx.mesa.update({
         where: { id: mesaId },
         data: { estado: 'OCUPADA' }
@@ -201,6 +245,7 @@ const crearPedido = async (prisma, payload) => {
     const pedido = await tx.pedido.create({
       data: {
         tipo,
+        sucursalId: pedidoScope.sucursalId,
         mesaId: tipo === 'MESA' ? mesaId : null,
         usuarioId,
         clienteNombre,
@@ -320,6 +365,8 @@ const cambiarEstadoPedido = async (prisma, payload) => {
       throw createHttpError.notFound('Pedido no encontrado');
     }
 
+    assertPedidoTransition(pedido.estado, estado);
+
     const shouldPrint = estado === 'EN_PREPARACION' && pedido.estado === 'PENDIENTE';
     const mesaUpdates = [];
     const productosAgotados = [];
@@ -345,7 +392,12 @@ const cambiarEstadoPedido = async (prisma, payload) => {
           select: { id: true, nombre: true, stockActual: true }
         });
 
-        const ingredienteSincronizado = await sincronizarStockIngrediente(tx, ingrediente, new Date(), { migrateLegacy: true });
+        const ingredienteSincronizado = await sincronizarStockIngrediente(
+          tx,
+          ingrediente,
+          pedido.sucursalId,
+          new Date()
+        );
         const stockActual = parseFloat(ingredienteSincronizado?.stockActual || 0);
 
         if (stockActual < cantidadTotal) {
@@ -356,6 +408,7 @@ const cambiarEstadoPedido = async (prisma, payload) => {
 
         await consumirLotesFIFO(tx, {
           ingredienteId,
+          sucursalId: pedido.sucursalId,
           cantidad: cantidadTotal,
           motivo: `Pedido #${pedido.id}`,
           pedidoId: pedido.id,
@@ -363,31 +416,6 @@ const cambiarEstadoPedido = async (prisma, payload) => {
         });
       }
 
-      const ingredientesAgotados = await tx.ingrediente.findMany({
-        where: { id: { in: [...ingredienteUpdates.keys()] }, stockActual: { lte: 0 } },
-        select: { id: true }
-      });
-
-      if (ingredientesAgotados.length > 0) {
-        const idsIngredientesAgotados = ingredientesAgotados.map(i => i.id);
-        const productosAfectados = await tx.producto.findMany({
-          where: {
-            disponible: true,
-            ingredientes: {
-              some: { ingredienteId: { in: idsIngredientesAgotados } }
-            }
-          },
-          select: { id: true, nombre: true }
-        });
-
-        if (productosAfectados.length > 0) {
-          await tx.producto.updateMany({
-            where: { id: { in: productosAfectados.map(p => p.id) } },
-            data: { disponible: false }
-          });
-          productosAgotados.push(...productosAfectados);
-        }
-      }
     }
 
     if ((estado === 'COBRADO' || estado === 'CERRADO') && pedido.mesaId) {
@@ -457,7 +485,7 @@ const agregarItemsPedido = async (prisma, payload) => {
       throw createHttpError.notFound('Pedido no encontrado');
     }
 
-    if (['COBRADO', 'CERRADO', 'CANCELADO'].includes(pedido.estado)) {
+    if (!canAddItemsToPedido(pedido.estado)) {
       throw createHttpError.badRequest('No se pueden agregar items a este pedido');
     }
 
@@ -543,8 +571,8 @@ const cancelarPedido = async (prisma, payload) => {
       throw createHttpError.notFound('Pedido no encontrado');
     }
 
-    if (['COBRADO', 'CERRADO'].includes(pedido.estado)) {
-      throw createHttpError.badRequest('No se puede cancelar un pedido ya cerrado o cobrado');
+    if (['COBRADO', 'CERRADO', 'CANCELADO'].includes(pedido.estado)) {
+      throw createHttpError.badRequest('No se puede cancelar un pedido finalizado');
     }
 
     // Si el pedido ya paso de PENDIENTE, el stock fue deducido.
@@ -556,6 +584,7 @@ const cancelarPedido = async (prisma, payload) => {
         for (const mov of salidaMovementsLote) {
           await registrarEntradaEnLote(tx, {
             ingredienteId: mov.ingredienteId,
+            sucursalId: mov.sucursalId || pedido.sucursalId,
             loteStockId: mov.loteStockId || null,
             cantidad: parseFloat(mov.cantidad),
             motivo: `Cancelacion pedido #${pedido.id}`,
@@ -647,15 +676,13 @@ const precuentaMesa = async (prisma, payload) => {
       }
     });
 
-    const totalPagado = pedido.pagos
-      .filter((pago) => !['RECHAZADO', 'CANCELADO'].includes(pago.estado))
-      .reduce((sum, pago) => sum + parseFloat(pago.monto), 0);
+    const cobro = buildPedidoCobroSummary(pedido);
 
     return {
       mesa: mesaActualizada,
       pedido,
-      totalPagado,
-      pendiente: Math.max(0, parseFloat(pedido.total) - totalPagado)
+      totalPagado: cobro.totalPagado,
+      pendiente: cobro.pendiente
     };
   });
 };
@@ -677,11 +704,13 @@ const cerrarPedido = async (prisma, payload) => {
       throw createHttpError.badRequest('No se puede cerrar un pedido cancelado');
     }
 
-    const totalPagado = pedido.pagos
-      .filter((pago) => !['RECHAZADO', 'CANCELADO'].includes(pago.estado))
-      .reduce((sum, pago) => sum + parseFloat(pago.monto), 0);
+    if (pedido.estado !== 'COBRADO') {
+      throw createHttpError.badRequest('Solo se puede cerrar un pedido ya cobrado');
+    }
 
-    if (totalPagado < parseFloat(pedido.total) - 0.01) {
+    const cobro = buildPedidoCobroSummary(pedido);
+
+    if (!cobro.fullyPaid) {
       throw createHttpError.badRequest('El pedido todavia tiene saldo pendiente');
     }
 
@@ -793,7 +822,7 @@ module.exports = {
    * @returns {Promise<Array>} Lista de pedidos con items, mesa, usuario y pagos
    */
   listar: async (prisma, query) => {
-    const { estado, tipo, fecha, mesaId, incluirCerrados, limit = 50, offset = 0 } = query;
+    const { estado, tipo, fecha, mesaId, sucursalId, incluirCerrados, limit = 50, offset = 0 } = query;
 
     const where = {};
     if (estado) {
@@ -803,6 +832,7 @@ module.exports = {
     }
     if (tipo) where.tipo = tipo;
     if (mesaId) where.mesaId = mesaId;
+    if (sucursalId) where.sucursalId = sucursalId;
     if (fecha) {
       const fechaInicio = new Date(fecha);
       const fechaFin = new Date(fecha);
@@ -814,6 +844,7 @@ module.exports = {
       prisma.pedido.findMany({
         where,
         include: {
+          sucursal: { select: { id: true, nombre: true, codigo: true } },
           mesa: { select: { numero: true, zona: true } },
           usuario: { select: { nombre: true } },
           repartidor: { select: { id: true, nombre: true } },
@@ -863,6 +894,7 @@ module.exports = {
     const pedido = await prisma.pedido.findUnique({
       where: { id },
       include: {
+        sucursal: true,
         mesa: true,
         usuario: { select: { nombre: true, email: true } },
         repartidor: { select: { id: true, nombre: true } },

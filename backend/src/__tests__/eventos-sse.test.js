@@ -38,9 +38,10 @@ describe('Eventos SSE', () => {
           method: 'GET',
           host: '127.0.0.1',
           port,
-          path: `/api/eventos?token=${encodeURIComponent(token)}`,
+          path: '/api/eventos',
           headers: {
-            Accept: 'text/event-stream'
+            Accept: 'text/event-stream',
+            Authorization: `Bearer ${token}`
           }
         }, (res) => {
           try {

@@ -57,7 +57,6 @@ const navSections = [
   {
     title: 'Finanzas',
     items: [
-      { name: 'Liquidaciones', href: '/liquidaciones', icon: BanknotesIcon, roles: ['ADMIN'] },
       { name: 'Transacciones MP', href: '/transacciones-mp', icon: CreditCardIcon, roles: ['ADMIN'] },
       { name: 'Facturacion', href: '/facturacion', icon: DocumentTextIcon, roles: ['ADMIN', 'CAJERO'] },
       { name: 'Reportes', href: '/reportes', icon: ChartBarIcon, roles: ['ADMIN'] },

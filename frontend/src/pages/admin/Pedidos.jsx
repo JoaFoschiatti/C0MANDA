@@ -947,6 +947,7 @@ export default function Pedidos() {
             <div className="space-y-4 overflow-y-auto flex-1">
               <div className="text-sm text-text-secondary">
                 <p><strong className="text-text-primary">Tipo:</strong> {pedidoSeleccionado.tipo}</p>
+                <p><strong className="text-text-primary">Sucursal:</strong> {pedidoSeleccionado.sucursal?.nombre || '-'}</p>
                 {pedidoSeleccionado.mesa && <p><strong className="text-text-primary">Mesa:</strong> {pedidoSeleccionado.mesa.numero}</p>}
                 {pedidoSeleccionado.clienteNombre && <p><strong className="text-text-primary">Cliente:</strong> {pedidoSeleccionado.clienteNombre}</p>}
                 <p><strong className="text-text-primary">Mozo:</strong> {pedidoSeleccionado.usuario?.nombre}</p>

@@ -48,11 +48,12 @@ const obtener = async (req, res) => {
 
 const crear = async (req, res) => {
   const prisma = getPrisma(req);
-  const { tipo, mesaId, items, clienteNombre, clienteTelefono, clienteDireccion, observaciones } = req.body;
+  const { tipo, mesaId, sucursalId, items, clienteNombre, clienteTelefono, clienteDireccion, observaciones } = req.body;
 
   const { pedido, mesaUpdated } = await pedidosService.crearPedido(prisma, {
     tipo,
     mesaId: mesaId ? Number(mesaId) : null,
+    sucursalId: sucursalId ? Number(sucursalId) : null,
     items,
     clienteNombre,
     clienteTelefono,
@@ -171,6 +172,7 @@ const pedidosCocina = async (req, res) => {
       estado: { in: ['PENDIENTE', 'EN_PREPARACION'] }
     },
     include: {
+      sucursal: { select: { id: true, nombre: true, codigo: true } },
       mesa: { select: { numero: true } },
       items: {
         include: {
@@ -199,6 +201,7 @@ const pedidosDelivery = async (req, res) => {
   const pedidos = await prisma.pedido.findMany({
     where,
     include: {
+      sucursal: { select: { id: true, nombre: true, codigo: true } },
       items: { include: { producto: { select: { nombre: true, precio: true } } } },
       usuario: { select: { nombre: true } },
       repartidor: { select: { id: true, nombre: true } }

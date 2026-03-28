@@ -5,7 +5,7 @@ CREATE TYPE "Rol" AS ENUM ('ADMIN', 'MOZO', 'COCINERO', 'CAJERO', 'DELIVERY');
 CREATE TYPE "EstadoMesa" AS ENUM ('LIBRE', 'OCUPADA', 'RESERVADA', 'ESPERANDO_CUENTA', 'CERRADA');
 
 -- CreateEnum
-CREATE TYPE "TipoPedido" AS ENUM ('MESA', 'DELIVERY', 'MOSTRADOR', 'ONLINE');
+CREATE TYPE "TipoPedido" AS ENUM ('MESA', 'DELIVERY', 'MOSTRADOR');
 
 -- CreateEnum
 CREATE TYPE "EstadoPedido" AS ENUM ('PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO', 'CERRADO', 'CANCELADO');
@@ -43,6 +43,9 @@ CREATE TYPE "EstadoReserva" AS ENUM ('CONFIRMADA', 'CLIENTE_PRESENTE', 'NO_LLEGO
 -- CreateEnum
 CREATE TYPE "TipoModificador" AS ENUM ('EXCLUSION', 'ADICION');
 
+-- CreateEnum
+CREATE TYPE "CodigoSucursal" AS ENUM ('SALON', 'DELIVERY');
+
 -- CreateTable
 CREATE TABLE "negocios" (
     "id" INTEGER NOT NULL DEFAULT 1,
@@ -61,12 +64,29 @@ CREATE TABLE "negocios" (
 );
 
 -- CreateTable
+CREATE TABLE "sucursales" (
+    "id" SERIAL NOT NULL,
+    "codigo" "CodigoSucursal" NOT NULL,
+    "nombre" TEXT NOT NULL,
+    "activa" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "sucursales_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "usuarios" (
     "id" SERIAL NOT NULL,
     "email" TEXT NOT NULL,
     "password" TEXT NOT NULL,
     "nombre" TEXT NOT NULL,
+    "apellido" TEXT,
+    "dni" TEXT,
+    "telefono" TEXT,
+    "direccion" TEXT,
     "rol" "Rol" NOT NULL DEFAULT 'MOZO',
+    "tarifaHora" DECIMAL(10,2),
     "activo" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -87,26 +107,9 @@ CREATE TABLE "refresh_tokens" (
 );
 
 -- CreateTable
-CREATE TABLE "empleados" (
-    "id" SERIAL NOT NULL,
-    "nombre" TEXT NOT NULL,
-    "apellido" TEXT NOT NULL,
-    "dni" TEXT NOT NULL,
-    "telefono" TEXT,
-    "direccion" TEXT,
-    "rol" "Rol" NOT NULL,
-    "tarifaHora" DECIMAL(10,2) NOT NULL,
-    "activo" BOOLEAN NOT NULL DEFAULT true,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "empleados_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "fichajes" (
     "id" SERIAL NOT NULL,
-    "empleadoId" INTEGER NOT NULL,
+    "usuarioId" INTEGER NOT NULL,
     "entrada" TIMESTAMP(3) NOT NULL,
     "salida" TIMESTAMP(3),
     "fecha" DATE NOT NULL,
@@ -116,29 +119,10 @@ CREATE TABLE "fichajes" (
 );
 
 -- CreateTable
-CREATE TABLE "liquidaciones" (
-    "id" SERIAL NOT NULL,
-    "empleadoId" INTEGER NOT NULL,
-    "periodoDesde" DATE NOT NULL,
-    "periodoHasta" DATE NOT NULL,
-    "horasTotales" DECIMAL(10,2) NOT NULL,
-    "tarifaHora" DECIMAL(10,2) NOT NULL,
-    "subtotal" DECIMAL(10,2) NOT NULL,
-    "descuentos" DECIMAL(10,2) NOT NULL DEFAULT 0,
-    "adicionales" DECIMAL(10,2) NOT NULL DEFAULT 0,
-    "totalPagar" DECIMAL(10,2) NOT NULL,
-    "observaciones" TEXT,
-    "pagado" BOOLEAN NOT NULL DEFAULT false,
-    "fechaPago" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "liquidaciones_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "mesas" (
     "id" SERIAL NOT NULL,
     "numero" INTEGER NOT NULL,
+    "sucursalId" INTEGER NOT NULL DEFAULT 1,
     "zona" TEXT,
     "capacidad" INTEGER NOT NULL DEFAULT 4,
     "estado" "EstadoMesa" NOT NULL DEFAULT 'LIBRE',
@@ -242,6 +226,20 @@ CREATE TABLE "ingredientes" (
 );
 
 -- CreateTable
+CREATE TABLE "ingredientes_stock" (
+    "id" SERIAL NOT NULL,
+    "ingredienteId" INTEGER NOT NULL,
+    "sucursalId" INTEGER NOT NULL,
+    "stockActual" DECIMAL(10,3) NOT NULL,
+    "stockMinimo" DECIMAL(10,3) NOT NULL,
+    "activo" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ingredientes_stock_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "producto_ingredientes" (
     "id" SERIAL NOT NULL,
     "productoId" INTEGER NOT NULL,
@@ -255,6 +253,7 @@ CREATE TABLE "producto_ingredientes" (
 CREATE TABLE "movimientos_stock" (
     "id" SERIAL NOT NULL,
     "ingredienteId" INTEGER NOT NULL,
+    "sucursalId" INTEGER NOT NULL DEFAULT 1,
     "loteStockId" INTEGER,
     "tipo" "TipoMovimientoStock" NOT NULL,
     "cantidad" DECIMAL(10,3) NOT NULL,
@@ -270,12 +269,14 @@ CREATE TABLE "pedidos" (
     "id" SERIAL NOT NULL,
     "tipo" "TipoPedido" NOT NULL,
     "estado" "EstadoPedido" NOT NULL DEFAULT 'PENDIENTE',
+    "sucursalId" INTEGER NOT NULL DEFAULT 1,
     "mesaId" INTEGER,
     "usuarioId" INTEGER,
     "clienteNombre" TEXT,
     "clienteTelefono" TEXT,
     "clienteDireccion" TEXT,
     "clienteEmail" TEXT,
+    "repartidorId" INTEGER,
     "tipoEntrega" "TipoEntrega",
     "costoEnvio" DECIMAL(10,2) NOT NULL DEFAULT 0,
     "subtotal" DECIMAL(10,2) NOT NULL,
@@ -458,6 +459,7 @@ CREATE TABLE "comprobantes_fiscales" (
 CREATE TABLE "lotes_stock" (
     "id" SERIAL NOT NULL,
     "ingredienteId" INTEGER NOT NULL,
+    "sucursalId" INTEGER NOT NULL DEFAULT 1,
     "codigoLote" TEXT NOT NULL,
     "stockInicial" DECIMAL(10,3) NOT NULL,
     "stockActual" DECIMAL(10,3) NOT NULL,
@@ -513,7 +515,16 @@ CREATE TABLE "transacciones_mercadopago" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "sucursales_codigo_key" ON "sucursales"("codigo");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "sucursales_nombre_key" ON "sucursales"("nombre");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "usuarios_email_key" ON "usuarios"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "usuarios_dni_key" ON "usuarios"("dni");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "refresh_tokens_token_key" ON "refresh_tokens"("token");
@@ -528,19 +539,16 @@ CREATE INDEX "refresh_tokens_expiresAt_idx" ON "refresh_tokens"("expiresAt");
 CREATE INDEX "refresh_tokens_revokedAt_idx" ON "refresh_tokens"("revokedAt");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "empleados_dni_key" ON "empleados"("dni");
-
--- CreateIndex
-CREATE INDEX "fichajes_empleadoId_fecha_idx" ON "fichajes"("empleadoId", "fecha");
-
--- CreateIndex
-CREATE INDEX "liquidaciones_empleadoId_idx" ON "liquidaciones"("empleadoId");
+CREATE INDEX "fichajes_usuarioId_fecha_idx" ON "fichajes"("usuarioId", "fecha");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "mesas_numero_key" ON "mesas"("numero");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "mesas_qrToken_key" ON "mesas"("qrToken");
+
+-- CreateIndex
+CREATE INDEX "mesas_sucursalId_idx" ON "mesas"("sucursalId");
 
 -- CreateIndex
 CREATE INDEX "mesas_estado_idx" ON "mesas"("estado");
@@ -588,6 +596,15 @@ CREATE UNIQUE INDEX "producto_modificadores_productoId_modificadorId_key" ON "pr
 CREATE UNIQUE INDEX "ingredientes_nombre_key" ON "ingredientes"("nombre");
 
 -- CreateIndex
+CREATE INDEX "ingredientes_stock_sucursalId_activo_idx" ON "ingredientes_stock"("sucursalId", "activo");
+
+-- CreateIndex
+CREATE INDEX "ingredientes_stock_ingredienteId_activo_idx" ON "ingredientes_stock"("ingredienteId", "activo");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ingredientes_stock_ingredienteId_sucursalId_key" ON "ingredientes_stock"("ingredienteId", "sucursalId");
+
+-- CreateIndex
 CREATE INDEX "producto_ingredientes_productoId_idx" ON "producto_ingredientes"("productoId");
 
 -- CreateIndex
@@ -598,6 +615,12 @@ CREATE UNIQUE INDEX "producto_ingredientes_productoId_ingredienteId_key" ON "pro
 
 -- CreateIndex
 CREATE INDEX "movimientos_stock_ingredienteId_idx" ON "movimientos_stock"("ingredienteId");
+
+-- CreateIndex
+CREATE INDEX "movimientos_stock_sucursalId_idx" ON "movimientos_stock"("sucursalId");
+
+-- CreateIndex
+CREATE INDEX "movimientos_stock_ingredienteId_sucursalId_idx" ON "movimientos_stock"("ingredienteId", "sucursalId");
 
 -- CreateIndex
 CREATE INDEX "movimientos_stock_loteStockId_idx" ON "movimientos_stock"("loteStockId");
@@ -615,6 +638,9 @@ CREATE INDEX "pedidos_estado_idx" ON "pedidos"("estado");
 CREATE INDEX "pedidos_tipo_idx" ON "pedidos"("tipo");
 
 -- CreateIndex
+CREATE INDEX "pedidos_sucursalId_idx" ON "pedidos"("sucursalId");
+
+-- CreateIndex
 CREATE INDEX "pedidos_createdAt_idx" ON "pedidos"("createdAt");
 
 -- CreateIndex
@@ -625,6 +651,9 @@ CREATE INDEX "pedidos_mesaId_idx" ON "pedidos"("mesaId");
 
 -- CreateIndex
 CREATE INDEX "pedidos_usuarioId_idx" ON "pedidos"("usuarioId");
+
+-- CreateIndex
+CREATE INDEX "pedidos_repartidorId_idx" ON "pedidos"("repartidorId");
 
 -- CreateIndex
 CREATE INDEX "pedido_items_pedidoId_idx" ON "pedido_items"("pedidoId");
@@ -708,7 +737,13 @@ CREATE INDEX "comprobantes_fiscales_clienteFiscalId_idx" ON "comprobantes_fiscal
 CREATE INDEX "comprobantes_fiscales_puntoVentaFiscalId_idx" ON "comprobantes_fiscales"("puntoVentaFiscalId");
 
 -- CreateIndex
+CREATE INDEX "lotes_stock_sucursalId_activo_idx" ON "lotes_stock"("sucursalId", "activo");
+
+-- CreateIndex
 CREATE INDEX "lotes_stock_ingredienteId_activo_idx" ON "lotes_stock"("ingredienteId", "activo");
+
+-- CreateIndex
+CREATE INDEX "lotes_stock_ingredienteId_sucursalId_activo_idx" ON "lotes_stock"("ingredienteId", "sucursalId", "activo");
 
 -- CreateIndex
 CREATE INDEX "lotes_stock_fechaVencimiento_idx" ON "lotes_stock"("fechaVencimiento");
@@ -717,7 +752,7 @@ CREATE INDEX "lotes_stock_fechaVencimiento_idx" ON "lotes_stock"("fechaVencimien
 CREATE INDEX "lotes_stock_ultimaNotificacionVencimiento_idx" ON "lotes_stock"("ultimaNotificacionVencimiento");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "lotes_stock_ingredienteId_codigoLote_key" ON "lotes_stock"("ingredienteId", "codigoLote");
+CREATE UNIQUE INDEX "lotes_stock_ingredienteId_sucursalId_codigoLote_key" ON "lotes_stock"("ingredienteId", "sucursalId", "codigoLote");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "transacciones_mercadopago_mpPaymentId_key" ON "transacciones_mercadopago"("mpPaymentId");
@@ -735,10 +770,10 @@ CREATE INDEX "transacciones_mercadopago_pagoId_idx" ON "transacciones_mercadopag
 ALTER TABLE "refresh_tokens" ADD CONSTRAINT "refresh_tokens_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "usuarios"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "fichajes" ADD CONSTRAINT "fichajes_empleadoId_fkey" FOREIGN KEY ("empleadoId") REFERENCES "empleados"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "fichajes" ADD CONSTRAINT "fichajes_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "usuarios"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "liquidaciones" ADD CONSTRAINT "liquidaciones_empleadoId_fkey" FOREIGN KEY ("empleadoId") REFERENCES "empleados"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "mesas" ADD CONSTRAINT "mesas_sucursalId_fkey" FOREIGN KEY ("sucursalId") REFERENCES "sucursales"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "reservas" ADD CONSTRAINT "reservas_mesaId_fkey" FOREIGN KEY ("mesaId") REFERENCES "mesas"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -756,6 +791,12 @@ ALTER TABLE "producto_modificadores" ADD CONSTRAINT "producto_modificadores_prod
 ALTER TABLE "producto_modificadores" ADD CONSTRAINT "producto_modificadores_modificadorId_fkey" FOREIGN KEY ("modificadorId") REFERENCES "modificadores"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "ingredientes_stock" ADD CONSTRAINT "ingredientes_stock_ingredienteId_fkey" FOREIGN KEY ("ingredienteId") REFERENCES "ingredientes"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ingredientes_stock" ADD CONSTRAINT "ingredientes_stock_sucursalId_fkey" FOREIGN KEY ("sucursalId") REFERENCES "sucursales"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "producto_ingredientes" ADD CONSTRAINT "producto_ingredientes_productoId_fkey" FOREIGN KEY ("productoId") REFERENCES "productos"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -765,16 +806,25 @@ ALTER TABLE "producto_ingredientes" ADD CONSTRAINT "producto_ingredientes_ingred
 ALTER TABLE "movimientos_stock" ADD CONSTRAINT "movimientos_stock_ingredienteId_fkey" FOREIGN KEY ("ingredienteId") REFERENCES "ingredientes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "movimientos_stock" ADD CONSTRAINT "movimientos_stock_sucursalId_fkey" FOREIGN KEY ("sucursalId") REFERENCES "sucursales"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "movimientos_stock" ADD CONSTRAINT "movimientos_stock_loteStockId_fkey" FOREIGN KEY ("loteStockId") REFERENCES "lotes_stock"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "movimientos_stock" ADD CONSTRAINT "movimientos_stock_pedidoId_fkey" FOREIGN KEY ("pedidoId") REFERENCES "pedidos"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "pedidos" ADD CONSTRAINT "pedidos_sucursalId_fkey" FOREIGN KEY ("sucursalId") REFERENCES "sucursales"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "pedidos" ADD CONSTRAINT "pedidos_mesaId_fkey" FOREIGN KEY ("mesaId") REFERENCES "mesas"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "pedidos" ADD CONSTRAINT "pedidos_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "usuarios"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "pedidos" ADD CONSTRAINT "pedidos_repartidorId_fkey" FOREIGN KEY ("repartidorId") REFERENCES "usuarios"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "pedido_items" ADD CONSTRAINT "pedido_items_pedidoId_fkey" FOREIGN KEY ("pedidoId") REFERENCES "pedidos"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -816,4 +866,8 @@ ALTER TABLE "comprobantes_fiscales" ADD CONSTRAINT "comprobantes_fiscales_puntoV
 ALTER TABLE "lotes_stock" ADD CONSTRAINT "lotes_stock_ingredienteId_fkey" FOREIGN KEY ("ingredienteId") REFERENCES "ingredientes"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "lotes_stock" ADD CONSTRAINT "lotes_stock_sucursalId_fkey" FOREIGN KEY ("sucursalId") REFERENCES "sucursales"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "transacciones_mercadopago" ADD CONSTRAINT "transacciones_mercadopago_pagoId_fkey" FOREIGN KEY ("pagoId") REFERENCES "pagos"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+

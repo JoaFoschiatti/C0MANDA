@@ -2,12 +2,20 @@ const { createHttpError } = require('../utils/http-error');
 const { logger } = require('../utils/logger');
 const { getNegocio } = require('../db/prisma');
 const { signPublicOrderToken, matchesPublicOrderToken } = require('../utils/public-order-access');
+const { SUCURSAL_IDS } = require('../constants/sucursales');
+const { decimalToNumber: toNumber } = require('../utils/decimal');
 const {
   isMercadoPagoConfigured,
   createPreference,
   saveTransaction,
   searchPaymentByReference
 } = require('./mercadopago.service');
+const {
+  buildPedidoCobroSummary,
+  cancelPendingPaymentsForChannel,
+  findOpenPagoForChannel
+} = require('./payment-state.service');
+const { isPedidoTerminal } = require('./order-state.service');
 
 const buildConfigMap = (configs) => {
   const configMap = {};
@@ -103,6 +111,69 @@ const buildPreferenceData = ({ pedidoId, negocioNombre, items, costoEnvio, acces
   return preferenceData;
 };
 
+const resolvePublicSucursalId = (sucursalId = null) => {
+  const parsed = Number.parseInt(sucursalId, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : SUCURSAL_IDS.DELIVERY;
+};
+
+const getStockForSucursal = (stocks = [], sucursalId) => {
+  const stock = stocks.find((item) => item.sucursalId === sucursalId && item.activo !== false);
+  return toNumber(stock?.stockActual || 0);
+};
+
+const getRequiredIngredientAmount = (producto, productoIngrediente, cantidad = 1) => {
+  const multiplicador = toNumber(producto?.multiplicadorInsumos || 1);
+  return toNumber(productoIngrediente?.cantidad || 0) * cantidad * multiplicador;
+};
+
+const productHasStockInSucursal = (producto, sucursalId, cantidad = 1) => {
+  const ingredientes = producto?.ingredientes || [];
+
+  if (ingredientes.length === 0) {
+    return true;
+  }
+
+  return ingredientes.every((productoIngrediente) => (
+    getStockForSucursal(productoIngrediente.ingrediente?.stocks || [], sucursalId) + 0.0001 >=
+      getRequiredIngredientAmount(producto, productoIngrediente, cantidad)
+  ));
+};
+
+const assertProductsAvailableForSucursal = (productos, sucursalId, items = []) => {
+  const productoById = new Map(productos.map((producto) => [producto.id, producto]));
+  const requerimientos = new Map();
+
+  items.forEach((item) => {
+    const producto = productoById.get(item.productoId);
+    if (!producto) {
+      throw createHttpError.badRequest('Algunos productos no estan disponibles');
+    }
+
+    if (!productHasStockInSucursal(producto, sucursalId, item.cantidad)) {
+      throw createHttpError.badRequest(`El producto "${producto.nombre}" no tiene stock suficiente en esta sucursal`);
+    }
+
+    for (const productoIngrediente of producto.ingredientes || []) {
+      const current = requerimientos.get(productoIngrediente.ingredienteId) || {
+        ingredienteNombre: productoIngrediente.ingrediente?.nombre || 'Ingrediente',
+        requerido: 0,
+        disponible: getStockForSucursal(productoIngrediente.ingrediente?.stocks || [], sucursalId)
+      };
+
+      current.requerido += getRequiredIngredientAmount(producto, productoIngrediente, item.cantidad);
+      requerimientos.set(productoIngrediente.ingredienteId, current);
+    }
+  });
+
+  for (const requirement of requerimientos.values()) {
+    if (requirement.disponible + 0.0001 < requirement.requerido) {
+      throw createHttpError.badRequest(
+        `Stock insuficiente de ${requirement.ingredienteNombre} en esta sucursal`
+      );
+    }
+  }
+};
+
 const getPublicConfig = async (prisma, negocioOverride = null) => {
   const negocio = negocioOverride || await getNegocio();
   if (!negocio) {
@@ -143,36 +214,71 @@ const getPublicConfig = async (prisma, negocioOverride = null) => {
   };
 };
 
-const getPublicMenu = async (prisma) => prisma.categoria.findMany({
-  where: { activa: true },
-  orderBy: { orden: 'asc' },
-  include: {
-    productos: {
-      where: {
-        disponible: true,
-        productoBaseId: null
-      },
-      orderBy: { nombre: 'asc' },
-      include: {
-        variantes: {
-          where: { disponible: true },
-          orderBy: { ordenVariante: 'asc' },
-          select: {
-            id: true,
-            nombre: true,
-            nombreVariante: true,
-            precio: true,
-            descripcion: true,
-            imagen: true,
-            multiplicadorInsumos: true,
-            ordenVariante: true,
-            esVariantePredeterminada: true
+const getPublicMenu = async (prisma, options = {}) => {
+  const sucursalId = resolvePublicSucursalId(options.sucursalId);
+
+  const categorias = await prisma.categoria.findMany({
+    where: { activa: true },
+    orderBy: { orden: 'asc' },
+    include: {
+      productos: {
+        where: {
+          disponible: true,
+          productoBaseId: null
+        },
+        orderBy: { nombre: 'asc' },
+        include: {
+          ingredientes: {
+            include: {
+              ingrediente: {
+                include: {
+                  stocks: {
+                    where: {
+                      sucursalId,
+                      activo: true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          variantes: {
+            where: { disponible: true },
+            orderBy: { ordenVariante: 'asc' },
+            include: {
+              ingredientes: {
+                include: {
+                  ingrediente: {
+                    include: {
+                      stocks: {
+                        where: {
+                          sucursalId,
+                          activo: true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
     }
-  }
-});
+  });
+
+  return categorias
+    .map((categoria) => ({
+      ...categoria,
+      productos: (categoria.productos || [])
+        .map((producto) => ({
+          ...producto,
+          variantes: (producto.variantes || []).filter((variante) => productHasStockInSucursal(variante, sucursalId))
+        }))
+        .filter((producto) => productHasStockInSucursal(producto, sucursalId))
+    }))
+    .filter((categoria) => categoria.productos.length > 0);
+};
 
 const createPublicOrder = async (prisma, { negocio, body }) => {
   const {
@@ -230,6 +336,10 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
     throw createHttpError.badRequest('El pago en efectivo no esta disponible en este momento');
   }
 
+  if (metodoPago !== 'EFECTIVO' && montoAbonado != null) {
+    throw createHttpError.badRequest('montoAbonado solo puede enviarse para pedidos en efectivo');
+  }
+
   if (metodoPago === 'MERCADOPAGO') {
     if (!mercadopagoHabilitado) {
       throw createHttpError.badRequest('MercadoPago no esta disponible en este momento');
@@ -252,12 +362,30 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
     where: {
       id: { in: productoIds },
       disponible: true
+    },
+    include: {
+      ingredientes: {
+        include: {
+          ingrediente: {
+            include: {
+              stocks: {
+                where: {
+                  sucursalId: SUCURSAL_IDS.DELIVERY,
+                  activo: true
+                }
+              }
+            }
+          }
+        }
+      }
     }
   });
 
   if (productos.length !== productoIds.length) {
     throw createHttpError.badRequest('Algunos productos no estan disponibles');
   }
+
+  assertProductsAvailableForSucursal(productos, SUCURSAL_IDS.DELIVERY, normalizedItems);
 
   let subtotal = 0;
   const itemsData = normalizedItems.map((item) => {
@@ -278,9 +406,14 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
 
   const total = subtotal + costoEnvio;
 
+  if (metodoPago === 'EFECTIVO' && montoAbonado != null && parseFloat(montoAbonado) + 0.01 < total) {
+    throw createHttpError.badRequest('El monto abonado no alcanza para cubrir el pedido');
+  }
+
   const pedido = await prisma.pedido.create({
     data: {
       tipo: 'DELIVERY',
+      sucursalId: SUCURSAL_IDS.DELIVERY,
       tipoEntrega,
       clienteNombre: clienteNombreValue,
       clienteTelefono: clienteTelefonoValue,
@@ -308,13 +441,13 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
 
   if (metodoPago === 'MERCADOPAGO') {
     try {
-        const preferenceData = buildPreferenceData({
-          pedidoId: pedido.id,
-          negocioNombre: negocio.nombre,
-          items: pedido.items,
-          costoEnvio,
-          accessToken
-        });
+      const preferenceData = buildPreferenceData({
+        pedidoId: pedido.id,
+        negocioNombre: negocio.nombre,
+        items: pedido.items,
+        costoEnvio,
+        accessToken
+      });
 
       const mpResponse = await createPreference(preferenceData);
 
@@ -324,6 +457,7 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
           pedidoId: pedido.id,
           monto: total,
           metodo: 'MERCADOPAGO',
+          canalCobro: 'CHECKOUT_WEB',
           estado: 'PENDIENTE',
           mpPreferenceId: mpResponse.id,
           idempotencyKey
@@ -346,6 +480,7 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
         pedidoId: pedido.id,
         monto: total,
         metodo: 'EFECTIVO',
+        canalCobro: 'CHECKOUT_WEB',
         estado: 'PENDIENTE',
         montoAbonado: parseFloat(montoAbonado),
         vuelto: vuelto > 0 ? vuelto : 0
@@ -384,7 +519,10 @@ const startMercadoPagoPaymentForOrder = async (prisma, { negocio, pedidoId, acce
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
     include: {
-      items: { include: { producto: true } }
+      items: { include: { producto: true } },
+      pagos: {
+        orderBy: { createdAt: 'desc' }
+      }
     }
   });
 
@@ -396,8 +534,13 @@ const startMercadoPagoPaymentForOrder = async (prisma, { negocio, pedidoId, acce
     throw createHttpError.notFound('Pedido no encontrado');
   }
 
-  if (pedido.estadoPago === 'APROBADO') {
+  if (pedido.estadoPago === 'APROBADO' || pedido.estado === 'COBRADO' || isPedidoTerminal(pedido.estado)) {
     throw createHttpError.badRequest('El pedido ya esta pagado');
+  }
+
+  const cobroActual = buildPedidoCobroSummary(pedido);
+  if (cobroActual.fullyPaid) {
+    throw createHttpError.badRequest('El pedido ya fue cubierto en su totalidad');
   }
 
   const config = await prisma.configuracion.findFirst({
@@ -433,15 +576,25 @@ const startMercadoPagoPaymentForOrder = async (prisma, { negocio, pedidoId, acce
   }
 
   const idempotencyKey = `mp-${pedidoId}-${Date.now()}`;
-  await prisma.pago.create({
-    data: {
+
+  await prisma.$transaction(async (tx) => {
+    await cancelPendingPaymentsForChannel(tx, {
       pedidoId,
-      monto: parseFloat(pedido.total),
-      metodo: 'MERCADOPAGO',
-      estado: 'PENDIENTE',
-      mpPreferenceId: response.id,
-      idempotencyKey
-    }
+      canalCobro: 'CHECKOUT_WEB',
+      metodo: 'MERCADOPAGO'
+    });
+
+    await tx.pago.create({
+      data: {
+        pedidoId,
+        monto: cobroActual.pendiente,
+        metodo: 'MERCADOPAGO',
+        canalCobro: 'CHECKOUT_WEB',
+        estado: 'PENDIENTE',
+        mpPreferenceId: response.id,
+        idempotencyKey
+      }
+    });
   });
 
   return {
@@ -458,7 +611,9 @@ const getPublicOrderStatus = async (prisma, { pedidoId, accessToken }) => {
     where: { id: pedidoId },
     include: {
       items: { include: { producto: true } },
-      pagos: true
+      pagos: {
+        orderBy: { createdAt: 'desc' }
+      }
     }
   });
 
@@ -473,53 +628,90 @@ const getPublicOrderStatus = async (prisma, { pedidoId, accessToken }) => {
   const events = [];
 
   if (pedido.estadoPago === 'PENDIENTE') {
-    const pagoMP = pedido.pagos.find((pago) => pago.metodo === 'MERCADOPAGO' && pago.estado === 'PENDIENTE');
+    const pagoMP = findOpenPagoForChannel(pedido.pagos, 'CHECKOUT_WEB', 'MERCADOPAGO');
 
     if (pagoMP) {
       const externalReference = `pedido-${pedidoId}`;
       const pagoAprobado = await searchPaymentByReference(externalReference);
 
       if (pagoAprobado) {
-        await prisma.pago.update({
-          where: { id: pagoMP.id },
-          data: {
-            estado: 'APROBADO',
-            mpPaymentId: pagoAprobado.id.toString()
+        const transactionResult = await prisma.$transaction(async (tx) => {
+          const pagoActualizado = await tx.pago.update({
+            where: { id: pagoMP.id },
+            data: {
+              estado: 'APROBADO',
+              mpPaymentId: pagoAprobado.id.toString()
+            }
+          });
+
+          let pedidoActualizado = pedido;
+          if (!isPedidoTerminal(pedido.estado)) {
+            const pagosActualizados = pedido.pagos.map((pago) => (
+              pago.id === pagoMP.id
+                ? { ...pago, estado: 'APROBADO', mpPaymentId: pagoAprobado.id.toString() }
+                : pago
+            ));
+            const cobroActualizado = buildPedidoCobroSummary({
+              total: pedido.total,
+              pagos: pagosActualizados
+            });
+
+            pedidoActualizado = await tx.pedido.update({
+              where: { id: pedidoId },
+              data: cobroActualizado.fullyPaid
+                ? {
+                  estadoPago: 'APROBADO',
+                  estado: 'COBRADO'
+                }
+                : {
+                  estadoPago: 'PENDIENTE'
+                },
+              include: {
+                items: { include: { producto: true } },
+                pagos: {
+                  orderBy: { createdAt: 'desc' }
+                }
+              }
+            });
+          } else {
+            logger.warn('Se aprobo un pago publico para un pedido terminal. Requiere revision manual.', {
+              pedidoId,
+              estado: pedido.estado
+            });
+
+            pedidoActualizado = {
+              ...pedido,
+              pagos: pedido.pagos.map((pago) => (
+                pago.id === pagoMP.id
+                  ? { ...pago, estado: 'APROBADO', mpPaymentId: pagoAprobado.id.toString() }
+                  : pago
+              ))
+            };
           }
+
+          await saveTransaction(pagoAprobado, pagoMP.id);
+
+          return {
+            pagoActualizado,
+            pedidoActualizado
+          };
         });
 
-        await prisma.pedido.update({
-          where: { id: pedidoId },
-          data: {
-            estadoPago: 'APROBADO',
-            estado: 'COBRADO'
-          }
-        });
+        if (!isPedidoTerminal(pedido.estado)) {
+          events.push({
+            topic: 'pedido.updated',
+            payload: {
+              id: pedidoId,
+              estado: transactionResult.pedidoActualizado.estado,
+              estadoPago: transactionResult.pedidoActualizado.estadoPago,
+              tipo: pedido.tipo,
+              mesaId: pedido.mesaId || null,
+              updatedAt: new Date().toISOString()
+            }
+          });
+        }
 
-        await saveTransaction(pagoAprobado, pagoMP.id);
-
-        events.push({
-          topic: 'pedido.updated',
-          payload: {
-            id: pedidoId,
-            estado: 'COBRADO',
-            estadoPago: 'APROBADO',
-            tipo: pedido.tipo,
-            mesaId: pedido.mesaId || null,
-            updatedAt: new Date().toISOString()
-          }
-        });
-
-        pedido = {
-          ...pedido,
-          estado: 'COBRADO',
-          estadoPago: 'APROBADO',
-          pagos: pedido.pagos.map((pago) =>
-            pago.id === pagoMP.id
-              ? { ...pago, estado: 'APROBADO', mpPaymentId: pagoAprobado.id.toString() }
-              : pago
-          )
-        };
+        pedido = transactionResult.pedidoActualizado;
       }
     }
   }
@@ -533,6 +725,7 @@ const getPublicTableSession = async (prisma, qrToken) => {
     select: {
       id: true,
       numero: true,
+      sucursalId: true,
       zona: true,
       capacidad: true,
       estado: true,
@@ -566,6 +759,7 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
     select: {
       id: true,
       numero: true,
+      sucursalId: true,
       estado: true,
       activa: true
     }
@@ -588,12 +782,30 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
     where: {
       id: { in: productoIds },
       disponible: true
+    },
+    include: {
+      ingredientes: {
+        include: {
+          ingrediente: {
+            include: {
+              stocks: {
+                where: {
+                  sucursalId: mesa.sucursalId,
+                  activo: true
+                }
+              }
+            }
+          }
+        }
+      }
     }
   });
 
   if (productos.length !== productoIds.length) {
     throw createHttpError.badRequest('Algunos productos no estan disponibles');
   }
+
+  assertProductsAvailableForSucursal(productos, mesa.sucursalId, normalizedItems);
 
   let subtotal = 0;
   const itemsData = normalizedItems.map((item) => {
@@ -655,6 +867,7 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
       pedido = await tx.pedido.create({
         data: {
           tipo: 'MESA',
+          sucursalId: mesa.sucursalId,
           mesaId: mesa.id,
           clienteNombre: clienteNombreValue,
           subtotal,

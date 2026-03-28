@@ -194,6 +194,7 @@ describe('Publico MercadoPago', () => {
         pedidoId: pedido.id,
         monto: 50,
         metodo: 'MERCADOPAGO',
+        canalCobro: 'CHECKOUT_WEB',
         estado: 'PENDIENTE',
         mpPreferenceId: 'PREF_PENDING',
         idempotencyKey: `mp-${pedido.id}-${Date.now()}`

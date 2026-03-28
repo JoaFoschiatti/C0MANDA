@@ -6,6 +6,8 @@ const emailService = require('../services/email.service');
 const { getPayment, getQrOrder, saveTransaction } = require('../services/mercadopago.service');
 const pagosService = require('../services/pagos.service');
 const { logger } = require('../utils/logger');
+const { buildPedidoCobroSummary } = require('../services/payment-state.service');
+const { isPedidoTerminal } = require('../services/order-state.service');
 
 const publishPedidoUpdated = (pedido) => {
   if (!pedido) {
@@ -63,12 +65,26 @@ const finalizeApprovedPedido = async (tx, pedidoId) => {
     return null;
   }
 
-  const totalAprobado = pedido.pagos
-    .filter((pago) => pago.estado === 'APROBADO')
-    .reduce((sum, pago) => sum + parseFloat(pago.monto), 0);
-
-  const fullyPaid = totalAprobado >= parseFloat(pedido.total) - 0.01;
+  const cobro = buildPedidoCobroSummary(pedido);
+  const fullyPaid = cobro.fullyPaid;
   let mesaUpdated = null;
+
+  if (isPedidoTerminal(pedido.estado)) {
+    logger.warn('Se recibio confirmacion de pago para un pedido terminal. Requiere revision manual.', {
+      pedidoId,
+      estado: pedido.estado,
+      totalPagado: cobro.totalPagado,
+      totalPedido: cobro.totalPedido
+    });
+
+    return {
+      pedido,
+      mesaUpdated,
+      totalPagado: cobro.totalPagado,
+      fullyPaid,
+      requiresReview: true
+    };
+  }
 
   if (fullyPaid && pedido.mesaId) {
     await tx.mesa.update({
@@ -92,8 +108,9 @@ const finalizeApprovedPedido = async (tx, pedidoId) => {
   return {
     pedido: pedidoActualizado,
     mesaUpdated,
-    totalPagado: totalAprobado,
-    fullyPaid
+    totalPagado: cobro.totalPagado,
+    fullyPaid,
+    requiresReview: false
   };
 };
 
@@ -279,12 +296,14 @@ const webhookMercadoPago = async (req, res) => {
       if (qrResult?.finalized?.pedido) {
         eventBus.publish('pago.updated', {
           pedidoId: qrResult.pedidoId,
-          estadoPago: 'APROBADO',
+          estadoPago: qrResult.finalized.pedido.estadoPago,
           totalPagado: qrResult.finalized.totalPagado
         });
 
-        publishMesaUpdated(qrResult.finalized.mesaUpdated);
-        publishPedidoUpdated(qrResult.finalized.pedido);
+        if (!qrResult.finalized.requiresReview) {
+          publishMesaUpdated(qrResult.finalized.mesaUpdated);
+          publishPedidoUpdated(qrResult.finalized.pedido);
+        }
       }
 
       return res.sendStatus(200);
@@ -426,16 +445,16 @@ const webhookMercadoPago = async (req, res) => {
         logger.error('Error al guardar transaccion MP:', txError);
       }
 
-      eventBus.publish('pago.updated', {
-        pedidoId,
-        estadoPago,
-        totalPagado: parseFloat(paymentInfo.transaction_amount)
-      });
-
       if (estadoPago === 'APROBADO') {
         const finalized = await prisma.$transaction(async (tx) => finalizeApprovedPedido(tx, pedidoId));
 
-        if (finalized?.pedido) {
+        eventBus.publish('pago.updated', {
+          pedidoId,
+          estadoPago,
+          totalPagado: finalized?.totalPagado ?? parseFloat(paymentInfo.transaction_amount)
+        });
+
+        if (finalized?.pedido && !finalized.requiresReview) {
           publishMesaUpdated(finalized.mesaUpdated);
           publishPedidoUpdated(finalized.pedido);
 
@@ -449,6 +468,12 @@ const webhookMercadoPago = async (req, res) => {
             }
           }
         }
+      } else {
+        eventBus.publish('pago.updated', {
+          pedidoId,
+          estadoPago,
+          totalPagado: parseFloat(paymentInfo.transaction_amount)
+        });
       }
     }
 

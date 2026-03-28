@@ -22,6 +22,19 @@ const buildNegocioPayload = (negocio) => {
   };
 };
 
+const extractTokenFromRequest = (req) => {
+  if (req.cookies?.token) {
+    return req.cookies.token;
+  }
+
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.split(' ')[1];
+  }
+
+  return null;
+};
+
 const registrar = async (req, res) => {
   const { password, nombre, rol } = req.body;
   const email = normalizeEmail(req.body.email);
@@ -75,7 +88,8 @@ const login = async (req, res) => {
   const tokenPayload = {
     id: usuario.id,
     email: usuario.email,
-    rol: usuario.rol
+    rol: usuario.rol,
+    sv: usuario.sessionVersion ?? 0
   };
 
   const token = jwt.sign(
@@ -106,9 +120,10 @@ const login = async (req, res) => {
 
 const perfil = async (req, res) => {
   const negocio = await getNegocio();
+  const { sessionVersion: _sessionVersion, ...usuario } = req.usuario;
 
   res.json({
-    ...req.usuario,
+    ...usuario,
     negocio: buildNegocioPayload(negocio)
   });
 };
@@ -130,13 +145,32 @@ const cambiarPassword = async (req, res) => {
 
   await prisma.usuario.update({
     where: { id: req.usuario.id },
-    data: { password: passwordHash }
+    data: {
+      password: passwordHash,
+      sessionVersion: { increment: 1 }
+    }
   });
 
   res.json({ message: 'Contrasena actualizada correctamente' });
 };
 
-const logout = async (_req, res) => {
+const logout = async (req, res) => {
+  const token = extractTokenFromRequest(req);
+
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      await prisma.usuario.update({
+        where: { id: decoded.id },
+        data: {
+          sessionVersion: { increment: 1 }
+        }
+      });
+    } catch {
+      // Si el token es invalido o ya expiro, igual limpiamos la cookie y devolvemos exito.
+    }
+  }
+
   res.clearCookie('token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

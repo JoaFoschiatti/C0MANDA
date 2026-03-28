@@ -9,6 +9,7 @@ Guia resumida para la instalacion unica en EC2.
 - `JWT_SECRET`: secreto para JWT.
 - `ENCRYPTION_KEY`: clave AES-256 en hex para credenciales cifradas.
 - `FRONTEND_URL`: URL publica del frontend.
+- `.env.test` opcional: si existe, los tests backend lo cargan por encima de `.env`.
 
 ## Mercado Pago
 
@@ -56,3 +57,8 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 - `MERCADOPAGO_WEBHOOK_SECRET` debe estar configurado si se usan pagos online.
 - `SKIP_WEBHOOK_VERIFICATION` no debe estar en `true` en produccion.
 - Si se carga `ARCA_CUIT`, tambien deben existir `ARCA_CERT_PATH` y `ARCA_KEY_PATH`.
+
+## Entorno de tests
+
+- Copiar `.env.test.example` a `.env.test` para aislar Jest en un schema dedicado, por ejemplo `?schema=test`.
+- `npm run db:reset:test` resetea ese schema con la baseline actual sin tocar `public`.
