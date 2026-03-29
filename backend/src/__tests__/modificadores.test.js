@@ -135,5 +135,11 @@ describe('Modificadores Endpoints', () => {
 
     const nombres = listado.body.map((item) => item.nombre);
     expect(nombres).toEqual(expect.arrayContaining([mod1.nombre, mod2.nombre]));
+    expect(listado.body[0]).toEqual(expect.objectContaining({
+      id: expect.any(Number),
+      tipo: expect.any(String),
+      precio: expect.anything(),
+      activo: true
+    }));
   });
 });

@@ -32,6 +32,7 @@ export default function PublicCheckoutModal({
   clienteData,
   checkoutError,
   enviandoPedido,
+  disableSubmit = false,
   onClose,
   onTipoEntregaChange,
   onMetodoPagoChange,
@@ -40,6 +41,8 @@ export default function PublicCheckoutModal({
   onSubmit,
   onWhatsAppFallback
 }) {
+  const noPaymentMethodsAvailable = !config?.mercadopago_enabled && !config?.efectivo_enabled
+
   return (
     <Modal open={open} onClose={onClose} title="Confirmar pedido" size="lg">
       <div className="space-y-5">
@@ -131,7 +134,7 @@ export default function PublicCheckoutModal({
             <p className="text-body-sm mt-1">Elegi un medio de pago disponible.</p>
           </div>
 
-          {!config?.mercadopago_enabled && !config?.efectivo_enabled ? (
+          {noPaymentMethodsAvailable ? (
             <Alert variant="warning">
               <div className="space-y-2">
                 <p>El local no tiene medios de pago habilitados en este momento.</p>
@@ -223,15 +226,18 @@ export default function PublicCheckoutModal({
             Consultar por WhatsApp
           </Button>
         )}
-        <Button
-          type="button"
-          variant={metodoPago === 'MERCADOPAGO' ? 'success' : 'primary'}
-          className="min-w-[180px]"
-          loading={enviandoPedido}
-          onClick={onSubmit}
-        >
-          {metodoPago === 'MERCADOPAGO' ? 'Ir a Mercado Pago' : 'Confirmar pedido'}
-        </Button>
+        {!noPaymentMethodsAvailable && (
+          <Button
+            type="button"
+            variant={metodoPago === 'MERCADOPAGO' ? 'success' : 'primary'}
+            className="min-w-[180px]"
+            loading={enviandoPedido}
+            disabled={disableSubmit}
+            onClick={onSubmit}
+          >
+            {metodoPago === 'MERCADOPAGO' ? 'Ir a Mercado Pago' : 'Confirmar pedido'}
+          </Button>
+        )}
       </Modal.Footer>
     </Modal>
   )

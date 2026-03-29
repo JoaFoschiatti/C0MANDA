@@ -53,10 +53,12 @@ const createPublicOrderBodySchema = z.object({
     (value) => (value === undefined || value === null || value === '' ? undefined : value),
     z.coerce.number().positive().optional()
   ),
+  clientRequestId: optionalTrimmedString(120),
   observaciones: optionalTrimmedString(500)
 }).strip();
 
 const createPublicTableOrderBodySchema = z.object({
+  sessionToken: z.string({ required_error: 'Sesion de mesa requerida' }).trim().min(1).max(255),
   items: z.array(publicOrderItemSchema).min(1, 'El pedido debe tener al menos un producto'),
   clienteNombre: z.string({ required_error: 'Nombre requerido' }).trim().min(1).max(150),
   observaciones: optionalTrimmedString(500)

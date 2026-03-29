@@ -1,5 +1,6 @@
 require('dotenv').config({ quiet: true });
 const express = require('express');
+const compression = require('compression');
 const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
@@ -98,6 +99,19 @@ app.use(cookieParser());
 
 // Servir archivos estáticos (imágenes de productos)
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path.startsWith('/api/eventos')) {
+      return false;
+    }
+
+    if (req.headers.accept?.includes('text/event-stream')) {
+      return false;
+    }
+
+    return compression.filter(req, res);
+  }
+}));
 
 // Rutas de la API
 app.use('/api/auth', authRoutes);

@@ -5,6 +5,13 @@ const { signPublicOrderToken, matchesPublicOrderToken } = require('../utils/publ
 const { SUCURSAL_IDS } = require('../constants/sucursales');
 const { decimalToNumber: toNumber } = require('../utils/decimal');
 const {
+  assertActiveMesaPublicSession,
+  buildPedidoPaidUpdateData,
+  issueMesaPublicSession,
+  logPublicAbuseSignal,
+  logPublicAudit
+} = require('./public-order-security.service');
+const {
   isMercadoPagoConfigured,
   createPreference,
   saveTransaction,
@@ -16,6 +23,61 @@ const {
   findOpenPagoForChannel
 } = require('./payment-state.service');
 const { isPedidoTerminal } = require('./order-state.service');
+
+const PUBLIC_ORDER_RESPONSE_SELECT = {
+  id: true,
+  tipo: true,
+  estado: true,
+  mesaId: true,
+  clienteNombre: true,
+  tipoEntrega: true,
+  costoEnvio: true,
+  subtotal: true,
+  total: true,
+  observaciones: true,
+  estadoPago: true,
+  origen: true,
+  operacionConfirmada: true,
+  createdAt: true,
+  updatedAt: true,
+  mesa: {
+    select: {
+      id: true,
+      numero: true
+    }
+  },
+  items: {
+    select: {
+      id: true,
+      productoId: true,
+      cantidad: true,
+      precioUnitario: true,
+      subtotal: true,
+      observaciones: true,
+      producto: {
+        select: {
+          id: true,
+          nombre: true
+        }
+      }
+    }
+  },
+  pagos: {
+    orderBy: {
+      createdAt: 'desc'
+    },
+    select: {
+      id: true,
+      monto: true,
+      metodo: true,
+      canalCobro: true,
+      estado: true,
+      propinaMonto: true,
+      mpPaymentId: true,
+      createdAt: true
+    }
+  }
+};
 
 const buildConfigMap = (configs) => {
   const configMap = {};
@@ -174,6 +236,188 @@ const assertProductsAvailableForSucursal = (productos, sucursalId, items = []) =
   }
 };
 
+const buildPublicMenuProductSelect = (sucursalId) => ({
+  id: true,
+  nombre: true,
+  descripcion: true,
+  precio: true,
+  imagen: true,
+  multiplicadorInsumos: true,
+  ingredientes: {
+    select: {
+      ingredienteId: true,
+      cantidad: true,
+      ingrediente: {
+        select: {
+          nombre: true,
+          stocks: {
+            where: {
+              sucursalId,
+              activo: true
+            },
+            select: {
+              sucursalId: true,
+              activo: true,
+              stockActual: true
+            }
+          }
+        }
+      }
+    }
+  },
+  variantes: {
+    where: { disponible: true },
+    orderBy: { ordenVariante: 'asc' },
+    select: {
+      id: true,
+      nombreVariante: true,
+      precio: true,
+      imagen: true,
+      esVariantePredeterminada: true,
+      multiplicadorInsumos: true,
+      ingredientes: {
+        select: {
+          ingredienteId: true,
+          cantidad: true,
+          ingrediente: {
+            select: {
+              nombre: true,
+              stocks: {
+                where: {
+                  sucursalId,
+                  activo: true
+                },
+                select: {
+                  sucursalId: true,
+                  activo: true,
+                  stockActual: true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+});
+
+const mapPublicMenuVariant = (variant) => ({
+  id: variant.id,
+  nombreVariante: variant.nombreVariante,
+  precio: variant.precio,
+  imagen: variant.imagen,
+  esVariantePredeterminada: variant.esVariantePredeterminada
+});
+
+const mapPublicMenuProduct = (producto, sucursalId) => ({
+  id: producto.id,
+  nombre: producto.nombre,
+  descripcion: producto.descripcion,
+  precio: producto.precio,
+  imagen: producto.imagen,
+  variantes: (producto.variantes || [])
+    .filter((variant) => productHasStockInSucursal(variant, sucursalId))
+    .map(mapPublicMenuVariant)
+});
+
+const isClientRequestIdConstraintError = (error) => {
+  if (error?.code !== 'P2002') {
+    return false;
+  }
+
+  const targets = Array.isArray(error?.meta?.target)
+    ? error.meta.target
+    : [error?.meta?.target].filter(Boolean);
+
+  return targets.some((target) => String(target).includes('clientRequestId'));
+};
+
+const getPublicPedidoResponse = (prisma, pedidoId) => prisma.pedido.findUnique({
+  where: { id: pedidoId },
+  select: PUBLIC_ORDER_RESPONSE_SELECT
+});
+
+const getPublicPedidoEmailPayload = (prisma, pedidoId) => prisma.pedido.findUnique({
+  where: { id: pedidoId },
+  select: {
+    id: true,
+    clienteNombre: true,
+    clienteEmail: true,
+    clienteDireccion: true,
+    tipoEntrega: true,
+    costoEnvio: true,
+    total: true,
+    observaciones: true,
+    estadoPago: true,
+    items: {
+      select: {
+        cantidad: true,
+        subtotal: true,
+        producto: {
+          select: {
+            nombre: true
+          }
+        }
+      }
+    }
+  }
+});
+
+const buildPublicCreateOrderResult = async (prisma, {
+  negocio,
+  pedido,
+  metodoPago,
+  shouldSendEmail = false,
+  publishEvents = false
+}) => {
+  const accessToken = signPublicOrderToken(pedido.id);
+  let initPoint = null;
+
+  if (metodoPago === 'MERCADOPAGO' && pedido.estadoPago !== 'APROBADO' && !isPedidoTerminal(pedido.estado)) {
+    try {
+      const paymentResult = await startMercadoPagoPaymentForOrder(prisma, {
+        negocio,
+        pedidoId: pedido.id,
+        accessToken,
+        skipAccessValidation: true
+      });
+      initPoint = paymentResult.initPoint;
+    } catch (error) {
+      if (!['El pedido ya esta pagado', 'El pedido ya fue cubierto en su totalidad'].includes(error?.message)) {
+        throw error;
+      }
+    }
+  }
+
+  const [refreshedPedido, emailPayload] = await Promise.all([
+    getPublicPedidoResponse(prisma, pedido.id),
+    shouldSendEmail ? getPublicPedidoEmailPayload(prisma, pedido.id) : Promise.resolve(null)
+  ]);
+
+  return {
+    negocio,
+    pedido: refreshedPedido,
+    emailPayload,
+    costoEnvio: toNumber(refreshedPedido?.costoEnvio || pedido.costoEnvio),
+    total: toNumber(refreshedPedido?.total || pedido.total),
+    initPoint,
+    accessToken,
+    shouldSendEmail,
+    events: publishEvents
+      ? [{
+          topic: 'pedido.updated',
+          payload: {
+            id: refreshedPedido.id,
+            estado: refreshedPedido.estado,
+            tipo: refreshedPedido.tipo,
+            mesaId: refreshedPedido.mesaId || null,
+            updatedAt: refreshedPedido.updatedAt || new Date().toISOString()
+          }
+        }]
+      : []
+  };
+};
+
 const getPublicConfig = async (prisma, negocioOverride = null) => {
   const negocio = negocioOverride || await getNegocio();
   if (!negocio) {
@@ -220,73 +464,39 @@ const getPublicMenu = async (prisma, options = {}) => {
   const categorias = await prisma.categoria.findMany({
     where: { activa: true },
     orderBy: { orden: 'asc' },
-    include: {
+    select: {
+      id: true,
+      nombre: true,
       productos: {
         where: {
           disponible: true,
           productoBaseId: null
         },
         orderBy: { nombre: 'asc' },
-        include: {
-          ingredientes: {
-            include: {
-              ingrediente: {
-                include: {
-                  stocks: {
-                    where: {
-                      sucursalId,
-                      activo: true
-                    }
-                  }
-                }
-              }
-            }
-          },
-          variantes: {
-            where: { disponible: true },
-            orderBy: { ordenVariante: 'asc' },
-            include: {
-              ingredientes: {
-                include: {
-                  ingrediente: {
-                    include: {
-                      stocks: {
-                        where: {
-                          sucursalId,
-                          activo: true
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        select: buildPublicMenuProductSelect(sucursalId)
       }
     }
   });
 
   return categorias
     .map((categoria) => ({
-      ...categoria,
+      id: categoria.id,
+      nombre: categoria.nombre,
       productos: (categoria.productos || [])
-        .map((producto) => ({
-          ...producto,
-          variantes: (producto.variantes || []).filter((variante) => productHasStockInSucursal(variante, sucursalId))
-        }))
         .filter((producto) => productHasStockInSucursal(producto, sucursalId))
+        .map((producto) => mapPublicMenuProduct(producto, sucursalId))
     }))
     .filter((categoria) => categoria.productos.length > 0);
 };
 
-const createPublicOrder = async (prisma, { negocio, body }) => {
+const createPublicOrder = async (prisma, { negocio, body, requestMeta = {} }) => {
   const {
     items,
     clienteNombre,
     clienteTelefono,
     clienteDireccion,
     clienteEmail,
+    clientRequestId,
     tipoEntrega,
     metodoPago,
     montoAbonado,
@@ -297,6 +507,7 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
   const clienteTelefonoValue = sanitizeOptionalText(clienteTelefono);
   const clienteDireccionValue = sanitizeOptionalText(clienteDireccion);
   const clienteEmailValue = sanitizeOptionalText(clienteEmail);
+  const clientRequestIdValue = sanitizeOptionalText(clientRequestId);
   const observacionesValue = sanitizeOptionalText(observaciones);
 
   const configs = await prisma.configuracion.findMany({
@@ -410,68 +621,78 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
     throw createHttpError.badRequest('El monto abonado no alcanza para cubrir el pedido');
   }
 
-  const pedido = await prisma.pedido.create({
-    data: {
-      tipo: 'DELIVERY',
-      sucursalId: SUCURSAL_IDS.DELIVERY,
-      tipoEntrega,
-      clienteNombre: clienteNombreValue,
-      clienteTelefono: clienteTelefonoValue,
-      clienteDireccion: tipoEntrega === 'DELIVERY' ? clienteDireccionValue : null,
-      clienteEmail: clienteEmailValue,
-      costoEnvio,
-      subtotal,
-      total,
-      observaciones: observacionesValue,
-      origen: 'MENU_PUBLICO',
-      estadoPago: 'PENDIENTE',
-      items: {
-        create: itemsData
-      }
-    },
-    include: {
-      items: {
-        include: { producto: true }
-      }
-    }
-  });
-  const accessToken = signPublicOrderToken(pedido.id);
+  let pedido;
 
-  let initPoint = null;
-
-  if (metodoPago === 'MERCADOPAGO') {
-    try {
-      const preferenceData = buildPreferenceData({
-        pedidoId: pedido.id,
-        negocioNombre: negocio.nombre,
-        items: pedido.items,
+  try {
+    pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'DELIVERY',
+        sucursalId: SUCURSAL_IDS.DELIVERY,
+        tipoEntrega,
+        clienteNombre: clienteNombreValue,
+        clienteTelefono: clienteTelefonoValue,
+        clienteDireccion: tipoEntrega === 'DELIVERY' ? clienteDireccionValue : null,
+        clienteEmail: clienteEmailValue,
+        clientRequestId: clientRequestIdValue,
         costoEnvio,
-        accessToken
-      });
-
-      const mpResponse = await createPreference(preferenceData);
-
-      const idempotencyKey = `mp-${pedido.id}-${Date.now()}`;
-      await prisma.pago.create({
-        data: {
-          pedidoId: pedido.id,
-          monto: total,
-          metodo: 'MERCADOPAGO',
-          canalCobro: 'CHECKOUT_WEB',
-          estado: 'PENDIENTE',
-          mpPreferenceId: mpResponse.id,
-          idempotencyKey
+        subtotal,
+        total,
+        observaciones: observacionesValue,
+        origen: 'MENU_PUBLICO',
+        estadoPago: 'PENDIENTE',
+        operacionConfirmada: false,
+        items: {
+          create: itemsData
         }
-      });
-
-      initPoint = mpResponse.init_point;
-    } catch (mpError) {
-      logger.error('Error al crear preferencia MP, eliminando pedido', { error: mpError, pedidoId: pedido.id });
-      await prisma.pedidoItem.deleteMany({ where: { pedidoId: pedido.id } });
-      await prisma.pedido.delete({ where: { id: pedido.id } });
-      throw createHttpError.internal('Error al conectar con MercadoPago. Por favor intenta de nuevo.');
+      },
+      select: {
+        id: true,
+        total: true,
+        costoEnvio: true,
+        clienteEmail: true,
+        estado: true,
+        estadoPago: true
+      }
+    });
+  } catch (error) {
+    if (!clientRequestIdValue || !isClientRequestIdConstraintError(error)) {
+      throw error;
     }
+
+    const existingPedido = await prisma.pedido.findUnique({
+      where: { clientRequestId: clientRequestIdValue },
+      select: {
+        id: true,
+        origen: true,
+        total: true,
+        costoEnvio: true,
+        clienteEmail: true,
+        estado: true,
+        estadoPago: true
+      }
+    });
+
+    if (!existingPedido || existingPedido.origen !== 'MENU_PUBLICO') {
+      throw error;
+    }
+
+    return buildPublicCreateOrderResult(prisma, {
+      negocio,
+      pedido: existingPedido,
+      metodoPago,
+      shouldSendEmail: false,
+      publishEvents: false
+    });
   }
+
+  logPublicAudit({
+    action: 'public-order-created',
+    requestMeta,
+    pedidoId: pedido.id,
+    clientRequestId: clientRequestIdValue,
+    phone: clienteTelefonoValue,
+    cause: `${tipoEntrega}:${metodoPago}`
+  });
 
   if (metodoPago === 'EFECTIVO' && montoAbonado) {
     const vuelto = parseFloat(montoAbonado) - total;
@@ -489,32 +710,35 @@ const createPublicOrder = async (prisma, { negocio, body }) => {
   }
 
   const shouldSendEmail = Boolean(pedido.clienteEmail && metodoPago !== 'MERCADOPAGO');
+  try {
+    return await buildPublicCreateOrderResult(prisma, {
+      negocio,
+      pedido,
+      metodoPago,
+      shouldSendEmail,
+      publishEvents: true
+    });
+  } catch (error) {
+    if (metodoPago === 'MERCADOPAGO') {
+      logger.error('Error al crear preferencia MP, eliminando pedido', { error, pedidoId: pedido.id });
+      await prisma.pedidoItem.deleteMany({ where: { pedidoId: pedido.id } });
+      await prisma.pedido.delete({ where: { id: pedido.id } });
+      throw createHttpError.internal('Error al conectar con MercadoPago. Por favor intenta de nuevo.');
+    }
 
-  return {
-    negocio,
-    pedido,
-    costoEnvio,
-    total,
-    initPoint,
-    accessToken,
-    shouldSendEmail,
-    events: [
-      {
-        topic: 'pedido.updated',
-        payload: {
-          id: pedido.id,
-          estado: pedido.estado,
-          tipo: pedido.tipo,
-          mesaId: pedido.mesaId || null,
-          updatedAt: pedido.updatedAt || new Date().toISOString()
-        }
-      }
-    ]
-  };
+    throw error;
+  }
 };
 
-const startMercadoPagoPaymentForOrder = async (prisma, { negocio, pedidoId, accessToken }) => {
-  assertPublicOrderAccess(pedidoId, accessToken);
+const startMercadoPagoPaymentForOrder = async (prisma, {
+  negocio,
+  pedidoId,
+  accessToken,
+  skipAccessValidation = false
+}) => {
+  if (!skipAccessValidation) {
+    assertPublicOrderAccess(pedidoId, accessToken);
+  }
 
   const pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
@@ -655,17 +879,11 @@ const getPublicOrderStatus = async (prisma, { pedidoId, accessToken }) => {
               total: pedido.total,
               pagos: pagosActualizados
             });
+            const pedidoData = buildPedidoPaidUpdateData(pedido, cobroActualizado);
 
             pedidoActualizado = await tx.pedido.update({
               where: { id: pedidoId },
-              data: cobroActualizado.fullyPaid
-                ? {
-                  estadoPago: 'APROBADO',
-                  estado: 'COBRADO'
-                }
-                : {
-                  estadoPago: 'PENDIENTE'
-                },
+              data: pedidoData,
               include: {
                 items: { include: { producto: true } },
                 pagos: {
@@ -698,6 +916,16 @@ const getPublicOrderStatus = async (prisma, { pedidoId, accessToken }) => {
         });
 
         if (!isPedidoTerminal(pedido.estado)) {
+          if (pedido.origen === 'MENU_PUBLICO' && pedido.operacionConfirmada === false
+            && transactionResult.pedidoActualizado.operacionConfirmada === true) {
+            logPublicAudit({
+              action: 'public-order-promoted-to-operation',
+              pedidoId,
+              phone: pedido.clienteTelefono,
+              cause: 'payment-approved'
+            });
+          }
+
           events.push({
             topic: 'pedido.updated',
             payload: {
@@ -716,11 +944,13 @@ const getPublicOrderStatus = async (prisma, { pedidoId, accessToken }) => {
     }
   }
 
-  return { pedido, events };
+  const publicPedido = await getPublicPedidoResponse(prisma, pedidoId);
+
+  return { pedido: publicPedido, events };
 };
 
-const getPublicTableSession = async (prisma, qrToken) => {
-  const mesa = await prisma.mesa.findUnique({
+const getPublicTableSession = async (prisma, qrToken, requestMeta = {}) => prisma.$transaction(async (tx) => {
+  const mesa = await tx.mesa.findUnique({
     where: { qrToken },
     select: {
       id: true,
@@ -737,11 +967,27 @@ const getPublicTableSession = async (prisma, qrToken) => {
     throw createHttpError.notFound('Mesa no encontrada');
   }
 
-  return mesa;
-};
+  const session = await issueMesaPublicSession(tx, { mesaId: mesa.id });
 
-const createPublicTableOrder = async (prisma, { qrToken, body }) => {
-  const { items, clienteNombre, observaciones } = body;
+  logPublicAudit({
+    action: 'mesa-qr-session-issued',
+    requestMeta,
+    mesaId: mesa.id,
+    qrToken,
+    cause: mesa.estado
+  });
+
+  return {
+    mesa,
+    session: {
+      token: session.sessionToken,
+      expiresAt: session.expiresAt
+    }
+  };
+});
+
+const createPublicTableOrder = async (prisma, { qrToken, body, requestMeta = {} }) => {
+  const { items, clienteNombre, observaciones, sessionToken } = body;
   const normalizedItems = normalizePublicOrderItems(items);
   const clienteNombreValue = sanitizeOptionalText(clienteNombre);
   const observacionesValue = sanitizeOptionalText(observaciones);
@@ -825,9 +1071,27 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
   });
 
   const result = await prisma.$transaction(async (tx) => {
+    let session;
+    try {
+      session = await assertActiveMesaPublicSession(tx, {
+        mesaId: mesa.id,
+        sessionToken
+      });
+    } catch (error) {
+      logPublicAbuseSignal({
+        action: 'mesa-qr-invalid-session',
+        requestMeta,
+        mesaId: mesa.id,
+        qrToken,
+        cause: error.message
+      });
+      throw error;
+    }
+
     const pedidoAbierto = await tx.pedido.findFirst({
       where: {
         mesaId: mesa.id,
+        mesaPublicSessionId: session.id,
         estado: {
           notIn: ['CANCELADO', 'COBRADO', 'CERRADO']
         }
@@ -848,11 +1112,11 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
         }))
       });
 
-      pedido = await tx.pedido.update({
-        where: { id: pedidoAbierto.id },
-        data: {
-          subtotal: { increment: subtotal },
-          total: { increment: subtotal },
+        pedido = await tx.pedido.update({
+          where: { id: pedidoAbierto.id },
+          data: {
+            subtotal: { increment: subtotal },
+            total: { increment: subtotal },
           clienteNombre: pedidoAbierto.clienteNombre || clienteNombreValue,
           observaciones: observacionesValue
             ? [pedidoAbierto.observaciones, observacionesValue].filter(Boolean).join(' | ')
@@ -864,20 +1128,22 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
         }
       });
     } else {
-      pedido = await tx.pedido.create({
-        data: {
-          tipo: 'MESA',
-          sucursalId: mesa.sucursalId,
-          mesaId: mesa.id,
-          clienteNombre: clienteNombreValue,
-          subtotal,
-          total: subtotal,
-          observaciones: observacionesValue,
-          origen: 'MENU_PUBLICO',
-          estadoPago: 'PENDIENTE',
-          items: {
-            create: itemsData
-          }
+        pedido = await tx.pedido.create({
+          data: {
+            tipo: 'MESA',
+            sucursalId: mesa.sucursalId,
+            mesaId: mesa.id,
+            mesaPublicSessionId: session.id,
+            clienteNombre: clienteNombreValue,
+            subtotal,
+            total: subtotal,
+            observaciones: observacionesValue,
+            origen: 'MENU_PUBLICO',
+            estadoPago: 'PENDIENTE',
+            operacionConfirmada: true,
+            items: {
+              create: itemsData
+            }
         },
         include: {
           items: { include: { producto: true } },
@@ -886,26 +1152,38 @@ const createPublicTableOrder = async (prisma, { qrToken, body }) => {
       });
     }
 
-    await tx.mesa.update({
-      where: { id: mesa.id },
-      data: { estado: 'OCUPADA' }
+      await tx.mesa.update({
+        where: { id: mesa.id },
+        data: { estado: 'OCUPADA' }
+      });
+
+      return {
+        pedido,
+        session
+      };
     });
 
-    return pedido;
+  logPublicAudit({
+    action: 'mesa-qr-order-created',
+    requestMeta,
+    pedidoId: result.pedido.id,
+    mesaId: mesa.id,
+    qrToken,
+    cause: `items:${normalizedItems.length}`
   });
 
   return {
     mesa,
-    pedido: result,
+    pedido: result.pedido,
     events: [
       {
         topic: 'pedido.updated',
         payload: {
-          id: result.id,
-          estado: result.estado,
-          tipo: result.tipo,
-          mesaId: result.mesaId || null,
-          updatedAt: result.updatedAt || new Date().toISOString()
+            id: result.pedido.id,
+            estado: result.pedido.estado,
+            tipo: result.pedido.tipo,
+            mesaId: result.pedido.mesaId || null,
+            updatedAt: result.pedido.updatedAt || new Date().toISOString()
         }
       },
       {

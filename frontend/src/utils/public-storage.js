@@ -11,7 +11,12 @@ const normalizeAccessToken = (accessToken) => {
   return trimmedToken ? trimmedToken : null
 }
 
-export function savePendingMercadoPagoOrder({ pedidoId, accessToken = null, timestamp = Date.now() }) {
+export function savePendingMercadoPagoOrder({
+  pedidoId,
+  accessToken = null,
+  total = null,
+  timestamp = Date.now()
+}) {
   if (!pedidoId) {
     return
   }
@@ -21,6 +26,7 @@ export function savePendingMercadoPagoOrder({ pedidoId, accessToken = null, time
     JSON.stringify({
       pedidoId,
       accessToken: normalizeAccessToken(accessToken),
+      total: total == null ? null : Number(total),
       timestamp
     })
   )
@@ -37,6 +43,7 @@ export function loadPendingMercadoPagoOrder(ttlMs = DEFAULT_TTL_MS) {
     const pedidoId = Number(parsed?.pedidoId)
     const timestamp = Number(parsed?.timestamp)
     const accessToken = normalizeAccessToken(parsed?.accessToken)
+    const total = parsed?.total == null ? null : Number(parsed.total)
 
     if (!Number.isInteger(pedidoId) || pedidoId <= 0 || !Number.isFinite(timestamp)) {
       clearPendingMercadoPagoOrder()
@@ -48,7 +55,12 @@ export function loadPendingMercadoPagoOrder(ttlMs = DEFAULT_TTL_MS) {
       return null
     }
 
-    return { pedidoId, accessToken, timestamp }
+    return {
+      pedidoId,
+      accessToken,
+      total: Number.isFinite(total) ? total : null,
+      timestamp
+    }
   } catch {
     clearPendingMercadoPagoOrder()
     return null

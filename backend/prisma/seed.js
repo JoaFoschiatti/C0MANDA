@@ -2,7 +2,7 @@ require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const {
   bootstrapCore,
-  seedDemoData
+  seedCatalogDemoData
 } = require('../src/services/bootstrap.service');
 
 const prisma = new PrismaClient();
@@ -18,7 +18,7 @@ async function main() {
     allowDefaultAdminPassword: true
   });
 
-  await seedDemoData(prisma);
+  await seedCatalogDemoData(prisma);
 
   console.log('Seed demo completado.');
 }

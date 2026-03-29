@@ -1,5 +1,6 @@
 const { EventEmitter } = require('events');
 const { prisma } = require('../db/prisma');
+const { withAdvisoryLock } = require('./distributed-lock.service');
 const { logger } = require('../utils/logger');
 
 const emitter = new EventEmitter();
@@ -7,11 +8,15 @@ emitter.setMaxListeners(1000);
 
 const POLL_INTERVAL_MS = Number.parseInt(process.env.OPERATIONAL_EVENTS_POLL_MS || '1000', 10);
 const INSTANCE_ID = process.env.INSTANCE_ID || `${process.env.HOSTNAME || 'local'}-${process.pid}`;
+const RETENTION_HOURS = Number.parseInt(process.env.OPERATIONAL_EVENTS_RETENTION_HOURS || '72', 10);
+const CLEANUP_INTERVAL_MS = Number.parseInt(process.env.OPERATIONAL_EVENTS_CLEANUP_MS || '300000', 10);
 
 let pollerId = null;
 let subscriberCount = 0;
 let lastSeenEventId = null;
 let initializingCursorPromise = null;
+let cleanupPromise = null;
+let lastCleanupStartedAt = 0;
 
 const emitEvent = (event) => {
   emitter.emit('event', event);
@@ -44,6 +49,38 @@ const ensureCursorInitialized = async () => {
   return initializingCursorPromise;
 };
 
+const scheduleRetentionCleanup = () => {
+  if (RETENTION_HOURS <= 0 || cleanupPromise) {
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastCleanupStartedAt < CLEANUP_INTERVAL_MS) {
+    return;
+  }
+
+  lastCleanupStartedAt = now;
+  const cutoff = new Date(now - (RETENTION_HOURS * 60 * 60 * 1000));
+
+  cleanupPromise = withAdvisoryLock(prisma, 'operational-events-retention', async (tx) => {
+    const result = await tx.operationalEvent.deleteMany({
+      where: {
+        createdAt: { lt: cutoff }
+      }
+    });
+
+    return result.count;
+  })
+    .catch((error) => {
+      logger.error('No se pudo limpiar retention de operational_events', {
+        error: error.message
+      });
+    })
+    .finally(() => {
+      cleanupPromise = null;
+    });
+};
+
 const pollEvents = async () => {
   await ensureCursorInitialized();
 
@@ -69,6 +106,8 @@ const pollEvents = async () => {
         payload: event.payload
       });
     });
+
+  scheduleRetentionCleanup();
 };
 
 const ensurePoller = () => {
@@ -99,6 +138,7 @@ const stopPoller = () => {
 const publish = (type, payload) => {
   const event = { type, payload };
   emitEvent(event);
+  scheduleRetentionCleanup();
 
   void prisma.operationalEvent.create({
     data: {

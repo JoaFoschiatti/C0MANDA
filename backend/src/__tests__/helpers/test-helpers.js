@@ -12,6 +12,7 @@ const uniqueId = (prefix = 'test') => {
 
 const ensureTestEnv = () => {
   if (!process.env.JWT_SECRET) process.env.JWT_SECRET = 'test-secret';
+  if (!process.env.PUBLIC_ORDER_JWT_SECRET) process.env.PUBLIC_ORDER_JWT_SECRET = 'test-public-order-secret';
   if (!process.env.JWT_EXPIRES_IN) process.env.JWT_EXPIRES_IN = '1h';
 };
 
@@ -84,6 +85,7 @@ const cleanupOperationalData = async () => {
   await prisma.pedidoAuditoria.deleteMany();
   await prisma.pedidoItem.deleteMany();
   await prisma.pedido.deleteMany();
+  await prisma.mesaPublicSession.deleteMany();
   await prisma.reserva.deleteMany();
   await prisma.loteStock.deleteMany();
   await prisma.ingredienteStock.deleteMany();

@@ -613,4 +613,310 @@ describe('Pedidos Endpoints', () => {
     expect(Number(movimientosSalida[0].cantidad)).toBe(3);
     expect(movimientosSalida[0].loteStockId).toBe(loteVigente.id);
   });
+
+  it('GET /api/pedidos devuelve un payload resumido para la grilla', async () => {
+    const repartidor = await createUsuario({
+      email: `${uniqueId('delivery-list')}@example.com`,
+      rol: 'DELIVERY'
+    });
+
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'DELIVERY',
+        estado: 'LISTO',
+        clienteNombre: 'Ana',
+        repartidorId: repartidor.id,
+        subtotal: 50,
+        total: 50
+      }
+    });
+
+    await prisma.pago.create({
+      data: {
+        pedidoId: pedido.id,
+        monto: 50,
+        metodo: 'MERCADOPAGO',
+        canalCobro: 'QR_PRESENCIAL',
+        estado: 'PENDIENTE',
+        referencia: `QR-${uniqueId('pedido-list')}`,
+        comprobante: 'qr-data'
+      }
+    });
+
+    await prisma.printJob.create({
+      data: {
+        pedidoId: pedido.id,
+        tipo: 'CAJA',
+        batchId: uniqueId('batch-list'),
+        contenido: 'Caja'
+      }
+    });
+
+    await prisma.comprobanteFiscal.create({
+      data: {
+        pedidoId: pedido.id,
+        tipoComprobante: 'CONSUMIDOR_FINAL',
+        estado: 'BORRADOR'
+      }
+    });
+
+    const response = await request(app)
+      .get('/api/pedidos?estado=LISTO')
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    const listado = response.body.data.find((item) => item.id === pedido.id);
+
+    expect(listado).toBeDefined();
+    expect(listado.sucursal).toBeUndefined();
+    expect(listado.usuario).toBeUndefined();
+    expect(listado.items).toBeUndefined();
+    expect(listado.printJobs).toBeUndefined();
+    expect(listado.repartidor).toEqual({
+      id: repartidor.id,
+      nombre: repartidor.nombre
+    });
+    expect(listado.pagos).toEqual([
+      expect.objectContaining({
+        canalCobro: 'QR_PRESENCIAL',
+        estado: 'PENDIENTE',
+        comprobante: 'qr-data'
+      })
+    ]);
+    expect(listado.impresion).toEqual(expect.objectContaining({
+      total: 1,
+      status: 'PENDIENTE'
+    }));
+    expect(listado.comprobanteFiscal).toEqual(expect.objectContaining({
+      estado: 'BORRADOR'
+    }));
+  });
+
+  it('GET /api/pedidos/cocina devuelve solo los campos necesarios para cocina', async () => {
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 70,
+        capacidad: 4,
+        estado: 'OCUPADA',
+        activa: true
+      }
+    });
+
+    const categoria = await prisma.categoria.create({
+      data: { nombre: `Cat-${uniqueId('cocina')}`, orden: 1, activa: true }
+    });
+
+    const producto = await prisma.producto.create({
+      data: {
+        nombre: `Prod-${uniqueId('cocina')}`,
+        precio: 20,
+        categoriaId: categoria.id,
+        disponible: true
+      }
+    });
+
+    const modificador = await prisma.modificador.create({
+      data: {
+        nombre: `Mod-${uniqueId('cocina')}`,
+        tipo: 'ADICION',
+        precio: 5,
+        activo: true
+      }
+    });
+
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MESA',
+        estado: 'PENDIENTE',
+        mesaId: mesa.id,
+        subtotal: 20,
+        total: 20,
+        observaciones: 'Sin demora',
+        items: {
+          create: [{
+            productoId: producto.id,
+            cantidad: 1,
+            precioUnitario: 20,
+            subtotal: 20,
+            observaciones: 'Bien cocido',
+            modificadores: {
+              create: [{
+                modificadorId: modificador.id,
+                precio: 5
+              }]
+            }
+          }]
+        }
+      }
+    });
+
+    const response = await request(app)
+      .get('/api/pedidos/cocina')
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    const cocina = response.body.find((item) => item.id === pedido.id);
+
+    expect(cocina).toBeDefined();
+    expect(cocina.sucursal).toBeUndefined();
+    expect(cocina.mesa).toEqual({ numero: 70 });
+    expect(cocina.items[0]).toEqual(expect.objectContaining({
+      cantidad: 1,
+      observaciones: 'Bien cocido',
+      producto: { nombre: producto.nombre }
+    }));
+    expect(cocina.items[0].modificadores[0]).toEqual({
+      id: expect.any(Number),
+      modificador: {
+        nombre: modificador.nombre,
+        tipo: 'ADICION'
+      }
+    });
+  });
+
+  it('GET /api/pedidos/delivery devuelve solo el payload necesario para entregas', async () => {
+    const categoria = await prisma.categoria.create({
+      data: { nombre: `Cat-${uniqueId('delivery')}`, orden: 1, activa: true }
+    });
+
+    const producto = await prisma.producto.create({
+      data: {
+        nombre: `Prod-${uniqueId('delivery')}`,
+        precio: 18,
+        categoriaId: categoria.id,
+        disponible: true
+      }
+    });
+
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'DELIVERY',
+        estado: 'LISTO',
+        clienteNombre: 'Maria',
+        clienteTelefono: '123',
+        clienteDireccion: 'Calle 1',
+        observaciones: 'Puerta azul',
+        subtotal: 18,
+        total: 18,
+        items: {
+          create: [{
+            productoId: producto.id,
+            cantidad: 2,
+            precioUnitario: 9,
+            subtotal: 18
+          }]
+        }
+      }
+    });
+
+    const response = await request(app)
+      .get('/api/pedidos/delivery')
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    const delivery = response.body.find((item) => item.id === pedido.id);
+
+    expect(delivery).toBeDefined();
+    expect(delivery.sucursal).toBeUndefined();
+    expect(delivery.usuario).toBeUndefined();
+    expect(delivery.repartidor).toBeUndefined();
+    expect(delivery.items[0]).toEqual({
+      cantidad: 2,
+      producto: {
+        nombre: producto.nombre
+      }
+    });
+  });
+
+  it('GET /api/pedidos/cocina y /api/pedidos/delivery excluyen pedidos publicos no confirmados', async () => {
+    const categoria = await prisma.categoria.create({
+      data: { nombre: `Cat-${uniqueId('public-sec')}`, orden: 1, activa: true }
+    });
+
+    const producto = await prisma.producto.create({
+      data: {
+        nombre: `Prod-${uniqueId('public-sec')}`,
+        precio: 18,
+        categoriaId: categoria.id,
+        disponible: true
+      }
+    });
+
+    const pedidoCocina = await prisma.pedido.create({
+      data: {
+        tipo: 'MOSTRADOR',
+        estado: 'PENDIENTE',
+        origen: 'MENU_PUBLICO',
+        operacionConfirmada: false,
+        subtotal: 18,
+        total: 18,
+        items: {
+          create: [{
+            productoId: producto.id,
+            cantidad: 1,
+            precioUnitario: 18,
+            subtotal: 18
+          }]
+        }
+      }
+    });
+
+    const pedidoDelivery = await prisma.pedido.create({
+      data: {
+        tipo: 'DELIVERY',
+        estado: 'PENDIENTE',
+        origen: 'MENU_PUBLICO',
+        operacionConfirmada: false,
+        clienteNombre: 'Cliente Web',
+        clienteTelefono: '123',
+        clienteDireccion: 'Calle 1',
+        subtotal: 18,
+        total: 18,
+        items: {
+          create: [{
+            productoId: producto.id,
+            cantidad: 1,
+            precioUnitario: 18,
+            subtotal: 18
+          }]
+        }
+      }
+    });
+
+    const cocinaInicial = await request(app)
+      .get('/api/pedidos/cocina')
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    const deliveryInicial = await request(app)
+      .get('/api/pedidos/delivery')
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    expect(cocinaInicial.body.some((item) => item.id === pedidoCocina.id)).toBe(false);
+    expect(deliveryInicial.body.some((item) => item.id === pedidoDelivery.id)).toBe(false);
+
+    await prisma.pedido.update({
+      where: { id: pedidoCocina.id },
+      data: { operacionConfirmada: true, estadoPago: 'APROBADO' }
+    });
+
+    await prisma.pedido.update({
+      where: { id: pedidoDelivery.id },
+      data: { operacionConfirmada: true, estadoPago: 'APROBADO' }
+    });
+
+    const cocinaConfirmada = await request(app)
+      .get('/api/pedidos/cocina')
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    const deliveryConfirmado = await request(app)
+      .get('/api/pedidos/delivery')
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    expect(cocinaConfirmada.body.some((item) => item.id === pedidoCocina.id)).toBe(true);
+    expect(deliveryConfirmado.body.some((item) => item.id === pedidoDelivery.id)).toBe(true);
+  });
 });

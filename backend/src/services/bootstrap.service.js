@@ -121,7 +121,7 @@ const bootstrapCore = async (prisma, options = {}) => {
   return negocio;
 };
 
-const seedDemoData = async (prisma) => {
+const seedCatalogDemoData = async (prisma) => {
   const usuarios = [
     { email: normalizeEmail('mozo@comanda.local'), password: await bcrypt.hash('mozo123', 10), nombre: 'Juan', apellido: 'Perez', dni: '30123456', telefono: '1155551234', rol: 'MOZO', tarifaHora: 1500 },
     { email: normalizeEmail('mozo2@comanda.local'), password: await bcrypt.hash('mozo123', 10), nombre: 'Maria', apellido: 'Garcia', dni: '31234567', telefono: '1155552345', rol: 'MOZO', tarifaHora: 1500 },
@@ -377,7 +377,8 @@ const seedDemoData = async (prisma) => {
 
 module.exports = {
   bootstrapCore,
-  seedDemoData,
+  seedDemoData: seedCatalogDemoData,
+  seedCatalogDemoData,
   saveUsuarioByEmail,
   splitStockBetweenBranches,
   upsertConfig

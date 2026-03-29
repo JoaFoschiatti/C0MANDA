@@ -27,6 +27,195 @@ const {
   assertPedidoTransition,
   canAddItemsToPedido
 } = require('./order-state.service');
+const {
+  invalidateMesaPublicSessions,
+  isDeferredSettlementPedido
+} = require('./public-order-security.service');
+
+const PRINT_JOB_SUMMARY_SELECT = {
+  status: true,
+  batchId: true,
+  createdAt: true,
+  lastError: true
+};
+
+const PEDIDO_PAGO_LIST_SELECT = {
+  id: true,
+  monto: true,
+  estado: true,
+  canalCobro: true,
+  referencia: true,
+  comprobante: true,
+  propinaMonto: true,
+  createdAt: true
+};
+
+const PEDIDO_PAGO_DETAIL_SELECT = {
+  id: true,
+  pedidoId: true,
+  monto: true,
+  metodo: true,
+  canalCobro: true,
+  estado: true,
+  referencia: true,
+  comprobante: true,
+  propinaMonto: true,
+  propinaMetodo: true,
+  mpPreferenceId: true,
+  mpPaymentId: true,
+  montoAbonado: true,
+  vuelto: true,
+  idempotencyKey: true,
+  createdAt: true,
+  updatedAt: true
+};
+
+const PEDIDO_COMPROBANTE_SELECT = {
+  id: true,
+  estado: true,
+  tipoComprobante: true,
+  numeroComprobante: true,
+  cae: true,
+  caeVencimiento: true,
+  createdAt: true
+};
+
+const PEDIDO_LIST_SELECT = {
+  id: true,
+  tipo: true,
+  estado: true,
+  estadoPago: true,
+  origen: true,
+  operacionConfirmada: true,
+  mesaId: true,
+  clienteNombre: true,
+  repartidorId: true,
+  total: true,
+  createdAt: true,
+  mesa: {
+    select: {
+      id: true,
+      numero: true
+    }
+  },
+  repartidor: {
+    select: {
+      id: true,
+      nombre: true
+    }
+  },
+  pagos: {
+    select: PEDIDO_PAGO_LIST_SELECT
+  },
+  printJobs: {
+    select: PRINT_JOB_SUMMARY_SELECT
+  },
+  comprobanteFiscal: {
+    select: PEDIDO_COMPROBANTE_SELECT
+  }
+};
+
+const PEDIDO_DETAIL_SELECT = {
+  id: true,
+  tipo: true,
+  estado: true,
+  sucursalId: true,
+  mesaId: true,
+  usuarioId: true,
+  clienteNombre: true,
+  clienteTelefono: true,
+  clienteDireccion: true,
+  clienteEmail: true,
+  repartidorId: true,
+  tipoEntrega: true,
+  costoEnvio: true,
+  subtotal: true,
+  descuento: true,
+  total: true,
+  observaciones: true,
+  estadoPago: true,
+  origen: true,
+  operacionConfirmada: true,
+  impreso: true,
+  createdAt: true,
+  updatedAt: true,
+  sucursal: {
+    select: {
+      id: true,
+      nombre: true,
+      codigo: true
+    }
+  },
+  mesa: {
+    select: {
+      id: true,
+      numero: true,
+      estado: true,
+      sucursalId: true
+    }
+  },
+  usuario: {
+    select: {
+      id: true,
+      nombre: true,
+      email: true
+    }
+  },
+  repartidor: {
+    select: {
+      id: true,
+      nombre: true
+    }
+  },
+  items: {
+    select: {
+      id: true,
+      productoId: true,
+      cantidad: true,
+      precioUnitario: true,
+      subtotal: true,
+      observaciones: true,
+      createdAt: true,
+      producto: {
+        select: {
+          id: true,
+          nombre: true,
+          precio: true
+        }
+      },
+      modificadores: {
+        select: {
+          id: true,
+          modificadorId: true,
+          precio: true,
+          modificador: {
+            select: {
+              id: true,
+              nombre: true,
+              tipo: true,
+              precio: true
+            }
+          }
+        }
+      }
+    }
+  },
+  pagos: {
+    select: PEDIDO_PAGO_DETAIL_SELECT
+  },
+  printJobs: {
+    select: PRINT_JOB_SUMMARY_SELECT
+  },
+  comprobanteFiscal: {
+    select: PEDIDO_COMPROBANTE_SELECT
+  }
+};
+
+const attachPedidoImpresionSummary = (pedido) => {
+  const impresion = printService.getLatestPrintSummary(pedido.printJobs || []);
+  const { printJobs: _printJobs, ...rest } = pedido;
+  return { ...rest, impresion };
+};
 
 const resolvePedidoSucursal = async (tx, { tipo, mesaId, sucursalId }) => {
   await ensureBaseSucursales(tx);
@@ -361,15 +550,30 @@ const cambiarEstadoPedido = async (prisma, payload) => {
       include: { items: { include: { producto: { include: { ingredientes: true } } } } }
     });
 
-    if (!pedido) {
-      throw createHttpError.notFound('Pedido no encontrado');
-    }
+      if (!pedido) {
+        throw createHttpError.notFound('Pedido no encontrado');
+      }
 
-    assertPedidoTransition(pedido.estado, estado);
+      assertPedidoTransition(pedido.estado, estado);
 
-    const shouldPrint = estado === 'EN_PREPARACION' && pedido.estado === 'PENDIENTE';
-    const mesaUpdates = [];
-    const productosAgotados = [];
+      let estadoDestino = estado;
+      const confirmarOperacionPublica = (
+        pedido.origen === 'MENU_PUBLICO' &&
+        pedido.operacionConfirmada === false &&
+        estado === 'EN_PREPARACION'
+      );
+
+      if (
+        estado === 'ENTREGADO' &&
+        isDeferredSettlementPedido(pedido) &&
+        pedido.estadoPago === 'APROBADO'
+      ) {
+        estadoDestino = 'COBRADO';
+      }
+
+      const shouldPrint = estado === 'EN_PREPARACION' && pedido.estado === 'PENDIENTE';
+      const mesaUpdates = [];
+      const productosAgotados = [];
 
     // Deduccion de stock: agrega necesidades de ingredientes de todos los items,
     // verifica disponibilidad por ingrediente, luego consume de lotes usando FIFO.
@@ -418,31 +622,35 @@ const cambiarEstadoPedido = async (prisma, payload) => {
 
     }
 
-    if ((estado === 'COBRADO' || estado === 'CERRADO') && pedido.mesaId) {
-      await tx.mesa.update({
-        where: { id: pedido.mesaId },
-        data: { estado: 'CERRADA' }
-      });
-      mesaUpdates.push({ mesaId: pedido.mesaId, estado: 'CERRADA' });
-    }
+      if ((estadoDestino === 'COBRADO' || estadoDestino === 'CERRADO') && pedido.mesaId) {
+        await tx.mesa.update({
+          where: { id: pedido.mesaId },
+          data: { estado: 'CERRADA' }
+        });
+        await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
+        mesaUpdates.push({ mesaId: pedido.mesaId, estado: 'CERRADA' });
+      }
 
-    const pedidoActualizado = await tx.pedido.update({
-      where: { id: pedidoId },
-      data: { estado },
-      include: {
-        mesa: true,
-        usuario: { select: { nombre: true } },
+      const pedidoActualizado = await tx.pedido.update({
+        where: { id: pedidoId },
+        data: {
+          estado: estadoDestino,
+          ...(confirmarOperacionPublica ? { operacionConfirmada: true } : {})
+        },
+        include: {
+          mesa: true,
+          usuario: { select: { nombre: true } },
         items: { include: { producto: true } }
       }
     });
 
-    await registrarAuditoriaPedido(tx, {
-      pedidoId: pedido.id,
-      usuarioId,
-      accion: `ESTADO_${estado}`,
-      snapshotAntes: pedido,
-      snapshotDespues: pedidoActualizado
-    });
+      await registrarAuditoriaPedido(tx, {
+        pedidoId: pedido.id,
+        usuarioId,
+        accion: `ESTADO_${estadoDestino}`,
+        snapshotAntes: pedido,
+        snapshotDespues: pedidoActualizado
+      });
 
     return {
       pedidoAntes: pedido,
@@ -605,6 +813,7 @@ const cancelarPedido = async (prisma, payload) => {
         where: { id: pedido.mesaId },
         data: { estado: 'LIBRE' }
       });
+      await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
       mesaUpdated = { mesaId: pedido.mesaId, estado: 'LIBRE' };
     }
 
@@ -720,6 +929,7 @@ const cerrarPedido = async (prisma, payload) => {
         where: { id: pedido.mesaId },
         data: { estado: 'CERRADA' }
       });
+      await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
       mesaUpdated = { mesaId: pedido.mesaId, estado: 'CERRADA' };
     }
 
@@ -786,6 +996,7 @@ const liberarMesa = async (prisma, payload) => {
       where: { id: mesaId },
       data: { estado: 'LIBRE' }
     });
+    await invalidateMesaPublicSessions(tx, { mesaId });
 
     if (pedidoCerrado) {
       await registrarAuditoriaPedido(tx, {
@@ -843,27 +1054,7 @@ module.exports = {
     const [pedidos, total] = await Promise.all([
       prisma.pedido.findMany({
         where,
-        include: {
-          sucursal: { select: { id: true, nombre: true, codigo: true } },
-          mesa: { select: { numero: true, zona: true } },
-          usuario: { select: { nombre: true } },
-          repartidor: { select: { id: true, nombre: true } },
-          items: {
-            include: {
-              producto: { select: { nombre: true } },
-              modificadores: { include: { modificador: { select: { nombre: true, tipo: true } } } }
-            }
-          },
-          pagos: {
-            select: {
-              id: true, monto: true, metodo: true, estado: true,
-              canalCobro: true, referencia: true, comprobante: true,
-              propinaMonto: true, createdAt: true
-            }
-          },
-          printJobs: { select: { status: true, batchId: true, createdAt: true, lastError: true } },
-          comprobanteFiscal: { select: { id: true, estado: true, cae: true } }
-        },
+        select: PEDIDO_LIST_SELECT,
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip: offset
@@ -871,11 +1062,7 @@ module.exports = {
       prisma.pedido.count({ where })
     ]);
 
-    const data = pedidos.map(pedido => {
-      const impresion = printService.getLatestPrintSummary(pedido.printJobs || []);
-      const { printJobs: _printJobs, ...rest } = pedido;
-      return { ...rest, impresion };
-    });
+    const data = pedidos.map(attachPedidoImpresionSummary);
 
     return { data, total };
   },
@@ -893,29 +1080,14 @@ module.exports = {
   obtener: async (prisma, id) => {
     const pedido = await prisma.pedido.findUnique({
       where: { id },
-      include: {
-        sucursal: true,
-        mesa: true,
-        usuario: { select: { nombre: true, email: true } },
-        repartidor: { select: { id: true, nombre: true } },
-        items: {
-          include: {
-            producto: true,
-            modificadores: { include: { modificador: true } }
-          }
-        },
-        pagos: true,
-        printJobs: { select: { status: true, batchId: true, createdAt: true, lastError: true } }
-      }
+      select: PEDIDO_DETAIL_SELECT
     });
 
     if (!pedido) {
       throw createHttpError.notFound('Pedido no encontrado');
     }
 
-    const impresion = printService.getLatestPrintSummary(pedido.printJobs || []);
-    const { printJobs: _printJobs, ...rest } = pedido;
-    return { ...rest, impresion };
+    return attachPedidoImpresionSummary(pedido);
   },
   crearPedido,
   cambiarEstadoPedido,

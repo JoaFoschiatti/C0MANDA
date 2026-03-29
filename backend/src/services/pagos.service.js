@@ -5,6 +5,11 @@ const {
   cancelPendingPaymentsForChannel
 } = require('./payment-state.service');
 const { isPedidoTerminal } = require('./order-state.service');
+const {
+  buildPedidoPaidUpdateData,
+  invalidateMesaPublicSessions,
+  shouldCloseMesaOnPaid
+} = require('./public-order-security.service');
 
 const registrarPago = async (prisma, payload) => {
   const {
@@ -85,19 +90,19 @@ const registrarPago = async (prisma, payload) => {
     let mesaUpdated = null;
 
     if (nuevoCobro.fullyPaid) {
+      const pedidoData = buildPedidoPaidUpdateData(pedido, nuevoCobro);
+
       await tx.pedido.update({
         where: { id: pedidoId },
-        data: {
-          estado: 'COBRADO',
-          estadoPago: 'APROBADO'
-        }
+        data: pedidoData
       });
 
-      if (pedido.mesaId) {
+      if (shouldCloseMesaOnPaid(pedido, nuevoCobro)) {
         await tx.mesa.update({
           where: { id: pedido.mesaId },
           data: { estado: 'CERRADA' }
         });
+        await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
         mesaUpdated = { mesaId: pedido.mesaId, estado: 'CERRADA' };
       }
     }

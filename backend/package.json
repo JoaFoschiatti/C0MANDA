@@ -18,11 +18,13 @@
     "db:bootstrap": "node scripts/bootstrap.js",
     "db:status": "prisma migrate status",
     "db:reset": "prisma migrate reset --force --skip-generate",
+    "db:reset:visual": "node scripts/reset-visual.js",
     "db:status:test": "node scripts/prisma-env.js .env.test migrate status",
     "db:reset:test": "node scripts/prisma-env.js .env.test migrate reset --force --skip-generate",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:seed": "node prisma/seed.js",
+    "db:seed:visual": "node prisma/seed.visual.js",
     "stock:reconcile": "node scripts/stock-reconcile.js"
   },
   "keywords": [
@@ -42,6 +44,7 @@
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^3.0.3",
+    "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

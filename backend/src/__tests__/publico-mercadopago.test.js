@@ -86,12 +86,72 @@ describe('Publico MercadoPago', () => {
     expect(response.body.initPoint).toBe('https://mercadopago.test/init');
     expect(response.body.accessToken).toEqual(expect.any(String));
     expect(response.body.pedido.origen).toBe('MENU_PUBLICO');
+    expect(response.body.pedido.operacionConfirmada).toBe(false);
 
     const pagos = await prisma.pago.findMany({ where: { pedidoId: response.body.pedido.id } });
     expect(pagos).toHaveLength(1);
     expect(pagos[0].metodo).toBe('MERCADOPAGO');
     expect(pagos[0].estado).toBe('PENDIENTE');
     expect(pagos[0].mpPreferenceId).toBe('PREF_TEST');
+  });
+
+  it('POST /api/publico/pedido reutiliza el mismo pedido con clientRequestId y no duplica la orden', async () => {
+    const categoria = await prisma.categoria.create({
+      data: { nombre: `Cat-${uniqueId('cat-idem')}`, orden: 1, activa: true }
+    });
+    const producto = await prisma.producto.create({
+      data: {
+        nombre: `Prod-${uniqueId('prod-idem')}`,
+        precio: 123,
+        categoriaId: categoria.id,
+        disponible: true
+      }
+    });
+
+    mockCreatePreference
+      .mockResolvedValueOnce({
+        id: 'PREF_IDEM_1',
+        init_point: 'https://mercadopago.test/init-1'
+      })
+      .mockResolvedValueOnce({
+        id: 'PREF_IDEM_2',
+        init_point: 'https://mercadopago.test/init-2'
+      });
+
+    const payload = {
+      items: [{ productoId: producto.id, cantidad: 1 }],
+      clienteNombre: 'Cliente Test',
+      clienteTelefono: '3410000000',
+      tipoEntrega: 'RETIRO',
+      metodoPago: 'MERCADOPAGO',
+      clientRequestId: 'request-idem-1'
+    };
+
+    const firstResponse = await request(app)
+      .post('/api/publico/pedido')
+      .send(payload)
+      .expect(201);
+
+    const secondResponse = await request(app)
+      .post('/api/publico/pedido')
+      .send(payload)
+      .expect(201);
+
+    expect(firstResponse.body.pedido.id).toBe(secondResponse.body.pedido.id);
+    expect(secondResponse.body.initPoint).toBe('https://mercadopago.test/init-2');
+
+    const pedidos = await prisma.pedido.findMany({
+      where: { clientRequestId: 'request-idem-1' }
+    });
+    expect(pedidos).toHaveLength(1);
+
+    const pagos = await prisma.pago.findMany({
+      where: { pedidoId: firstResponse.body.pedido.id },
+      orderBy: { createdAt: 'asc' }
+    });
+    expect(pagos).toHaveLength(2);
+    expect(pagos.filter((pago) => pago.estado === 'PENDIENTE')).toHaveLength(1);
+    expect(pagos.filter((pago) => pago.estado === 'CANCELADO')).toHaveLength(1);
   });
 
   it('POST /api/publico/pedido rechaza MP si esta deshabilitado', async () => {
@@ -217,7 +277,11 @@ describe('Publico MercadoPago', () => {
         .expect(200);
 
       expect(response.body.estadoPago).toBe('APROBADO');
-      expect(response.body.estado).toBe('COBRADO');
+      expect(response.body.estado).toBe('PENDIENTE');
+      expect(response.body.operacionConfirmada).toBe(true);
+      expect(response.body.clienteTelefono).toBeUndefined();
+      expect(response.body.clienteDireccion).toBeUndefined();
+      expect(response.body.clienteEmail).toBeUndefined();
       const pagoEnRespuesta = response.body.pagos.find((item) => item.id === pago.id);
       expect(pagoEnRespuesta.estado).toBe('APROBADO');
       expect(pagoEnRespuesta.mpPaymentId).toBe('555');
@@ -227,7 +291,8 @@ describe('Publico MercadoPago', () => {
 
       const pedidoActualizado = await prisma.pedido.findUnique({ where: { id: pedido.id } });
       expect(pedidoActualizado.estadoPago).toBe('APROBADO');
-      expect(pedidoActualizado.estado).toBe('COBRADO');
+      expect(pedidoActualizado.estado).toBe('PENDIENTE');
+      expect(pedidoActualizado.operacionConfirmada).toBe(true);
 
       const evento = captured.find((event) => event.type === 'pedido.updated' && event.payload?.id === pedido.id);
       expect(evento).toBeDefined();

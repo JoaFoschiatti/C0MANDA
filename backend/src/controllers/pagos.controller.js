@@ -8,6 +8,11 @@ const pagosService = require('../services/pagos.service');
 const { logger } = require('../utils/logger');
 const { buildPedidoCobroSummary } = require('../services/payment-state.service');
 const { isPedidoTerminal } = require('../services/order-state.service');
+const {
+  buildPedidoPaidUpdateData,
+  invalidateMesaPublicSessions,
+  shouldCloseMesaOnPaid
+} = require('../services/public-order-security.service');
 
 const publishPedidoUpdated = (pedido) => {
   if (!pedido) {
@@ -86,19 +91,19 @@ const finalizeApprovedPedido = async (tx, pedidoId) => {
     };
   }
 
-  if (fullyPaid && pedido.mesaId) {
+  if (shouldCloseMesaOnPaid(pedido, cobro)) {
     await tx.mesa.update({
       where: { id: pedido.mesaId },
       data: { estado: 'CERRADA' }
     });
+    await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
     mesaUpdated = { mesaId: pedido.mesaId, estado: 'CERRADA' };
   }
 
+  const pedidoData = buildPedidoPaidUpdateData(pedido, cobro);
   const pedidoActualizado = await tx.pedido.update({
     where: { id: pedidoId },
-    data: fullyPaid
-      ? { estadoPago: 'APROBADO', estado: 'COBRADO' }
-      : { estadoPago: 'PENDIENTE' },
+    data: pedidoData,
     include: {
       items: { include: { producto: true } },
       mesa: true
@@ -149,9 +154,7 @@ const registrarPago = async (req, res) => {
 
   publishMesaUpdated(mesaUpdated);
 
-  if (pedido.estado === 'COBRADO') {
-    publishPedidoUpdated(pedido);
-  }
+  publishPedidoUpdated(pedido);
 
   res.status(201).json({
     pago,

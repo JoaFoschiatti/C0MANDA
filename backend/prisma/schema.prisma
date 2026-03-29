@@ -213,12 +213,29 @@ model Mesa {
   sucursal    Sucursal   @relation(fields: [sucursalId], references: [id])
   pedidos     Pedido[]
   reservas    Reserva[]
+  publicSessions MesaPublicSession[]
 
   @@index([sucursalId])
   @@index([estado])
   @@index([zona, activa])
   @@index([grupoMesaId])
   @@map("mesas")
+}
+
+model MesaPublicSession {
+  id           Int      @id @default(autoincrement())
+  mesaId        Int
+  sessionToken  String   @unique
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  lastUsedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  mesa          Mesa     @relation(fields: [mesaId], references: [id], onDelete: Cascade)
+  pedidos       Pedido[]
+
+  @@index([mesaId, revokedAt, expiresAt])
+  @@map("mesa_public_sessions")
 }
 
 model Reserva {
@@ -389,11 +406,13 @@ model Pedido {
   estado            EstadoPedido       @default(PENDIENTE)
   sucursalId        Int                @default(1)
   mesaId            Int?
+  mesaPublicSessionId Int?
   usuarioId         Int?
   clienteNombre     String?
   clienteTelefono   String?
   clienteDireccion  String?
   clienteEmail      String?
+  clientRequestId   String?            @unique
   repartidorId      Int?
   tipoEntrega       TipoEntrega?
   costoEnvio        Decimal            @default(0) @db.Decimal(10, 2)
@@ -403,11 +422,13 @@ model Pedido {
   observaciones     String?
   estadoPago        EstadoPago         @default(PENDIENTE)
   origen            OrigenPedido       @default(INTERNO)
+  operacionConfirmada Boolean          @default(true)
   impreso           Boolean            @default(false)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   sucursal          Sucursal           @relation(fields: [sucursalId], references: [id])
   mesa              Mesa?              @relation(fields: [mesaId], references: [id])
+  mesaPublicSession MesaPublicSession? @relation(fields: [mesaPublicSessionId], references: [id], onDelete: SetNull)
   usuario           Usuario?           @relation("PedidoCreador", fields: [usuarioId], references: [id])
   repartidor        Usuario?           @relation("PedidoRepartidor", fields: [repartidorId], references: [id])
   items             PedidoItem[]
@@ -418,13 +439,18 @@ model Pedido {
   printJobs         PrintJob[]
 
   @@index([estado])
+  @@index([estado, createdAt], map: "pedidos_estado_created_at_idx")
   @@index([tipo])
+  @@index([tipo, estado, createdAt], map: "pedidos_tipo_estado_created_at_idx")
+  @@index([origen, operacionConfirmada, estado], map: "pedidos_origen_operacion_estado_idx")
   @@index([sucursalId])
   @@index([createdAt])
   @@index([estadoPago, createdAt])
   @@index([mesaId])
+  @@index([mesaPublicSessionId])
   @@index([usuarioId])
   @@index([repartidorId])
+  @@index([repartidorId, estado, createdAt], map: "pedidos_repartidor_estado_created_at_idx")
   @@map("pedidos")
 }
 
@@ -484,6 +510,9 @@ model Pago {
   @@index([estado])
   @@index([estado, createdAt])
   @@index([pedidoId, createdAt])
+  @@index([pedidoId, canalCobro, estado, metodo], map: "pagos_pedido_canal_estado_metodo_idx")
+  @@index([referencia, canalCobro, createdAt], map: "pagos_referencia_canal_created_at_idx")
+  @@index([pedidoId, metodo, mpPreferenceId, createdAt], map: "pagos_pedido_metodo_preference_created_at_idx")
   @@index([mpPaymentId])
   @@map("pagos")
 }

@@ -540,11 +540,15 @@ const dashboard = async (prisma) => {
     prisma.pedido.count({
       where: {
         createdAt: { gte: hoy, lt: manana },
-        estado: { not: 'CANCELADO' }
+        estado: { not: 'CANCELADO' },
+        operacionConfirmada: true
       }
     }),
     prisma.pedido.count({
-      where: { estado: { in: ['PENDIENTE', 'EN_PREPARACION'] } }
+      where: {
+        estado: { in: ['PENDIENTE', 'EN_PREPARACION'] },
+        operacionConfirmada: true
+      }
     }),
     prisma.mesa.count({
       where: { estado: 'OCUPADA' }

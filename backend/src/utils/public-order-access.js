@@ -2,9 +2,9 @@ const jwt = require('jsonwebtoken');
 
 const PUBLIC_ORDER_SCOPE = 'public-order';
 const DEFAULT_PUBLIC_ORDER_SECRET = 'development-public-order-secret-change-me';
-const DEFAULT_PUBLIC_ORDER_TOKEN_EXPIRES_IN = '30d';
+const DEFAULT_PUBLIC_ORDER_TOKEN_EXPIRES_IN = '2h';
 
-const getPublicOrderSecret = () => process.env.JWT_SECRET || DEFAULT_PUBLIC_ORDER_SECRET;
+const getPublicOrderSecret = () => process.env.PUBLIC_ORDER_JWT_SECRET || DEFAULT_PUBLIC_ORDER_SECRET;
 
 const signPublicOrderToken = (pedidoId) => jwt.sign(
   {

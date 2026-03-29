@@ -8,6 +8,7 @@ const REQUIRED_PRODUCTION_VARS = [
   'DATABASE_URL',
   'DIRECT_URL',
   'JWT_SECRET',
+  'PUBLIC_ORDER_JWT_SECRET',
   'FRONTEND_URL',
   'BACKEND_URL',
   'ENCRYPTION_KEY',
@@ -90,6 +91,10 @@ const validateProductionEnvironment = (env = process.env) => {
 
   if (env.JWT_SECRET && String(env.JWT_SECRET).length < MIN_JWT_SECRET_LENGTH) {
     errors.push(`JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres`);
+  }
+
+  if (env.PUBLIC_ORDER_JWT_SECRET && String(env.PUBLIC_ORDER_JWT_SECRET).length < MIN_JWT_SECRET_LENGTH) {
+    errors.push(`PUBLIC_ORDER_JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres`);
   }
 
   if (env.ENCRYPTION_KEY && !ENCRYPTION_KEY_REGEX.test(env.ENCRYPTION_KEY)) {

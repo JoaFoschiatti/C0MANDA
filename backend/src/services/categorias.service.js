@@ -33,10 +33,19 @@ const listarPublicas = async (prisma) => {
   return prisma.categoria.findMany({
     where: { activa: true },
     orderBy: { orden: 'asc' },
-    include: {
+    select: {
+      id: true,
+      nombre: true,
       productos: {
         where: { disponible: true },
-        orderBy: { nombre: 'asc' }
+        orderBy: { nombre: 'asc' },
+        select: {
+          id: true,
+          nombre: true,
+          descripcion: true,
+          precio: true,
+          disponible: true
+        }
       }
     }
   });
@@ -46,4 +55,3 @@ module.exports = {
   ...baseCrud,
   listarPublicas
 };
-

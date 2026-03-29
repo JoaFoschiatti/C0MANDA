@@ -63,7 +63,18 @@ export function PublicClosedState({ config }) {
   )
 }
 
-export function PublicPendingPaymentState({ pedido, total, onCancel, onRetry }) {
+export function PublicPendingPaymentState({
+  pedido,
+  total,
+  title = 'Esperando confirmacion de pago',
+  message = 'Completa el pago en Mercado Pago. Esta pantalla se actualiza automaticamente.',
+  onCancel,
+  onRetry,
+  retryLabel = 'Verificar pago',
+  onResumePayment,
+  resumeLabel = 'Reintentar Mercado Pago',
+  busy = false
+}) {
   return (
     <div className="max-w-lg mx-auto px-4 py-10">
       <Card className="text-center space-y-5">
@@ -71,10 +82,8 @@ export function PublicPendingPaymentState({ pedido, total, onCancel, onRetry }) 
           <CreditCardIcon className="w-8 h-8" />
         </div>
         <div>
-          <h2 className="text-heading-2">Esperando confirmacion de pago</h2>
-          <p className="text-body-sm mt-2">
-            Completa el pago en Mercado Pago. Esta pantalla se actualiza automaticamente.
-          </p>
+          <h2 className="text-heading-2">{title}</h2>
+          <p className="text-body-sm mt-2">{message}</p>
         </div>
         <div className="rounded-2xl border border-border-default bg-canvas-subtle px-4 py-5">
           <p className="text-sm text-text-tertiary">Pedido #{pedido?.id}</p>
@@ -84,8 +93,13 @@ export function PublicPendingPaymentState({ pedido, total, onCancel, onRetry }) 
         </div>
         <div className="flex flex-col gap-2">
           {onRetry && (
-            <Button type="button" onClick={onRetry}>
-              Verificar pago
+            <Button type="button" onClick={onRetry} loading={busy}>
+              {retryLabel}
+            </Button>
+          )}
+          {onResumePayment && (
+            <Button type="button" variant="outline" onClick={onResumePayment} loading={busy}>
+              {resumeLabel}
             </Button>
           )}
           <Button type="button" variant="outline" onClick={onCancel}>

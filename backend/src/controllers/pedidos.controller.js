@@ -10,6 +10,7 @@ const emitPedidoUpdated = (pedido) => {
   eventBus.publish('pedido.updated', {
     id: pedido.id,
     estado: pedido.estado,
+    estadoPago: pedido.estadoPago,
     tipo: pedido.tipo,
     mesaId: pedido.mesaId || null,
     updatedAt: pedido.updatedAt || new Date().toISOString()
@@ -169,15 +170,28 @@ const pedidosCocina = async (req, res) => {
   const prisma = getPrisma(req);
   const pedidos = await prisma.pedido.findMany({
     where: {
-      estado: { in: ['PENDIENTE', 'EN_PREPARACION'] }
+      estado: { in: ['PENDIENTE', 'EN_PREPARACION'] },
+      operacionConfirmada: true
     },
-    include: {
-      sucursal: { select: { id: true, nombre: true, codigo: true } },
+    select: {
+      id: true,
+      tipo: true,
+      estado: true,
+      createdAt: true,
+      observaciones: true,
       mesa: { select: { numero: true } },
       items: {
-        include: {
+        select: {
+          id: true,
+          cantidad: true,
+          observaciones: true,
           producto: { select: { nombre: true } },
-          modificadores: { include: { modificador: { select: { nombre: true, tipo: true } } } }
+          modificadores: {
+            select: {
+              id: true,
+              modificador: { select: { nombre: true, tipo: true } }
+            }
+          }
         }
       }
     },
@@ -191,7 +205,8 @@ const pedidosDelivery = async (req, res) => {
   const prisma = getPrisma(req);
   const where = {
     tipo: 'DELIVERY',
-    estado: { in: ['PENDIENTE', 'EN_PREPARACION', 'LISTO'] }
+    estado: { in: ['PENDIENTE', 'EN_PREPARACION', 'LISTO'] },
+    operacionConfirmada: true
   };
 
   if (req.usuario.rol === 'DELIVERY') {
@@ -200,11 +215,21 @@ const pedidosDelivery = async (req, res) => {
 
   const pedidos = await prisma.pedido.findMany({
     where,
-    include: {
-      sucursal: { select: { id: true, nombre: true, codigo: true } },
-      items: { include: { producto: { select: { nombre: true, precio: true } } } },
-      usuario: { select: { nombre: true } },
-      repartidor: { select: { id: true, nombre: true } }
+    select: {
+      id: true,
+      estado: true,
+      createdAt: true,
+      clienteNombre: true,
+      clienteTelefono: true,
+      clienteDireccion: true,
+      total: true,
+      observaciones: true,
+      items: {
+        select: {
+          cantidad: true,
+          producto: { select: { nombre: true } }
+        }
+      }
     },
     orderBy: { createdAt: 'asc' }
   });

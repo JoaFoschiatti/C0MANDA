@@ -2,6 +2,7 @@ const eventBus = require('../services/event-bus');
 const { prisma } = require('../db/prisma');
 const { logger } = require('../utils/logger');
 const { withAdvisoryLock } = require('../services/distributed-lock.service');
+const { invalidateMesaPublicSessions } = require('../services/public-order-security.service');
 
 let intervalId = null;
 
@@ -20,12 +21,11 @@ const procesarReservas = async (db = prisma) => {
 
     for (const reserva of reservasProximas) {
       if (reserva.mesa.estado === 'LIBRE') {
-        await db.$transaction(async (tx) => {
-          await tx.mesa.update({
-            where: { id: reserva.mesaId },
-            data: { estado: 'RESERVADA' }
-          });
+        await db.mesa.update({
+          where: { id: reserva.mesaId },
+          data: { estado: 'RESERVADA' }
         });
+        await invalidateMesaPublicSessions(db, { mesaId: reserva.mesaId });
 
         eventBus.publish('mesa.updated', {
           mesaId: reserva.mesaId,
@@ -49,21 +49,19 @@ const procesarReservas = async (db = prisma) => {
     });
 
     for (const reserva of reservasVencidas) {
-      const mesaLiberada = await db.$transaction(async (tx) => {
-        await tx.reserva.update({
-          where: { id: reserva.id },
-          data: { estado: 'NO_LLEGO' }
-        });
-
-        if (reserva.mesa.estado === 'RESERVADA') {
-          await tx.mesa.update({
-            where: { id: reserva.mesaId },
-            data: { estado: 'LIBRE' }
-          });
-          return true;
-        }
-        return false;
+      await db.reserva.update({
+        where: { id: reserva.id },
+        data: { estado: 'NO_LLEGO' }
       });
+
+      const mesaLiberada = reserva.mesa.estado === 'RESERVADA';
+      if (mesaLiberada) {
+        await db.mesa.update({
+          where: { id: reserva.mesaId },
+          data: { estado: 'LIBRE' }
+        });
+        await invalidateMesaPublicSessions(db, { mesaId: reserva.mesaId });
+      }
 
       if (mesaLiberada) {
         eventBus.publish('mesa.updated', {

@@ -140,6 +140,28 @@ describe('Pagos Endpoints', () => {
     expect(Array.isArray(response.body.pagos)).toBe(true);
   });
 
+  it('POST /api/pagos mantiene pendiente operativo un pedido web prepago hasta su entrega', async () => {
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'DELIVERY',
+        origen: 'MENU_PUBLICO',
+        operacionConfirmada: false,
+        subtotal: 50,
+        total: 50
+      }
+    });
+
+    const response = await request(app)
+      .post('/api/pagos')
+      .set('Authorization', authHeader(token))
+      .send({ pedidoId: pedido.id, monto: 50, metodo: 'MERCADOPAGO' })
+      .expect(201);
+
+    expect(response.body.pedido.estadoPago).toBe('APROBADO');
+    expect(response.body.pedido.estado).toBe('PENDIENTE');
+    expect(response.body.pedido.operacionConfirmada).toBe(true);
+  });
+
   it('POST /api/pagos rechaza pedido inexistente', async () => {
     const response = await request(app)
       .post('/api/pagos')
