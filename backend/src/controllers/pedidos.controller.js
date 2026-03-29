@@ -10,6 +10,7 @@ const emitPedidoUpdated = (pedido) => {
   eventBus.publish('pedido.updated', {
     id: pedido.id,
     estado: pedido.estado,
+    estadoPago: pedido.estadoPago,
     tipo: pedido.tipo,
     mesaId: pedido.mesaId || null,
     updatedAt: pedido.updatedAt || new Date().toISOString()
@@ -23,6 +24,14 @@ const emitMesaUpdated = (mesaId, estado) => {
     estado,
     updatedAt: new Date().toISOString()
   });
+};
+
+const allowedStatesByRole = {
+  ADMIN: ['EN_PREPARACION', 'LISTO', 'ENTREGADO'],
+  CAJERO: ['EN_PREPARACION', 'LISTO', 'ENTREGADO'],
+  COCINERO: ['EN_PREPARACION', 'LISTO'],
+  MOZO: ['ENTREGADO'],
+  DELIVERY: ['ENTREGADO']
 };
 
 const listar = async (req, res) => {
@@ -40,11 +49,12 @@ const obtener = async (req, res) => {
 
 const crear = async (req, res) => {
   const prisma = getPrisma(req);
-  const { tipo, mesaId, items, clienteNombre, clienteTelefono, clienteDireccion, observaciones } = req.body;
+  const { tipo, mesaId, sucursalId, items, clienteNombre, clienteTelefono, clienteDireccion, observaciones } = req.body;
 
   const { pedido, mesaUpdated } = await pedidosService.crearPedido(prisma, {
     tipo,
     mesaId: mesaId ? Number(mesaId) : null,
+    sucursalId: sucursalId ? Number(sucursalId) : null,
     items,
     clienteNombre,
     clienteTelefono,
@@ -66,8 +76,9 @@ const cambiarEstado = async (req, res) => {
   const { id } = req.params;
   const { estado } = req.body;
   const usuarioRol = req.usuario.rol;
+  const allowedStates = allowedStatesByRole[usuarioRol] || [];
 
-  if ((usuarioRol === 'MOZO' || usuarioRol === 'DELIVERY') && estado !== 'ENTREGADO') {
+  if (!allowedStates.includes(estado)) {
     throw createHttpError.forbidden('No tienes permiso para cambiar a este estado');
   }
 
@@ -159,14 +170,28 @@ const pedidosCocina = async (req, res) => {
   const prisma = getPrisma(req);
   const pedidos = await prisma.pedido.findMany({
     where: {
-      estado: { in: ['PENDIENTE', 'EN_PREPARACION'] }
+      estado: { in: ['PENDIENTE', 'EN_PREPARACION'] },
+      operacionConfirmada: true
     },
-    include: {
+    select: {
+      id: true,
+      tipo: true,
+      estado: true,
+      createdAt: true,
+      observaciones: true,
       mesa: { select: { numero: true } },
       items: {
-        include: {
+        select: {
+          id: true,
+          cantidad: true,
+          observaciones: true,
           producto: { select: { nombre: true } },
-          modificadores: { include: { modificador: { select: { nombre: true, tipo: true } } } }
+          modificadores: {
+            select: {
+              id: true,
+              modificador: { select: { nombre: true, tipo: true } }
+            }
+          }
         }
       }
     },
@@ -180,7 +205,8 @@ const pedidosDelivery = async (req, res) => {
   const prisma = getPrisma(req);
   const where = {
     tipo: 'DELIVERY',
-    estado: { in: ['PENDIENTE', 'EN_PREPARACION', 'LISTO'] }
+    estado: { in: ['PENDIENTE', 'EN_PREPARACION', 'LISTO'] },
+    operacionConfirmada: true
   };
 
   if (req.usuario.rol === 'DELIVERY') {
@@ -189,10 +215,21 @@ const pedidosDelivery = async (req, res) => {
 
   const pedidos = await prisma.pedido.findMany({
     where,
-    include: {
-      items: { include: { producto: { select: { nombre: true, precio: true } } } },
-      usuario: { select: { nombre: true } },
-      repartidor: { select: { id: true, nombre: true } }
+    select: {
+      id: true,
+      estado: true,
+      createdAt: true,
+      clienteNombre: true,
+      clienteTelefono: true,
+      clienteDireccion: true,
+      total: true,
+      observaciones: true,
+      items: {
+        select: {
+          cantidad: true,
+          producto: { select: { nombre: true } }
+        }
+      }
     },
     orderBy: { createdAt: 'asc' }
   });

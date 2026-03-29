@@ -10,7 +10,7 @@ const listar = async (req, res) => {
 
 const obtener = async (req, res) => {
   const prisma = getPrisma(req);
-  const ingrediente = await ingredientesService.obtener(prisma, req.params.id);
+  const ingrediente = await ingredientesService.obtener(prisma, req.params.id, req.query);
   res.json(ingrediente);
 };
 
@@ -48,7 +48,7 @@ const descartarLote = async (req, res) => {
 
 const alertasStock = async (req, res) => {
   const prisma = getPrisma(req);
-  const alertas = await ingredientesService.alertasStock(prisma);
+  const alertas = await ingredientesService.alertasStock(prisma, req.query);
   res.json(alertas);
 };
 

@@ -21,6 +21,7 @@ export function getTaskLink(task, esAdmin) {
   const mesaId = toPositiveInt(task?.entidad?.mesaId)
   const ingredienteId = toPositiveInt(task?.entidad?.ingredienteId)
   const loteId = toPositiveInt(task?.entidad?.loteId)
+  const sucursalId = toPositiveInt(task?.entidad?.sucursalId)
 
   switch (task?.tipo) {
     case 'MESA_ESPERANDO_CUENTA':
@@ -37,11 +38,12 @@ export function getTaskLink(task, esAdmin) {
             ingredienteId,
             loteId,
             action: 'descartar',
+            sucursalId,
           })
         : null
     case 'INGREDIENTE_STOCK_BAJO':
     case 'LOTE_PROXIMO_A_VENCER':
-      return esAdmin && ingredienteId ? buildPath('/ingredientes', { ingredienteId }) : null
+      return esAdmin && ingredienteId ? buildPath('/ingredientes', { ingredienteId, sucursalId }) : null
     default:
       return null
   }

@@ -1,10 +1,31 @@
 const { createHttpError } = require('../utils/http-error');
+const { invalidateMesaPublicSessions } = require('./public-order-security.service');
 
 const buildDayRange = (fecha) => {
   const inicio = new Date(`${fecha}T00:00:00`);
   const finExclusive = new Date(`${fecha}T00:00:00`);
   finExclusive.setDate(finExclusive.getDate() + 1);
   return { gte: inicio, lt: finExclusive };
+};
+
+const assertReservaSinConflicto = async (tx, { mesaId, fechaHora, excludeReservaId = null }) => {
+  const dosHoras = 2 * 60 * 60 * 1000;
+  const rangoInicio = new Date(fechaHora.getTime() - dosHoras);
+  const rangoFin = new Date(fechaHora.getTime() + dosHoras);
+
+  const conflicto = await tx.reserva.findFirst({
+    where: {
+      mesaId,
+      estado: { in: ['CONFIRMADA', 'CLIENTE_PRESENTE'] },
+      fechaHora: { gte: rangoInicio, lte: rangoFin },
+      ...(excludeReservaId ? { id: { not: excludeReservaId } } : {})
+    },
+    select: { id: true }
+  });
+
+  if (conflicto) {
+    throw createHttpError.badRequest('Ya existe una reserva para esta mesa cercana a esa hora');
+  }
 };
 
 const listar = async (prisma, query) => {
@@ -72,22 +93,7 @@ const crear = async (prisma, data) => {
       throw createHttpError.badRequest(`La mesa ${mesa.numero} tiene capacidad para ${mesa.capacidad} personas`);
     }
 
-    const dosHoras = 2 * 60 * 60 * 1000;
-    const rangoInicio = new Date(fechaHora.getTime() - dosHoras);
-    const rangoFin = new Date(fechaHora.getTime() + dosHoras);
-
-    const conflicto = await tx.reserva.findFirst({
-      where: {
-        mesaId,
-        estado: { in: ['CONFIRMADA', 'CLIENTE_PRESENTE'] },
-        fechaHora: { gte: rangoInicio, lte: rangoFin }
-      },
-      select: { id: true }
-    });
-
-    if (conflicto) {
-      throw createHttpError.badRequest('Ya existe una reserva para esta mesa cercana a esa hora');
-    }
+    await assertReservaSinConflicto(tx, { mesaId, fechaHora });
 
     const created = await tx.reserva.create({
       data,
@@ -114,8 +120,8 @@ const crear = async (prisma, data) => {
   return { reserva, events };
 };
 
-const actualizar = async (prisma, id, data) => {
-  const reserva = await prisma.reserva.findUnique({
+const actualizar = async (prisma, id, data) => prisma.$transaction(async (tx) => {
+  const reserva = await tx.reserva.findUnique({
     where: { id },
     include: { mesa: true }
   });
@@ -132,14 +138,22 @@ const actualizar = async (prisma, id, data) => {
     throw createHttpError.badRequest(`La mesa ${reserva.mesa.numero} tiene capacidad para ${reserva.mesa.capacidad} personas`);
   }
 
-  return prisma.reserva.update({
+  if (data.fechaHora) {
+    await assertReservaSinConflicto(tx, {
+      mesaId: reserva.mesaId,
+      fechaHora: data.fechaHora,
+      excludeReservaId: id
+    });
+  }
+
+  return tx.reserva.update({
     where: { id },
     data,
     include: {
       mesa: { select: { numero: true, zona: true } }
     }
   });
-};
+});
 
 const cambiarEstado = async (prisma, id, estado) => {
   const { reservaActualizada, mesaUpdated } = await prisma.$transaction(async (tx) => {
@@ -167,6 +181,7 @@ const cambiarEstado = async (prisma, id, estado) => {
         where: { id: reserva.mesaId },
         data: { estado: 'LIBRE' }
       });
+      await invalidateMesaPublicSessions(tx, { mesaId: reserva.mesaId });
       mesaUpdatedEvent = { mesaId: reserva.mesaId, estado: 'LIBRE' };
     }
 
@@ -221,6 +236,7 @@ const eliminar = async (prisma, id) => {
         where: { id: reserva.mesaId },
         data: { estado: 'LIBRE' }
       });
+      await invalidateMesaPublicSessions(tx, { mesaId: reserva.mesaId });
     }
 
     await tx.reserva.delete({ where: { id } });
@@ -238,4 +254,3 @@ module.exports = {
   cambiarEstado,
   eliminar
 };
-

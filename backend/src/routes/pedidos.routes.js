@@ -16,11 +16,11 @@ const {
 
 router.use(verificarToken);
 
-router.get('/', validate({ query: listarQuerySchema }), asyncHandler(pedidosController.listar));
+router.get('/', verificarRol('ADMIN', 'CAJERO', 'MOZO'), validate({ query: listarQuerySchema }), asyncHandler(pedidosController.listar));
 router.get('/cocina', verificarRol('ADMIN', 'COCINERO', 'CAJERO'), asyncHandler(pedidosController.pedidosCocina));
 router.get('/delivery', verificarRol('ADMIN', 'DELIVERY'), asyncHandler(pedidosController.pedidosDelivery));
 router.get('/delivery/repartidores', verificarRol('ADMIN', 'CAJERO'), asyncHandler(pedidosController.listarRepartidores));
-router.get('/:id', validate({ params: idParamSchema }), asyncHandler(pedidosController.obtener));
+router.get('/:id', verificarRol('ADMIN', 'CAJERO', 'MOZO'), validate({ params: idParamSchema }), asyncHandler(pedidosController.obtener));
 router.post('/', verificarRol('ADMIN', 'CAJERO', 'MOZO'), validate({ body: crearPedidoBodySchema }), asyncHandler(pedidosController.crear));
 router.patch('/:id/estado', verificarRol('ADMIN', 'COCINERO', 'CAJERO', 'MOZO', 'DELIVERY'), validate({ params: idParamSchema, body: cambiarEstadoBodySchema }), asyncHandler(pedidosController.cambiarEstado));
 router.patch('/:id/asignar-delivery', verificarRol('ADMIN', 'CAJERO'), validate({ params: idParamSchema, body: asignarDeliveryBodySchema }), asyncHandler(pedidosController.asignarDelivery));

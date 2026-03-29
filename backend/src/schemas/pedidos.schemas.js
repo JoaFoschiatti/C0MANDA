@@ -6,6 +6,7 @@ const listarQuerySchema = z.object({
   tipo: z.enum(['MESA', 'DELIVERY', 'MOSTRADOR']).optional(),
   fecha: z.string().min(1).optional(),
   mesaId: positiveIntSchema.optional(),
+  sucursalId: positiveIntSchema.optional(),
   incluirCerrados: z.coerce.boolean().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   offset: z.coerce.number().int().min(0).optional()
@@ -21,6 +22,7 @@ const pedidoItemInputSchema = z.object({
 const crearPedidoBodySchema = z.object({
   tipo: z.enum(['MESA', 'DELIVERY', 'MOSTRADOR']),
   mesaId: positiveIntSchema.optional().nullable(),
+  sucursalId: positiveIntSchema.optional().nullable(),
   items: z.array(pedidoItemInputSchema).min(1),
   clienteNombre: z.string().max(150).optional(),
   clienteTelefono: z.string().max(60).optional(),

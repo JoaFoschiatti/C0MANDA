@@ -1,0 +1,20 @@
+const SUCURSAL_IDS = {
+  SALON: 1,
+  DELIVERY: 2
+};
+
+const SUCURSAL_CODIGOS = {
+  SALON: 'SALON',
+  DELIVERY: 'DELIVERY'
+};
+
+const SUCURSAL_NOMBRES = {
+  [SUCURSAL_IDS.SALON]: 'Salon',
+  [SUCURSAL_IDS.DELIVERY]: 'Delivery'
+};
+
+module.exports = {
+  SUCURSAL_IDS,
+  SUCURSAL_CODIGOS,
+  SUCURSAL_NOMBRES
+};

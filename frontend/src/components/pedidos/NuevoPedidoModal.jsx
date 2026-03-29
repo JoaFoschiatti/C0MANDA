@@ -10,12 +10,16 @@ import {
 } from '@heroicons/react/24/outline'
 import usePedidoConModificadores from '../../hooks/usePedidoConModificadores'
 import useAsync from '../../hooks/useAsync'
+import { SUCURSAL_IDS, SUCURSALES } from '../../constants/sucursales'
+
+const getDefaultSucursalId = (tipo) => (tipo === 'DELIVERY' ? SUCURSAL_IDS.DELIVERY : SUCURSAL_IDS.SALON)
 
 export default function NuevoPedidoModal({ isOpen, onClose, onSuccess }) {
   const [categorias, setCategorias] = useState([])
   const [mesas, setMesas] = useState([])
   const [categoriaActiva, setCategoriaActiva] = useState(null)
   const [tipo, setTipo] = useState('MOSTRADOR')
+  const [sucursalId, setSucursalId] = useState(String(getDefaultSucursalId('MOSTRADOR')))
   const [mesaId, setMesaId] = useState('')
   const [clienteNombre, setClienteNombre] = useState('')
   const [observaciones, setObservaciones] = useState('')
@@ -74,6 +78,7 @@ export default function NuevoPedidoModal({ isOpen, onClose, onSuccess }) {
   const resetForm = () => {
     resetCarrito()
     setTipo('MOSTRADOR')
+    setSucursalId(String(getDefaultSucursalId('MOSTRADOR')))
     setMesaId('')
     setClienteNombre('')
     setObservaciones('')
@@ -104,6 +109,7 @@ export default function NuevoPedidoModal({ isOpen, onClose, onSuccess }) {
       const pedidoData = {
         tipo,
         mesaId: tipo === 'MESA' ? parseInt(mesaId) : null,
+        sucursalId: tipo === 'MESA' ? null : parseInt(sucursalId),
         items: carrito.map(item => ({
           productoId: item.productoId,
           cantidad: item.cantidad,
@@ -163,14 +169,36 @@ export default function NuevoPedidoModal({ isOpen, onClose, onSuccess }) {
                     className="input"
                     value={tipo}
                     onChange={(e) => {
-                      setTipo(e.target.value)
-                      if (e.target.value !== 'MESA') setMesaId('')
+                      const nextTipo = e.target.value
+                      setTipo(nextTipo)
+                      if (nextTipo !== 'MESA') setMesaId('')
+                      if (nextTipo !== 'MESA') {
+                        setSucursalId(String(getDefaultSucursalId(nextTipo)))
+                      }
                     }}
                   >
                     <option value="MOSTRADOR">Mostrador</option>
+                    <option value="DELIVERY">Delivery</option>
                     <option value="MESA">Mesa</option>
                   </select>
                 </div>
+                {tipo !== 'MESA' && (
+                  <div className="flex-1">
+                    <label className="label" htmlFor="pedido-sucursal">Sucursal</label>
+                    <select
+                      id="pedido-sucursal"
+                      className="input"
+                      value={sucursalId}
+                      onChange={(e) => setSucursalId(e.target.value)}
+                    >
+                      {SUCURSALES.map((sucursal) => (
+                        <option key={sucursal.id} value={sucursal.id}>
+                          {sucursal.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {tipo === 'MESA' && (
                   <div className="flex-1">
                     <label className="label" htmlFor="pedido-mesa">Mesa</label>

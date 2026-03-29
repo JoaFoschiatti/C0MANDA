@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   MinusIcon,
   PlusIcon,
-  ShoppingCartIcon,
-  XMarkIcon
+  ShoppingCartIcon
 } from '@heroicons/react/24/outline'
 
 import PublicCategoryTabs from '../components/public/PublicCategoryTabs'
@@ -20,9 +19,10 @@ import {
 } from '../components/public/PublicOrderState'
 import PublicProductCard from '../components/public/PublicProductCard'
 import { Alert, Button, Card, Drawer, EmptyState } from '../components/ui'
-import { openExternalUrl, navigateExternalUrl, buildWhatsAppUrl } from '../utils/external-links'
+import { navigateExternalUrl, openExternalUrl, buildWhatsAppUrl } from '../utils/external-links'
 import { fetchJson, PUBLIC_API_URL, PUBLIC_BACKEND_URL } from '../utils/public-fetch'
 import {
+  appendPublicOrderToken,
   clearPendingMercadoPagoOrder,
   loadPendingMercadoPagoOrder,
   savePendingMercadoPagoOrder
@@ -31,6 +31,20 @@ import { parseEnumParam, parsePositiveIntParam } from '../utils/query-params'
 
 const PUBLIC_API_BASE = `${PUBLIC_API_URL}/publico`
 const PAYMENT_RESULTS = ['exito', 'error', 'pendiente']
+const PENDING_PAYMENT_STATUS = {
+  AWAITING_CONFIRMATION: 'AWAITING_CONFIRMATION',
+  RETRY_MERCADOPAGO: 'RETRY_MERCADOPAGO',
+  PAYMENT_ERROR: 'PAYMENT_ERROR',
+  PENDING_CONFIRMATION: 'PENDING_CONFIRMATION'
+}
+
+function generateClientRequestId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `menu-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 function QuantityStepper({ value, onDecrease, onIncrease }) {
   return (
@@ -192,6 +206,9 @@ function CartPanel({
 export default function MenuPublico() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const pedidoIdDesdeQuery = parsePositiveIntParam(searchParams.get('pedido'))
+  const accessTokenDesdeQuery = searchParams.get('token')?.trim() || null
+  const pagoResultadoDesdeQuery = parseEnumParam(searchParams.get('pago'), PAYMENT_RESULTS)
 
   const [config, setConfig] = useState(null)
   const [categorias, setCategorias] = useState([])
@@ -211,7 +228,18 @@ export default function MenuPublico() {
   const [metodoPago, setMetodoPago] = useState('EFECTIVO')
   const [montoAbonado, setMontoAbonado] = useState('')
   const [pedidoExitoso, setPedidoExitoso] = useState(null)
-  const [pedidoPendienteMp, setPedidoPendienteMp] = useState(null)
+  const [pedidoPendienteMp, setPedidoPendienteMp] = useState(() => {
+    const pendingOrder = loadPendingMercadoPagoOrder()
+
+    return pendingOrder
+      ? {
+          id: pendingOrder.pedidoId,
+          accessToken: pendingOrder.accessToken,
+          total: pendingOrder.total ?? null,
+          status: PENDING_PAYMENT_STATUS.AWAITING_CONFIRMATION
+        }
+      : null
+  })
   const [verificandoPago, setVerificandoPago] = useState(false)
   const [tiempoEspera, setTiempoEspera] = useState(0)
   const [pageError, setPageError] = useState(null)
@@ -219,8 +247,55 @@ export default function MenuPublico() {
   const [loadError, setLoadError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [enviandoPedido, setEnviandoPedido] = useState(false)
+  const [procesandoPagoPendiente, setProcesandoPagoPendiente] = useState(false)
+  const verificandoPagoDesdeQueryRef = useRef(false)
+  const reconciledPendingOrderRef = useRef(null)
+  const clientRequestIdRef = useRef(null)
+  const skipNextPendingReconciliationRef = useRef(false)
 
   const publicMenuPath = '/menu'
+  const paymentMethodsAvailable = Boolean(config?.mercadopago_enabled || config?.efectivo_enabled)
+
+  const resetClientRequestId = useCallback(() => {
+    clientRequestIdRef.current = null
+  }, [])
+
+  const getClientRequestId = useCallback(() => {
+    if (!clientRequestIdRef.current) {
+      clientRequestIdRef.current = generateClientRequestId()
+    }
+
+    return clientRequestIdRef.current
+  }, [])
+
+  const persistPendingOrder = useCallback((pendingOrder) => {
+    if (!pendingOrder?.id) {
+      clearPendingMercadoPagoOrder()
+      setPedidoPendienteMp(null)
+      reconciledPendingOrderRef.current = null
+      return
+    }
+
+    savePendingMercadoPagoOrder({
+      pedidoId: pendingOrder.id,
+      accessToken: pendingOrder.accessToken,
+      total: pendingOrder.total
+    })
+
+    setPedidoPendienteMp({
+      id: pendingOrder.id,
+      accessToken: pendingOrder.accessToken || null,
+      total: pendingOrder.total ?? null,
+      status: pendingOrder.status || PENDING_PAYMENT_STATUS.AWAITING_CONFIRMATION
+    })
+  }, [])
+
+  const clearPendingOrder = useCallback(() => {
+    clearPendingMercadoPagoOrder()
+    setPedidoPendienteMp(null)
+    reconciledPendingOrderRef.current = null
+    resetClientRequestId()
+  }, [resetClientRequestId])
 
   const loadMenu = useCallback(async () => {
     setLoading(true)
@@ -253,16 +328,151 @@ export default function MenuPublico() {
     }
   }, [])
 
+  const verifyPendingOrderStatus = useCallback(async ({
+    pedidoId,
+    accessToken,
+    pendingStatus = PENDING_PAYMENT_STATUS.AWAITING_CONFIRMATION,
+    terminalMessage = 'El pedido ya no tiene un pago pendiente para reanudar.'
+  }) => {
+    if (!pedidoId || !accessToken) {
+      clearPendingOrder()
+      setPageError('No pudimos recuperar el acceso al pedido. Volve a abrir el enlace original.')
+      return { approved: false, pedido: null }
+    }
+
+    const pedidoUrl = appendPublicOrderToken(
+      `${PUBLIC_API_BASE}/pedido/${pedidoId}`,
+      accessToken
+    )
+
+    const pedido = await fetchJson(pedidoUrl, {}, 'Error al verificar el pago')
+
+    if (pedido.estadoPago === 'APROBADO') {
+      setVerificandoPago(false)
+      clearPendingOrder()
+      setPedidoExitoso({ ...pedido, pagoAprobado: true })
+      setCarrito([])
+      setShowCheckout(false)
+      return { approved: true, pedido }
+    }
+
+    if (['CANCELADO', 'CERRADO'].includes(pedido.estado)) {
+      setVerificandoPago(false)
+      clearPendingOrder()
+      setPageError(terminalMessage)
+      return { approved: false, pedido }
+    }
+
+    persistPendingOrder({
+      id: pedido.id,
+      accessToken,
+      total: pedido.total,
+      status: pendingStatus
+    })
+
+    return { approved: false, pedido }
+  }, [clearPendingOrder, persistPendingOrder])
+
+  const retryPendingMercadoPagoPayment = useCallback(async () => {
+    if (!pedidoPendienteMp?.id || !pedidoPendienteMp?.accessToken) {
+      clearPendingOrder()
+      setPageError('No pudimos recuperar el acceso al pedido. Volve a abrir el enlace original.')
+      return
+    }
+
+    setProcesandoPagoPendiente(true)
+    setPageError(null)
+
+    try {
+      const data = await fetchJson(
+        `${PUBLIC_API_BASE}/pedido/${pedidoPendienteMp.id}/pagar`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: pedidoPendienteMp.accessToken })
+        },
+        'No pudimos preparar el reintento de pago'
+      )
+
+      persistPendingOrder({
+        id: pedidoPendienteMp.id,
+        accessToken: pedidoPendienteMp.accessToken,
+        total: pedidoPendienteMp.total,
+        status: PENDING_PAYMENT_STATUS.AWAITING_CONFIRMATION
+      })
+
+      if (!navigateExternalUrl(data.initPoint)) {
+        persistPendingOrder({
+          id: pedidoPendienteMp.id,
+          accessToken: pedidoPendienteMp.accessToken,
+          total: pedidoPendienteMp.total,
+          status: PENDING_PAYMENT_STATUS.RETRY_MERCADOPAGO
+        })
+      }
+    } catch (error) {
+      console.error('Error reintentando pago en Mercado Pago:', error)
+      persistPendingOrder({
+        id: pedidoPendienteMp.id,
+        accessToken: pedidoPendienteMp.accessToken,
+        total: pedidoPendienteMp.total,
+        status: PENDING_PAYMENT_STATUS.PAYMENT_ERROR
+      })
+      setPageError(error.message || 'No pudimos reintentar el pago en este momento.')
+    } finally {
+      setProcesandoPagoPendiente(false)
+    }
+  }, [clearPendingOrder, pedidoPendienteMp, persistPendingOrder])
+
+  const verifyPendingOrderManually = useCallback(async () => {
+    if (!pedidoPendienteMp?.id || !pedidoPendienteMp?.accessToken) {
+      clearPendingOrder()
+      return
+    }
+
+    setProcesandoPagoPendiente(true)
+    setPageError(null)
+
+    try {
+      await verifyPendingOrderStatus({
+        pedidoId: pedidoPendienteMp.id,
+        accessToken: pedidoPendienteMp.accessToken,
+        pendingStatus: PENDING_PAYMENT_STATUS.PENDING_CONFIRMATION
+      })
+    } catch (error) {
+      console.error('Error verificando pago pendiente:', error)
+      setPageError(error.message || 'No pudimos verificar el pago en este momento.')
+    } finally {
+      setProcesandoPagoPendiente(false)
+    }
+  }, [clearPendingOrder, pedidoPendienteMp, verifyPendingOrderStatus])
+
   useEffect(() => {
     loadMenu().catch(() => {})
   }, [loadMenu])
 
   useEffect(() => {
-    const pendingOrder = loadPendingMercadoPagoOrder()
-    if (pendingOrder) {
-      setPedidoPendienteMp({ id: pendingOrder.pedidoId })
+    if (!pedidoIdDesdeQuery || !accessTokenDesdeQuery) {
+      return
     }
-  }, [])
+
+    if (pagoResultadoDesdeQuery === 'error') {
+      return
+    }
+
+    persistPendingOrder({
+      id: pedidoIdDesdeQuery,
+      accessToken: accessTokenDesdeQuery,
+      total: pedidoPendienteMp?.id === pedidoIdDesdeQuery ? pedidoPendienteMp.total : null,
+      status: PENDING_PAYMENT_STATUS.AWAITING_CONFIRMATION
+    })
+  }, [
+    accessTokenDesdeQuery,
+    pagoResultadoDesdeQuery,
+    pedidoIdDesdeQuery,
+    pedidoPendienteMp?.id,
+    pedidoPendienteMp?.total,
+    persistPendingOrder
+  ])
 
   useEffect(() => {
     if (showCheckout) {
@@ -271,18 +481,38 @@ export default function MenuPublico() {
   }, [showCheckout])
 
   useEffect(() => {
-    const pagoResult = parseEnumParam(searchParams.get('pago'), PAYMENT_RESULTS)
-    const pedidoId = parsePositiveIntParam(searchParams.get('pedido'))
-
-    if (!pagoResult || !pedidoId) {
+    if (!pagoResultadoDesdeQuery || !pedidoIdDesdeQuery) {
+      verificandoPagoDesdeQueryRef.current = false
       return undefined
     }
 
+    if (verificandoPagoDesdeQueryRef.current) {
+      return undefined
+    }
+
+    verificandoPagoDesdeQueryRef.current = true
+
     let cancelled = false
     let intervalId = null
+    const accessToken = accessTokenDesdeQuery || pedidoPendienteMp?.accessToken
 
-    if (pagoResult === 'error') {
-      setPageError('El pago no pudo ser procesado. Intenta nuevamente.')
+    if (pagoResultadoDesdeQuery === 'error') {
+      skipNextPendingReconciliationRef.current = true
+      reconciledPendingOrderRef.current = `${pedidoIdDesdeQuery}:${accessToken || ''}`
+      persistPendingOrder({
+        id: pedidoIdDesdeQuery,
+        accessToken,
+        total: pedidoPendienteMp?.total ?? null,
+        status: PENDING_PAYMENT_STATUS.PAYMENT_ERROR
+      })
+      setPageError('El pago no fue aprobado. Puedes reintentarlo con el mismo pedido.')
+      navigate(publicMenuPath, { replace: true })
+      return undefined
+    }
+
+    if (!accessToken) {
+      clearPendingOrder()
+      setPageError('No pudimos recuperar el acceso al pedido. Volve a abrir el enlace original.')
       navigate(publicMenuPath, { replace: true })
       return undefined
     }
@@ -292,23 +522,16 @@ export default function MenuPublico() {
 
     const verificarPago = async () => {
       try {
-        const pedido = await fetchJson(
-          `${PUBLIC_API_BASE}/pedido/${pedidoId}`,
-          {},
-          'Error al verificar el pago'
-        )
-
         if (cancelled) {
           return false
         }
 
-        if (pedido.estadoPago === 'APROBADO') {
-          clearPendingMercadoPagoOrder()
-          setVerificandoPago(false)
-          setPedidoExitoso({ ...pedido, pagoAprobado: true })
-          navigate(publicMenuPath, { replace: true })
-          return true
-        }
+        const { approved } = await verifyPendingOrderStatus({
+          pedidoId: pedidoIdDesdeQuery,
+          accessToken,
+          pendingStatus: PENDING_PAYMENT_STATUS.AWAITING_CONFIRMATION
+        })
+        return approved
       } catch (error) {
         console.error('Error verificando pago:', error)
       }
@@ -319,11 +542,15 @@ export default function MenuPublico() {
     const startPolling = async () => {
       const aprobado = await verificarPago()
       if (aprobado || cancelled) {
+        if (aprobado) {
+          setVerificandoPago(false)
+          navigate(publicMenuPath, { replace: true })
+        }
         return
       }
 
       let attempts = 0
-      const maxAttempts = 20
+      const maxAttempts = 40
 
       intervalId = window.setInterval(async () => {
         attempts += 1
@@ -338,9 +565,22 @@ export default function MenuPublico() {
           window.clearInterval(intervalId)
           intervalId = null
 
+          if (paid) {
+            setVerificandoPago(false)
+            navigate(publicMenuPath, { replace: true })
+          }
+
           if (!paid && attempts >= maxAttempts) {
             setVerificandoPago(false)
-            setPageError(`No pudimos confirmar tu pago. Si ya pagaste, usa el pedido #${pedidoId}.`)
+            skipNextPendingReconciliationRef.current = true
+            reconciledPendingOrderRef.current = `${pedidoIdDesdeQuery}:${accessToken || ''}`
+            persistPendingOrder({
+              id: pedidoIdDesdeQuery,
+              accessToken,
+              total: pedidoPendienteMp?.total ?? null,
+              status: PENDING_PAYMENT_STATUS.PENDING_CONFIRMATION
+            })
+            setPageError('No pudimos confirmar el pago todavía. Puedes verificarlo de nuevo o reintentar Mercado Pago.')
             navigate(publicMenuPath, { replace: true })
           }
         }
@@ -355,70 +595,74 @@ export default function MenuPublico() {
         window.clearInterval(intervalId)
       }
     }
-  }, [navigate, publicMenuPath, searchParams])
+  }, [
+    accessTokenDesdeQuery,
+    clearPendingOrder,
+    navigate,
+    pedidoIdDesdeQuery,
+    pedidoPendienteMp?.accessToken,
+    pedidoPendienteMp?.total,
+    pagoResultadoDesdeQuery,
+    persistPendingOrder,
+    publicMenuPath,
+    verifyPendingOrderStatus
+  ])
 
   useEffect(() => {
-    if (!pedidoPendienteMp?.id) {
+    if (!pedidoPendienteMp?.id || (pedidoIdDesdeQuery && pagoResultadoDesdeQuery)) {
+      if (!pedidoPendienteMp?.id) {
+        reconciledPendingOrderRef.current = null
+      }
       return undefined
     }
 
-    let cancelled = false
-    let attempts = 0
-    const maxAttempts = 60
+    const accessToken = pedidoPendienteMp.accessToken || accessTokenDesdeQuery
+    const reconciliationKey = `${pedidoPendienteMp.id}:${accessToken || ''}`
 
-    const verifyPendingPayment = async () => {
-      try {
-        const pedido = await fetchJson(
-          `${PUBLIC_API_BASE}/pedido/${pedidoPendienteMp.id}`,
-          {},
-          'Error al verificar el pago'
-        )
-
-        if (cancelled) {
-          return false
-        }
-
-        setPedidoPendienteMp({ id: pedido.id, total: pedido.total })
-
-        if (pedido.estadoPago === 'APROBADO') {
-          clearPendingMercadoPagoOrder()
-          setPedidoPendienteMp(null)
-          setPedidoExitoso({ ...pedido, pagoAprobado: true })
-          setCarrito([])
-          return true
-        }
-      } catch (error) {
-        console.error('Error verificando pago pendiente:', error)
-      }
-
-      return false
+    if (!accessToken) {
+      clearPendingOrder()
+      return undefined
     }
 
-    verifyPendingPayment().catch(() => {})
-
-    const intervalId = window.setInterval(async () => {
-      attempts += 1
-      if (cancelled) {
-        return
-      }
-
-      const approved = await verifyPendingPayment()
-      if (approved || attempts >= maxAttempts) {
-        window.clearInterval(intervalId)
-
-        if (!approved && attempts >= maxAttempts) {
-          clearPendingMercadoPagoOrder()
-          setPedidoPendienteMp(null)
-          setPageError('No pudimos confirmar el pago. Si ya pagaste, el local lo vera reflejado pronto.')
-        }
-      }
-    }, 3000)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(intervalId)
+    if (skipNextPendingReconciliationRef.current) {
+      skipNextPendingReconciliationRef.current = false
+      return undefined
     }
-  }, [pedidoPendienteMp?.id])
+
+    if ([
+      PENDING_PAYMENT_STATUS.RETRY_MERCADOPAGO,
+      PENDING_PAYMENT_STATUS.PAYMENT_ERROR,
+      PENDING_PAYMENT_STATUS.PENDING_CONFIRMATION
+    ].includes(pedidoPendienteMp.status)) {
+      return undefined
+    }
+
+    if (reconciledPendingOrderRef.current === reconciliationKey) {
+      return undefined
+    }
+
+    reconciledPendingOrderRef.current = reconciliationKey
+
+    verifyPendingOrderStatus({
+      pedidoId: pedidoPendienteMp.id,
+      accessToken,
+      pendingStatus: pedidoPendienteMp.status || PENDING_PAYMENT_STATUS.AWAITING_CONFIRMATION,
+      terminalMessage: 'El pedido ya no tiene un pago pendiente para reanudar.'
+    }).catch((error) => {
+      console.error('Error reconciliando pedido pendiente:', error)
+    })
+
+    return undefined
+  }, [
+    accessTokenDesdeQuery,
+    clearPendingOrder,
+    pagoResultadoDesdeQuery,
+    pedidoIdDesdeQuery,
+    pedidoPendienteMp?.accessToken,
+    pedidoPendienteMp?.id,
+    pedidoPendienteMp?.status,
+    verifyPendingOrderStatus
+  ])
 
   const seleccionarVariante = useCallback((productoId, varianteId) => {
     setVariantesSeleccionadas((current) => ({
@@ -478,6 +722,9 @@ export default function MenuPublico() {
   }, [categoriaActiva, categorias])
 
   const validarFormulario = useCallback(() => {
+    if (!paymentMethodsAvailable) return 'No hay medios de pago habilitados en este momento'
+    if (metodoPago === 'MERCADOPAGO' && !config?.mercadopago_enabled) return 'Mercado Pago no esta disponible en este momento'
+    if (metodoPago === 'EFECTIVO' && !config?.efectivo_enabled) return 'El pago en efectivo no esta disponible en este momento'
     if (!clienteData.nombre.trim()) return 'Ingresa tu nombre'
     if (!clienteData.telefono.trim()) return 'Ingresa tu telefono'
     if (!clienteData.email.trim()) return 'Ingresa tu email'
@@ -486,7 +733,7 @@ export default function MenuPublico() {
     if (metodoPago === 'EFECTIVO' && !montoAbonado) return 'Indica con cuanto abonas'
     if (metodoPago === 'EFECTIVO' && Number(montoAbonado) < total) return 'El monto debe ser mayor o igual al total'
     return null
-  }, [clienteData, metodoPago, montoAbonado, tipoEntrega, total])
+  }, [clienteData, config?.efectivo_enabled, config?.mercadopago_enabled, metodoPago, montoAbonado, paymentMethodsAvailable, tipoEntrega, total])
 
   const handleWhatsAppFallback = useCallback(() => {
     const message = [
@@ -523,6 +770,7 @@ export default function MenuPublico() {
     setCheckoutError(null)
 
     try {
+      const clientRequestId = getClientRequestId()
       const payload = {
         items: carrito.map((item) => ({
           productoId: item.id,
@@ -535,6 +783,7 @@ export default function MenuPublico() {
         tipoEntrega,
         metodoPago,
         montoAbonado: metodoPago === 'EFECTIVO' ? Number(montoAbonado) : null,
+        clientRequestId,
         observaciones: clienteData.observaciones
       }
 
@@ -549,43 +798,77 @@ export default function MenuPublico() {
       )
 
       if (metodoPago === 'MERCADOPAGO' && data.initPoint) {
-        savePendingMercadoPagoOrder({ pedidoId: data.pedido.id })
+        const accessToken = data.accessToken || data.pedido?.accessToken || null
+        persistPendingOrder({
+          id: data.pedido.id,
+          accessToken,
+          total: data.pedido.total,
+          status: PENDING_PAYMENT_STATUS.AWAITING_CONFIRMATION
+        })
+        setShowCheckout(false)
 
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(window.navigator.userAgent)
-        if (isMobile) {
-          if (!navigateExternalUrl(data.initPoint)) {
-            clearPendingMercadoPagoOrder()
-            setCheckoutError('No pudimos abrir Mercado Pago. Intenta nuevamente.')
-            return
-          }
-        } else {
-          const opened = openExternalUrl(data.initPoint)
-          if (!opened && !navigateExternalUrl(data.initPoint)) {
-            clearPendingMercadoPagoOrder()
-            setCheckoutError('No pudimos abrir Mercado Pago. Revisa el navegador e intenta nuevamente.')
-            return
-          }
-
-          if (opened) {
-            setPedidoPendienteMp({ id: data.pedido.id, total: data.pedido.total })
-            setShowCheckout(false)
-          }
+        if (!navigateExternalUrl(data.initPoint)) {
+          persistPendingOrder({
+            id: data.pedido.id,
+            accessToken,
+            total: data.pedido.total,
+            status: PENDING_PAYMENT_STATUS.RETRY_MERCADOPAGO
+          })
+          setCheckoutError('No pudimos abrir Mercado Pago. Reintenta el pago sobre el mismo pedido.')
+          return
         }
 
         return
       }
 
-      clearPendingMercadoPagoOrder()
+      clearPendingOrder()
       setPedidoExitoso(data.pedido)
       setCarrito([])
       setShowCheckout(false)
+      resetClientRequestId()
     } catch (error) {
       console.error('Error creando pedido:', error)
       setCheckoutError(error.message || 'Error al procesar el pedido')
     } finally {
       setEnviandoPedido(false)
     }
-  }, [carrito, clienteData, metodoPago, montoAbonado, tipoEntrega, validarFormulario])
+  }, [
+    carrito,
+    clearPendingOrder,
+    clienteData,
+    getClientRequestId,
+    metodoPago,
+    montoAbonado,
+    persistPendingOrder,
+    resetClientRequestId,
+    tipoEntrega,
+    validarFormulario
+  ])
+
+  const pendingPaymentCopy = useMemo(() => {
+    switch (pedidoPendienteMp?.status) {
+      case PENDING_PAYMENT_STATUS.RETRY_MERCADOPAGO:
+        return {
+          title: 'No pudimos abrir Mercado Pago',
+          message: 'Tu pedido ya fue creado. Reintenta Mercado Pago para continuar con el mismo pedido.'
+        }
+      case PENDING_PAYMENT_STATUS.PAYMENT_ERROR:
+        return {
+          title: 'El pago no fue aprobado',
+          message: 'Tu pedido sigue pendiente. Puedes verificar si el pago impacto o reintentar Mercado Pago.'
+        }
+      case PENDING_PAYMENT_STATUS.PENDING_CONFIRMATION:
+        return {
+          title: 'Aun no confirmamos el pago',
+          message: 'Si ya pagaste, vuelve a verificar en unos segundos. Si no, puedes reintentar Mercado Pago sin crear otro pedido.'
+        }
+      default:
+        return {
+          title: 'Esperando confirmacion de pago',
+          message: 'Completa el pago en Mercado Pago. Esta pantalla se actualiza automaticamente mientras el pedido sigue pendiente.'
+        }
+    }
+  }, [pedidoPendienteMp?.status])
 
   if (loading) {
     return <PublicLoadingState label="Cargando menu..." />
@@ -615,9 +898,14 @@ export default function MenuPublico() {
       <PublicPendingPaymentState
         pedido={pedidoPendienteMp}
         total={pedidoPendienteMp.total}
+        title={pendingPaymentCopy.title}
+        message={pendingPaymentCopy.message}
+        busy={procesandoPagoPendiente}
+        onRetry={verifyPendingOrderManually}
+        onResumePayment={retryPendingMercadoPagoPayment}
         onCancel={() => {
-          clearPendingMercadoPagoOrder()
-          setPedidoPendienteMp(null)
+          clearPendingOrder()
+          setPageError(null)
         }}
       />
     )
@@ -628,6 +916,7 @@ export default function MenuPublico() {
       <PublicSuccessState
         pedido={pedidoExitoso}
         onRestart={() => {
+          clearPendingOrder()
           setPedidoExitoso(null)
           navigate(publicMenuPath)
         }}
@@ -759,6 +1048,7 @@ export default function MenuPublico() {
         clienteData={clienteData}
         checkoutError={checkoutError}
         enviandoPedido={enviandoPedido}
+        disableSubmit={!paymentMethodsAvailable || Boolean(pedidoPendienteMp?.id)}
         onClose={() => setShowCheckout(false)}
         onTipoEntregaChange={setTipoEntrega}
         onMetodoPagoChange={setMetodoPago}

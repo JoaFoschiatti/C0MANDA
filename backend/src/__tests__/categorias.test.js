@@ -155,5 +155,11 @@ describe('Categorias Endpoints', () => {
     const categoria = response.body.find((item) => item.id === categoriaActiva.id);
     expect(categoria.productos.map((producto) => producto.id)).toContain(productoDisponible.id);
     expect(categoria.productos.some((producto) => producto.disponible === false)).toBe(false);
+    expect(categoria.productos[0]).toEqual(expect.objectContaining({
+      nombre: expect.any(String),
+      precio: expect.anything(),
+      disponible: true
+    }));
+    expect(categoria.productos[0]).toHaveProperty('descripcion');
   });
 });

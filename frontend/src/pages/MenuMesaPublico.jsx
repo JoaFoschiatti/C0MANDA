@@ -134,6 +134,7 @@ export default function MenuMesaPublico() {
 
   const [config, setConfig] = useState(null)
   const [mesa, setMesa] = useState(null)
+  const [mesaSession, setMesaSession] = useState(null)
   const [categorias, setCategorias] = useState([])
   const [categoriaActiva, setCategoriaActiva] = useState('all')
   const [variantesSeleccionadas, setVariantesSeleccionadas] = useState({})
@@ -158,6 +159,7 @@ export default function MenuMesaPublico() {
       )
 
       setMesa(data.mesa)
+      setMesaSession(data.mesaSession || null)
       setConfig({ ...data.negocio, ...data.config })
       setCategorias(data.categorias)
     } catch (loadError) {
@@ -217,6 +219,11 @@ export default function MenuMesaPublico() {
   }, [])
 
   const enviarPedido = useCallback(async () => {
+    if (!mesaSession?.token) {
+      setError('La sesion del QR expiro. Vuelve a cargar la mesa.')
+      return false
+    }
+
     if (!clienteNombre.trim()) {
       setError('Ingresa tu nombre para identificar el pedido')
       return false
@@ -237,6 +244,7 @@ export default function MenuMesaPublico() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            sessionToken: mesaSession.token,
             clienteNombre,
             observaciones,
             items: carrito.map((item) => ({
@@ -258,7 +266,7 @@ export default function MenuMesaPublico() {
     } finally {
       setSubmitting(false)
     }
-  }, [carrito, clienteNombre, observaciones, qrToken])
+  }, [carrito, clienteNombre, mesaSession?.token, observaciones, qrToken])
 
   if (loading) {
     return <PublicLoadingState label="Cargando menu de mesa..." />

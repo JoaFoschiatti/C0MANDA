@@ -17,7 +17,6 @@ const Mesas = lazy(() => import('./pages/admin/Mesas'))
 const Categorias = lazy(() => import('./pages/admin/Categorias'))
 const Productos = lazy(() => import('./pages/admin/Productos'))
 const Ingredientes = lazy(() => import('./pages/admin/Ingredientes'))
-const Liquidaciones = lazy(() => import('./pages/admin/Liquidaciones'))
 const Reportes = lazy(() => import('./pages/admin/Reportes'))
 const Configuracion = lazy(() => import('./pages/admin/Configuracion'))
 const CierreCaja = lazy(() => import('./pages/admin/CierreCaja'))
@@ -95,7 +94,6 @@ export default function App() {
         <Route path="categorias" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Categorias /></LazyScreen></ProtectedRoute>} />
         <Route path="productos" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Productos /></LazyScreen></ProtectedRoute>} />
         <Route path="ingredientes" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Ingredientes /></LazyScreen></ProtectedRoute>} />
-        <Route path="liquidaciones" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Liquidaciones /></LazyScreen></ProtectedRoute>} />
         <Route path="reportes" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Reportes /></LazyScreen></ProtectedRoute>} />
         <Route path="configuracion" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Configuracion /></LazyScreen></ProtectedRoute>} />
         <Route path="cierre-caja" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><CierreCaja /></LazyScreen></ProtectedRoute>} />
@@ -104,7 +102,7 @@ export default function App() {
         <Route path="modificadores" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Modificadores /></LazyScreen></ProtectedRoute>} />
         <Route path="transacciones-mp" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><TransaccionesMercadoPago /></LazyScreen></ProtectedRoute>} />
         <Route path="facturacion" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><Facturacion /></LazyScreen></ProtectedRoute>} />
-        <Route path="pedidos" element={<LazyScreen><Pedidos /></LazyScreen>} />
+        <Route path="pedidos" element={<ProtectedRoute roles={['ADMIN', 'CAJERO', 'MOZO']}><LazyScreen><Pedidos /></LazyScreen></ProtectedRoute>} />
         <Route path="mozo/mesas" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><MozoMesas /></LazyScreen></ProtectedRoute>} />
         <Route path="mozo/nuevo-pedido" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><NuevoPedido /></LazyScreen></ProtectedRoute>} />
         <Route path="mozo/nuevo-pedido/:mesaId" element={<ProtectedRoute roles={['ADMIN', 'MOZO']}><LazyScreen><NuevoPedido /></LazyScreen></ProtectedRoute>} />

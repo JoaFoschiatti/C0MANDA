@@ -5,14 +5,8 @@ const { logger } = require('../utils/logger');
 
 const router = express.Router();
 
-router.get('/', (req, res, next) => {
-  const token = req.query.token;
-  if (token && !req.headers.authorization) {
-    req.headers.authorization = `Bearer ${token}`;
-  }
-  return verificarToken(req, res, next);
-}, (req, res) => {
-  logger.info(`[SSE] Cliente conectado - Usuario: ${req.usuario?.email}`);
+router.get('/', verificarToken, (req, res) => {
+  logger.debug('[SSE] Cliente conectado', { usuarioId: req.usuario?.id || null });
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -20,7 +14,6 @@ router.get('/', (req, res, next) => {
   res.flushHeaders();
 
   const sendEvent = (event) => {
-    logger.info(`[SSE] Enviando evento: ${event.type}`);
     res.write(`event: ${event.type}\n`);
     res.write(`data: ${JSON.stringify(event.payload)}\n\n`);
   };
@@ -31,7 +24,7 @@ router.get('/', (req, res, next) => {
   }, 15000);
 
   req.on('close', () => {
-    logger.info('[SSE] Cliente desconectado');
+    logger.debug('[SSE] Cliente desconectado', { usuarioId: req.usuario?.id || null });
     clearInterval(keepAlive);
     unsubscribe();
   });

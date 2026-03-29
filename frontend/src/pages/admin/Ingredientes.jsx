@@ -12,6 +12,7 @@ export default function Ingredientes() {
     abrirDescarte,
     abrirMovimiento,
     abrirNuevoIngrediente,
+    cambiarSucursalActiva,
     cerrarDescarteModal,
     cerrarIngredienteModal,
     cerrarMovimientoModal,
@@ -38,6 +39,8 @@ export default function Ingredientes() {
     showModal,
     showMovModal,
     stockBajo,
+    sucursalActiva,
+    sucursales,
   } = useIngredientesPage()
 
   if (loading && ingredientes.length === 0) {
@@ -58,6 +61,19 @@ export default function Ingredientes() {
           </Button>
         )}
       />
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        {sucursales.map((sucursal) => (
+          <button
+            key={sucursal.id}
+            type="button"
+            onClick={() => cambiarSucursalActiva(sucursal.id)}
+            className={`btn ${sucursalActiva.id === sucursal.id ? 'btn-primary' : 'btn-secondary'}`}
+          >
+            {sucursal.nombre}
+          </button>
+        ))}
+      </div>
 
       <IngredientesTable
         formatFecha={formatFecha}

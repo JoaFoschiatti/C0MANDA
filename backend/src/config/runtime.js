@@ -8,9 +8,15 @@ const REQUIRED_PRODUCTION_VARS = [
   'DATABASE_URL',
   'DIRECT_URL',
   'JWT_SECRET',
+  'PUBLIC_ORDER_JWT_SECRET',
   'FRONTEND_URL',
   'BACKEND_URL',
   'ENCRYPTION_KEY',
+  'MERCADOPAGO_WEBHOOK_SECRET',
+  'BRIDGE_TOKEN'
+];
+
+const DEMO_MODE_OPTIONAL_VARS = [
   'MERCADOPAGO_WEBHOOK_SECRET',
   'BRIDGE_TOKEN'
 ];
@@ -73,13 +79,22 @@ const validateProductionEnvironment = (env = process.env) => {
   }
 
   const errors = [];
+  const isDemoMode = env.DEMO_MODE === 'true';
 
-  REQUIRED_PRODUCTION_VARS
+  const requiredVars = isDemoMode
+    ? REQUIRED_PRODUCTION_VARS.filter((key) => !DEMO_MODE_OPTIONAL_VARS.includes(key))
+    : REQUIRED_PRODUCTION_VARS;
+
+  requiredVars
     .filter((key) => !env[key])
     .forEach((key) => errors.push(`Falta ${key} en produccion`));
 
   if (env.JWT_SECRET && String(env.JWT_SECRET).length < MIN_JWT_SECRET_LENGTH) {
     errors.push(`JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres`);
+  }
+
+  if (env.PUBLIC_ORDER_JWT_SECRET && String(env.PUBLIC_ORDER_JWT_SECRET).length < MIN_JWT_SECRET_LENGTH) {
+    errors.push(`PUBLIC_ORDER_JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres`);
   }
 
   if (env.ENCRYPTION_KEY && !ENCRYPTION_KEY_REGEX.test(env.ENCRYPTION_KEY)) {
@@ -92,6 +107,8 @@ const validateProductionEnvironment = (env = process.env) => {
 
   if (env.BRIDGE_TOKEN && String(env.BRIDGE_TOKEN).trim().length < 16) {
     errors.push('BRIDGE_TOKEN debe tener al menos 16 caracteres');
+  } else if (isDemoMode && !env.BRIDGE_TOKEN) {
+    // BRIDGE_TOKEN is optional in demo mode - skip validation
   }
 
   if (env.FRONTEND_URL) {

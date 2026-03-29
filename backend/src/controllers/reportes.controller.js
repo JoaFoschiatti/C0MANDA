@@ -37,12 +37,6 @@ const inventarioReporte = async (req, res) => {
   res.json(resultado);
 };
 
-const sueldosReporte = async (req, res) => {
-  const prisma = getPrisma(req);
-  const resultado = await reportesService.sueldosReporte(prisma, req.query);
-  res.json(resultado);
-};
-
 const ventasPorProductoBase = async (req, res) => {
   const prisma = getPrisma(req);
   const resultado = await reportesService.ventasPorProductoBase(prisma, req.query);
@@ -62,7 +56,6 @@ module.exports = {
   productosMasVendidos,
   ventasPorMozo,
   inventarioReporte,
-  sueldosReporte,
   ventasPorProductoBase,
   consumoInsumos
 };

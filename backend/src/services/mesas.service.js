@@ -1,5 +1,6 @@
 const { createHttpError } = require('../utils/http-error');
 const { createCrudService } = require('./crud-factory.service');
+const { invalidateMesaPublicSessions } = require('./public-order-security.service');
 
 // Crear servicio CRUD base usando el factory
 const baseCrud = createCrudService('mesa', {
@@ -45,16 +46,38 @@ const obtener = async (prisma, id) => {
 const cambiarEstado = async (prisma, id, estado) => {
   const mesaExiste = await prisma.mesa.findUnique({
     where: { id },
-    select: { id: true }
+    select: { id: true, estado: true }
   });
 
   if (!mesaExiste) {
     throw createHttpError.notFound('Mesa no encontrada');
   }
 
-  return prisma.mesa.update({
-    where: { id },
-    data: { estado }
+  if (mesaExiste.estado === estado) {
+    return prisma.mesa.findUnique({ where: { id } });
+  }
+
+  const transitionKey = `${mesaExiste.estado}:${estado}`;
+  const allowedTransitions = new Set([
+    'LIBRE:RESERVADA',
+    'RESERVADA:LIBRE'
+  ]);
+
+  if (!allowedTransitions.has(transitionKey)) {
+    throw createHttpError.badRequest('El estado solicitado no puede cambiarse manualmente');
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const mesaActualizada = await tx.mesa.update({
+      where: { id },
+      data: { estado }
+    });
+
+    if (['LIBRE', 'RESERVADA'].includes(estado)) {
+      await invalidateMesaPublicSessions(tx, { mesaId: id });
+    }
+
+    return mesaActualizada;
   });
 };
 

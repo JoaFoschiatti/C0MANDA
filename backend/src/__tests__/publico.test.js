@@ -127,6 +127,8 @@ describe('Publico Endpoints', () => {
     const baseEnRespuesta = categoria.productos.find((producto) => producto.id === productoBase.id);
     const idsVariantes = baseEnRespuesta.variantes.map((variante) => variante.id);
     expect(idsVariantes).toContain(varianteDisponible.id);
+    expect(baseEnRespuesta.ingredientes).toBeUndefined();
+    expect(baseEnRespuesta.variantes[0].ingredientes).toBeUndefined();
   });
 
   it('POST /api/publico/pedido crea pedido y permite items duplicados', async () => {
@@ -163,9 +165,114 @@ describe('Publico Endpoints', () => {
 
     expect(response.body.message).toBe('Pedido creado correctamente');
     expect(response.body.initPoint).toBeNull();
+    expect(response.body.accessToken).toEqual(expect.any(String));
     expect(response.body.pedido.origen).toBe('MENU_PUBLICO');
+    expect(response.body.pedido.operacionConfirmada).toBe(false);
     expect(response.body.pedido.items).toHaveLength(2);
     expect(response.body.pedido.clienteNombre).toBe('Cliente Test');
+    expect(response.body.pedido.clienteTelefono).toBeUndefined();
+    expect(response.body.pedido.clienteDireccion).toBeUndefined();
+    expect(response.body.pedido.clienteEmail).toBeUndefined();
+  });
+
+  it('GET /api/publico/config y /api/publico/menu devuelven cache-control publico', async () => {
+    const configResponse = await request(app)
+      .get('/api/publico/config')
+      .expect(200);
+
+    const menuResponse = await request(app)
+      .get('/api/publico/menu')
+      .expect(200);
+
+    expect(configResponse.headers['cache-control']).toBe('public, max-age=60, stale-while-revalidate=120');
+    expect(menuResponse.headers['cache-control']).toBe('public, max-age=60, stale-while-revalidate=120');
+  });
+
+  it('GET /api/publico/mesa/:qrToken devuelve una sesion efimera para ordering', async () => {
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 76,
+        capacidad: 4,
+        estado: 'LIBRE',
+        activa: true
+      }
+    });
+
+    const response = await request(app)
+      .get(`/api/publico/mesa/${mesa.qrToken}`)
+      .expect(200);
+
+    expect(response.body.mesa.id).toBe(mesa.id);
+    expect(response.body.mesa.qrToken).toBeUndefined();
+    expect(response.body.mesaSession).toEqual(expect.objectContaining({
+      token: expect.any(String),
+      expiresAt: expect.any(String)
+    }));
+  });
+
+  it('POST /api/publico/mesa/:qrToken/pedido rechaza cantidades invalidas', async () => {
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 77,
+        capacidad: 4,
+        estado: 'LIBRE',
+        activa: true
+      }
+    });
+
+    const mesaContext = await request(app)
+      .get(`/api/publico/mesa/${mesa.qrToken}`)
+      .expect(200);
+
+    const response = await request(app)
+      .post(`/api/publico/mesa/${mesa.qrToken}/pedido`)
+      .send({
+        sessionToken: mesaContext.body.mesaSession.token,
+        clienteNombre: 'Mesa Test',
+        items: [{ productoId: 1, cantidad: -1 }]
+      })
+      .expect(400);
+
+    expect(response.body.error.message).toBe('Datos inválidos');
+  });
+
+  it('POST /api/publico/mesa/:qrToken/pedido exige una sesion activa valida', async () => {
+    const categoria = await prisma.categoria.create({
+      data: {
+        nombre: `Cat-${uniqueId('mesa-sec')}`,
+        orden: 1,
+        activa: true
+      }
+    });
+
+    const producto = await prisma.producto.create({
+      data: {
+        nombre: `Prod-${uniqueId('mesa-sec')}`,
+        precio: 25,
+        categoriaId: categoria.id,
+        disponible: true
+      }
+    });
+
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 78,
+        capacidad: 4,
+        estado: 'LIBRE',
+        activa: true
+      }
+    });
+
+    const response = await request(app)
+      .post(`/api/publico/mesa/${mesa.qrToken}/pedido`)
+      .send({
+        sessionToken: 'session-invalida',
+        clienteNombre: 'Mesa Test',
+        items: [{ productoId: producto.id, cantidad: 1 }]
+      })
+      .expect(403);
+
+    expect(response.body.error.message).toBe('La sesion del QR expiro. Vuelve a escanear el codigo.');
   });
 
   it('POST /api/publico/pedido rechaza delivery si esta deshabilitado', async () => {

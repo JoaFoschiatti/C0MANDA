@@ -1,11 +1,16 @@
 const { z } = require('zod');
-const { booleanOptionalFromString, idParamSchema } = require('./common.schemas');
+const { booleanOptionalFromString, idParamSchema, positiveIntSchema } = require('./common.schemas');
 
 const UNIDADES_VALIDAS = ['kg', 'g', 'l', 'ml', 'unidad'];
 
 const listarQuerySchema = z.object({
   activo: booleanOptionalFromString,
-  stockBajo: booleanOptionalFromString
+  stockBajo: booleanOptionalFromString,
+  sucursalId: positiveIntSchema.optional()
+}).strip();
+
+const sucursalQuerySchema = z.object({
+  sucursalId: positiveIntSchema.optional()
 }).strip();
 
 const crearIngredienteBodySchema = z.object({
@@ -14,7 +19,8 @@ const crearIngredienteBodySchema = z.object({
   stockActual: z.coerce.number().min(0),
   stockMinimo: z.coerce.number().min(0),
   costo: z.preprocess((val) => (val === '' ? null : val), z.coerce.number().min(0).nullable().optional()),
-  activo: booleanOptionalFromString
+  activo: booleanOptionalFromString,
+  sucursalId: positiveIntSchema.optional()
 }).strip();
 
 const actualizarIngredienteBodySchema = z.object({
@@ -22,7 +28,8 @@ const actualizarIngredienteBodySchema = z.object({
   unidad: z.enum(UNIDADES_VALIDAS).optional(),
   stockMinimo: z.coerce.number().min(0).optional(),
   costo: z.preprocess((val) => (val === '' ? null : val), z.coerce.number().min(0).nullable().optional()),
-  activo: booleanOptionalFromString
+  activo: booleanOptionalFromString,
+  sucursalId: positiveIntSchema.optional()
 }).strip();
 
 const registrarMovimientoBodySchema = z.object({
@@ -37,12 +44,14 @@ const registrarMovimientoBodySchema = z.object({
   costoUnitario: z.preprocess(
     (val) => (val === '' || val == null ? null : val),
     z.coerce.number().min(0).nullable().optional()
-  )
+  ),
+  sucursalId: positiveIntSchema.optional()
 }).strip();
 
 const ajustarStockBodySchema = z.object({
   stockReal: z.coerce.number().min(0),
-  motivo: z.preprocess((val) => (val === '' ? null : val), z.union([z.string(), z.null()]).optional())
+  motivo: z.preprocess((val) => (val === '' ? null : val), z.union([z.string(), z.null()]).optional()),
+  sucursalId: positiveIntSchema.optional()
 }).strip();
 
 const descartarLoteBodySchema = z.object({
@@ -56,6 +65,7 @@ const descartarLoteBodySchema = z.object({
 module.exports = {
   idParamSchema,
   listarQuerySchema,
+  sucursalQuerySchema,
   crearIngredienteBodySchema,
   actualizarIngredienteBodySchema,
   registrarMovimientoBodySchema,

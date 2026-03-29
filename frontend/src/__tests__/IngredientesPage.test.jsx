@@ -109,7 +109,8 @@ describe('Ingredientes page', () => {
         motivo: 'Compra proveedor',
         codigoLote: 'LOTE-HAR-01',
         fechaVencimiento: '2026-12-31',
-        costoUnitario: 150
+        costoUnitario: 150,
+        sucursalId: 1
       })
     })
   })

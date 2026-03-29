@@ -7,7 +7,6 @@
  * - Productos más vendidos (con soporte para variantes)
  * - Ventas por mozo/empleado
  * - Estado del inventario
- * - Liquidaciones y sueldos
  * - Consumo de insumos/ingredientes
  *
  * Todos los reportes operan sobre la instalacion unica del restaurante.
@@ -18,6 +17,8 @@
 const { createHttpError } = require('../utils/http-error');
 const { decimalToNumber } = require('../utils/decimal');
 const { buildExpiredLotsWhere } = require('./lotes-stock.service');
+const { buildIngredienteStockSnapshot } = require('./ingrediente-stock.service');
+const { isPagoApproved } = require('./payment-state.service');
 
 /**
  * Construye un rango de fechas para filtros de Prisma.
@@ -51,6 +52,10 @@ const TASK_PRIORITY_ORDER = {
 const UPCOMING_EXPIRY_WINDOW_DAYS = 7;
 const ACTIVE_PEDIDO_STATES = ['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO'];
 const NON_FINAL_PEDIDO_STATES = ['CANCELADO', 'CERRADO'];
+const HISTORICAL_VENTA_PEDIDO_WHERE = {
+  estadoPago: 'APROBADO',
+  estado: { in: ['COBRADO', 'CERRADO'] }
+};
 
 const addDays = (value, days) => {
   const nextDate = new Date(value);
@@ -98,6 +103,53 @@ const sortTaskItems = (items) => [...items].sort((left, right) => {
 });
 
 const countTaskType = (items, type) => items.filter((item) => item.tipo === type).length;
+
+const buildSucursalEntity = (item) => ({
+  sucursalId: item?.sucursalId ?? item?.sucursal?.id ?? null,
+  sucursalNombre: item?.sucursal?.nombre ?? null
+});
+
+const buildIngredienteStocksSnapshot = async (prisma) => {
+  const [sucursales, ingredientes] = await prisma.$transaction([
+    prisma.sucursal.findMany({
+      where: { activa: true },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        nombre: true,
+        codigo: true
+      }
+    }),
+    prisma.ingrediente.findMany({
+      where: { activo: true },
+      orderBy: { nombre: 'asc' },
+      include: {
+        stocks: {
+          where: { activo: true },
+          include: {
+            sucursal: {
+              select: {
+                id: true,
+                nombre: true,
+                codigo: true
+              }
+            }
+          }
+        }
+      }
+    })
+  ]);
+
+  return ingredientes.flatMap((ingrediente) => sucursales.map((sucursal) => {
+    const stock = ingrediente.stocks.find((item) => item.sucursalId === sucursal.id) || null;
+    return buildIngredienteStockSnapshot(ingrediente, {
+      sucursalId: sucursal.id,
+      sucursal,
+      stock,
+      useLegacyFallback: false
+    });
+  }));
+};
 
 const buildTaskSummary = (caja, stock) => {
   const total = caja.length + stock.length;
@@ -207,27 +259,29 @@ const buildLoteVencidoTask = (lote) => ({
   prioridad: 'ALTA',
   fechaReferencia: lote.fechaVencimiento.toISOString(),
   titulo: `Lote ${lote.codigoLote} vencido`,
-  descripcion: `El lote ${lote.codigoLote} de ${lote.ingrediente.nombre} vencio el ${formatTaskDate(lote.fechaVencimiento)} y mantiene ${decimalToNumber(lote.stockActual).toFixed(2)} ${lote.ingrediente.unidad}.`,
+  descripcion: `El lote ${lote.codigoLote} de ${lote.ingrediente.nombre} (${lote.sucursal?.nombre || 'Sucursal sin definir'}) vencio el ${formatTaskDate(lote.fechaVencimiento)} y mantiene ${decimalToNumber(lote.stockActual).toFixed(2)} ${lote.ingrediente.unidad}.`,
   entidad: {
     ingredienteId: lote.ingredienteId,
-    loteId: lote.id
+    loteId: lote.id,
+    ...buildSucursalEntity(lote)
   }
 });
 
-const buildIngredienteStockBajoTask = (ingrediente) => {
-  const stockActual = decimalToNumber(ingrediente.stockActual);
-  const stockMinimo = decimalToNumber(ingrediente.stockMinimo);
+const buildIngredienteStockBajoTask = (ingredienteStock) => {
+  const stockActual = decimalToNumber(ingredienteStock.stockActual);
+  const stockMinimo = decimalToNumber(ingredienteStock.stockMinimo);
 
   return {
-    id: `stock:ingrediente-stock-bajo:${ingrediente.id}`,
+    id: `stock:ingrediente-stock-bajo:${ingredienteStock.ingredienteId}:${ingredienteStock.sucursalId}`,
     categoria: 'STOCK',
     tipo: 'INGREDIENTE_STOCK_BAJO',
     prioridad: stockActual <= 0 ? 'ALTA' : 'MEDIA',
-    fechaReferencia: ingrediente.updatedAt.toISOString(),
-    titulo: `Stock bajo de ${ingrediente.nombre}`,
-    descripcion: `${ingrediente.nombre} quedo en ${stockActual.toFixed(2)} ${ingrediente.unidad} sobre un minimo de ${stockMinimo.toFixed(2)} ${ingrediente.unidad}.`,
+    fechaReferencia: ingredienteStock.updatedAt.toISOString(),
+    titulo: `Stock bajo de ${ingredienteStock.ingrediente.nombre}`,
+    descripcion: `${ingredienteStock.ingrediente.nombre} en ${ingredienteStock.sucursal?.nombre || 'Sucursal sin definir'} quedo en ${stockActual.toFixed(2)} ${ingredienteStock.ingrediente.unidad} sobre un minimo de ${stockMinimo.toFixed(2)} ${ingredienteStock.ingrediente.unidad}.`,
     entidad: {
-      ingredienteId: ingrediente.id
+      ingredienteId: ingredienteStock.ingredienteId,
+      ...buildSucursalEntity(ingredienteStock)
     }
   };
 };
@@ -239,10 +293,11 @@ const buildLotePorVencerTask = (lote) => ({
   prioridad: 'BAJA',
   fechaReferencia: lote.fechaVencimiento.toISOString(),
   titulo: `Lote ${lote.codigoLote} proximo a vencer`,
-  descripcion: `El lote ${lote.codigoLote} de ${lote.ingrediente.nombre} vence el ${formatTaskDate(lote.fechaVencimiento)} y conserva ${decimalToNumber(lote.stockActual).toFixed(2)} ${lote.ingrediente.unidad}.`,
+  descripcion: `El lote ${lote.codigoLote} de ${lote.ingrediente.nombre} (${lote.sucursal?.nombre || 'Sucursal sin definir'}) vence el ${formatTaskDate(lote.fechaVencimiento)} y conserva ${decimalToNumber(lote.stockActual).toFixed(2)} ${lote.ingrediente.unidad}.`,
   entidad: {
     ingredienteId: lote.ingredienteId,
-    loteId: lote.id
+    loteId: lote.id,
+    ...buildSucursalEntity(lote)
   }
 });
 
@@ -252,7 +307,6 @@ const tareasCentro = async (prisma, referenceDate = new Date()) => {
     pagosQrPendientes,
     pedidosPorCerrar,
     mesasCerradas,
-    ingredientes,
     lotesVencidos,
     lotesPorVencer
   ] = await prisma.$transaction([
@@ -349,19 +403,6 @@ const tareasCentro = async (prisma, referenceDate = new Date()) => {
         }
       }
     }),
-    prisma.ingrediente.findMany({
-      where: {
-        activo: true
-      },
-      select: {
-        id: true,
-        nombre: true,
-        unidad: true,
-        stockActual: true,
-        stockMinimo: true,
-        updatedAt: true
-      }
-    }),
     prisma.loteStock.findMany({
       where: {
         ...buildExpiredLotsWhere(referenceDate)
@@ -372,11 +413,18 @@ const tareasCentro = async (prisma, referenceDate = new Date()) => {
         codigoLote: true,
         stockActual: true,
         fechaVencimiento: true,
+        sucursalId: true,
         ingrediente: {
           select: {
             id: true,
             nombre: true,
             unidad: true
+          }
+        },
+        sucursal: {
+          select: {
+            id: true,
+            nombre: true
           }
         }
       }
@@ -391,16 +439,25 @@ const tareasCentro = async (prisma, referenceDate = new Date()) => {
         codigoLote: true,
         stockActual: true,
         fechaVencimiento: true,
+        sucursalId: true,
         ingrediente: {
           select: {
             id: true,
             nombre: true,
             unidad: true
           }
+        },
+        sucursal: {
+          select: {
+            id: true,
+            nombre: true
+          }
         }
       }
     })
   ]);
+
+  const ingredientesStock = await buildIngredienteStocksSnapshot(prisma);
 
   const caja = sortTaskItems([
     ...mesasEsperandoCuenta.map(buildMesaEsperandoCuentaTask),
@@ -412,8 +469,8 @@ const tareasCentro = async (prisma, referenceDate = new Date()) => {
   ]);
 
   const stock = sortTaskItems([
-    ...ingredientes
-      .filter((ingrediente) => decimalToNumber(ingrediente.stockActual) <= decimalToNumber(ingrediente.stockMinimo))
+    ...ingredientesStock
+      .filter((ingredienteStock) => decimalToNumber(ingredienteStock.stockActual) <= decimalToNumber(ingredienteStock.stockMinimo))
       .map(buildIngredienteStockBajoTask),
     ...lotesVencidos.map(buildLoteVencidoTask),
     ...lotesPorVencer.map(buildLotePorVencerTask)
@@ -465,7 +522,8 @@ const dashboard = async (prisma) => {
   manana.setDate(manana.getDate() + 1);
 
   const [
-    pedidosHoyAgg,
+    ventasHoyAgg,
+    pedidosHoyCount,
     pedidosPendientes,
     mesasOcupadas,
     mesasTotal,
@@ -474,13 +532,23 @@ const dashboard = async (prisma) => {
     prisma.pedido.aggregate({
       where: {
         createdAt: { gte: hoy, lt: manana },
-        estado: { not: 'CANCELADO' }
+        ...HISTORICAL_VENTA_PEDIDO_WHERE
       },
       _sum: { total: true },
       _count: { id: true }
     }),
     prisma.pedido.count({
-      where: { estado: { in: ['PENDIENTE', 'EN_PREPARACION'] } }
+      where: {
+        createdAt: { gte: hoy, lt: manana },
+        estado: { not: 'CANCELADO' },
+        operacionConfirmada: true
+      }
+    }),
+    prisma.pedido.count({
+      where: {
+        estado: { in: ['PENDIENTE', 'EN_PREPARACION'] },
+        operacionConfirmada: true
+      }
     }),
     prisma.mesa.count({
       where: { estado: 'OCUPADA' }
@@ -495,8 +563,8 @@ const dashboard = async (prisma) => {
 
   const centroTareas = await tareasCentro(prisma);
 
-  const ventasHoy = decimalToNumber(pedidosHoyAgg._sum.total);
-  const pedidosHoy = pedidosHoyAgg._count.id;
+  const ventasHoy = decimalToNumber(ventasHoyAgg._sum.total);
+  const pedidosHoy = pedidosHoyCount;
 
   return {
     ventasHoy,
@@ -563,7 +631,7 @@ const ventasReporte = async (prisma, query) => {
   const pedidos = await prisma.pedido.findMany({
     where: {
       createdAt: range,
-      estado: 'COBRADO'
+      ...HISTORICAL_VENTA_PEDIDO_WHERE
     },
     include: {
       items: { include: { producto: { select: { nombre: true, categoriaId: true } } } },
@@ -579,6 +647,9 @@ const ventasReporte = async (prisma, query) => {
   const ventasPorMetodo = {};
   for (const pedido of pedidos) {
     for (const pago of pedido.pagos) {
+      if (!isPagoApproved(pago)) {
+        continue;
+      }
       if (!ventasPorMetodo[pago.metodo]) {
         ventasPorMetodo[pago.metodo] = 0;
       }
@@ -652,7 +723,7 @@ const productosMasVendidos = async (prisma, query) => {
   const { fechaDesde, fechaHasta, limite, agruparPorBase } = query;
 
   const where = {
-    pedido: { estado: 'COBRADO' }
+    pedido: HISTORICAL_VENTA_PEDIDO_WHERE
   };
 
   const range = buildDateRange(fechaDesde, fechaHasta);
@@ -761,7 +832,7 @@ const productosMasVendidos = async (prisma, query) => {
 const ventasPorMozo = async (prisma, query) => {
   const { fechaDesde, fechaHasta } = query;
 
-  const where = { estado: 'COBRADO' };
+  const where = { ...HISTORICAL_VENTA_PEDIDO_WHERE };
 
   const range = buildDateRange(fechaDesde, fechaHasta);
   if (range) {
@@ -823,23 +894,23 @@ const ventasPorMozo = async (prisma, query) => {
  * // }
  */
 const inventarioReporte = async (prisma) => {
-  const ingredientes = await prisma.ingrediente.findMany({
-    where: { activo: true },
-    orderBy: { nombre: 'asc' }
-  });
+  const ingredientes = await buildIngredienteStocksSnapshot(prisma);
 
   const reporte = ingredientes.map(ing => {
     const stockActual = decimalToNumber(ing.stockActual);
     const stockMinimo = decimalToNumber(ing.stockMinimo);
 
     return {
-      id: ing.id,
-      nombre: ing.nombre,
-      unidad: ing.unidad,
+      id: ing.ingredienteId,
+      ingredienteStockId: ing.id,
+      nombre: ing.ingrediente.nombre,
+      unidad: ing.ingrediente.unidad,
       stockActual: ing.stockActual,
       stockMinimo: ing.stockMinimo,
+      sucursalId: ing.sucursalId,
+      sucursalNombre: ing.sucursal?.nombre || null,
       estado: stockActual <= stockMinimo ? 'BAJO' : 'OK',
-      valorEstimado: ing.costo ? stockActual * decimalToNumber(ing.costo) : null
+      valorEstimado: ing.ingrediente.costo ? stockActual * decimalToNumber(ing.ingrediente.costo) : null
     };
   });
 
@@ -851,70 +922,6 @@ const inventarioReporte = async (prisma) => {
 
   return { resumen, ingredientes: reporte };
 };
-
-/**
- * Genera reporte de liquidaciones y sueldos de empleados.
- *
- * Puede filtrarse por mes/año o retornar todas las liquidaciones.
- * Incluye resumen de totales pagados y pendientes.
- *
- * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma con scoping
- * @param {Object} query - Parámetros del reporte
- * @param {number} [query.mes] - Mes (1-12)
- * @param {number} [query.anio] - Año (ej: 2024)
- *
- * @returns {Promise<Object>} Reporte de sueldos
- * @returns {Object} returns.resumen - Totales agregados
- * @returns {number} returns.resumen.totalLiquidaciones - Cantidad de liquidaciones
- * @returns {number} returns.resumen.totalPagado - Suma de liquidaciones pagadas
- * @returns {number} returns.resumen.totalPendiente - Suma de liquidaciones no pagadas
- * @returns {number} returns.resumen.horasTotales - Suma de horas trabajadas
- * @returns {Array} returns.liquidaciones - Lista de liquidaciones con empleado
- *
- * @example
- * const sueldos = await sueldosReporte(prisma, 1, { mes: 1, anio: 2024 });
- * // {
- * //   resumen: {
- * //     totalLiquidaciones: 10,
- * //     totalPagado: 450000,
- * //     totalPendiente: 50000,
- * //     horasTotales: 1600
- * //   },
- * //   liquidaciones: [
- * //     { id: 1, empleado: { nombre: 'Juan', apellido: 'Pérez', rol: 'MOZO' },
- * //       periodoDesde: '2024-01-01', periodoHasta: '2024-01-31',
- * //       horasTotales: 160, totalPagar: 50000, pagado: true },
- * //     ...
- * //   ]
- * // }
- */
-const sueldosReporte = async (prisma, query) => {
-  const { mes, anio } = query;
-
-  const where = {};
-  if (mes && anio) {
-    const fechaInicio = new Date(anio, mes - 1, 1);
-    const fechaFin = new Date(anio, mes, 0);
-    where.periodoDesde = { gte: fechaInicio };
-    where.periodoHasta = { lte: fechaFin };
-  }
-
-  const liquidaciones = await prisma.liquidacion.findMany({
-    where,
-    include: { usuario: { select: { nombre: true, apellido: true, rol: true } } },
-    orderBy: { createdAt: 'desc' }
-  });
-
-  const resumen = {
-    totalLiquidaciones: liquidaciones.length,
-    totalPagado: liquidaciones.filter(l => l.pagado).reduce((sum, l) => sum + decimalToNumber(l.totalPagar), 0),
-    totalPendiente: liquidaciones.filter(l => !l.pagado).reduce((sum, l) => sum + decimalToNumber(l.totalPagar), 0),
-    horasTotales: liquidaciones.reduce((sum, l) => sum + decimalToNumber(l.horasTotales), 0)
-  };
-
-  return { resumen, liquidaciones };
-};
-
 /**
  * Obtiene ventas agrupadas por producto base con desglose de variantes.
  *
@@ -950,7 +957,7 @@ const ventasPorProductoBase = async (prisma, query) => {
   const { fechaDesde, fechaHasta, limite } = query;
 
   const where = {
-    pedido: { estado: 'COBRADO' }
+    pedido: HISTORICAL_VENTA_PEDIDO_WHERE
   };
 
   const range = buildDateRange(fechaDesde, fechaHasta);
@@ -1070,7 +1077,7 @@ const consumoInsumos = async (prisma, query) => {
   const { fechaDesde, fechaHasta } = query;
 
   const where = {
-    pedido: { estado: 'COBRADO' }
+    pedido: HISTORICAL_VENTA_PEDIDO_WHERE
   };
 
   const range = buildDateRange(fechaDesde, fechaHasta);
@@ -1161,7 +1168,6 @@ module.exports = {
   productosMasVendidos,
   ventasPorMozo,
   inventarioReporte,
-  sueldosReporte,
   ventasPorProductoBase,
   consumoInsumos
 };

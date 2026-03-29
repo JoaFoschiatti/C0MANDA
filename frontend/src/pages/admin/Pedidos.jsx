@@ -131,11 +131,12 @@ const normalizePedidosResponse = (payload) => {
 
 const PEDIDOS_PAGE_SIZE = 50
 
-const buildPedidosQuery = (filtroEstado, { limit = PEDIDOS_PAGE_SIZE, offset = 0 } = {}) => {
+const buildPedidosQuery = (filtroEstado, { limit = PEDIDOS_PAGE_SIZE, offset = 0, mesaId = null } = {}) => {
   const params = new URLSearchParams()
 
   if (filtroEstado) params.set('estado', filtroEstado)
   if (filtroEstado === 'CERRADO' || filtroEstado === 'CANCELADO') params.set('incluirCerrados', 'true')
+  if (mesaId) params.set('mesaId', String(mesaId))
 
   params.set('limit', String(limit))
   params.set('offset', String(offset))
@@ -143,9 +144,17 @@ const buildPedidosQuery = (filtroEstado, { limit = PEDIDOS_PAGE_SIZE, offset = 0
   return params.toString()
 }
 
-const matchesPedidoFilter = (pedido, filtroEstado) => {
+const matchesPedidoFilter = (pedido, filtroEstado, mesaId = null) => {
   if (!pedido?.estado) {
     return false
+  }
+
+  if (mesaId) {
+    const pedidoMesaId = Number(pedido.mesaId || pedido.mesa?.id)
+
+    if (pedidoMesaId !== Number(mesaId)) {
+      return false
+    }
   }
 
   if (filtroEstado) {
@@ -160,7 +169,12 @@ export default function Pedidos() {
   const [searchParams, setSearchParams] = useSearchParams()
   const esSoloMozo = usuario?.rol === 'MOZO'
   const puedeCrearPedido = ['ADMIN', 'CAJERO'].includes(usuario?.rol)
+  const puedeRegistrarPago = ['ADMIN', 'CAJERO'].includes(usuario?.rol)
+  const puedeFacturar = ['ADMIN', 'CAJERO'].includes(usuario?.rol)
+  const puedeCerrarPedido = ['ADMIN', 'CAJERO'].includes(usuario?.rol)
+  const puedeLiberarMesa = ['ADMIN', 'CAJERO'].includes(usuario?.rol)
   const pedidoEnfocadoId = parsePositiveIntParam(searchParams.get('pedidoId'))
+  const mesaIdFiltrada = parsePositiveIntParam(searchParams.get('mesaId'))
   const abrirPagoDesdeQuery = parseBooleanFlag(searchParams.get('openPago'))
 
   const [pedidos, setPedidos] = useState([])
@@ -175,6 +189,7 @@ export default function Pedidos() {
   const loadedLimitRef = useRef(PEDIDOS_PAGE_SIZE)
   const loadingMoreRef = useRef(false)
   const qrSyncInFlightRef = useRef(false)
+  const pagoSubmitInFlightRef = useRef(false)
   const deliveryModalPedidoRef = useRef(null)
   const [pagoForm, setPagoForm] = useState({
     monto: '',
@@ -187,6 +202,7 @@ export default function Pedidos() {
   })
   const [qrPresencial, setQrPresencial] = useState(null)
   const [generatingQr, setGeneratingQr] = useState(false)
+  const [registrandoPago, setRegistrandoPago] = useState(false)
   const [syncingQr, setSyncingQr] = useState(false)
   const [showNuevoPedidoModal, setShowNuevoPedidoModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
@@ -213,13 +229,13 @@ export default function Pedidos() {
   }, [pedidoSeleccionado])
 
   const cargarPedidos = useCallback(async ({ limit = loadedLimitRef.current, offset = 0 } = {}) => {
-    const response = await api.get(`/pedidos?${buildPedidosQuery(filtroEstado, { limit, offset })}`)
+    const response = await api.get(`/pedidos?${buildPedidosQuery(filtroEstado, { limit, offset, mesaId: mesaIdFiltrada })}`)
     const result = normalizePedidosResponse(response.data)
     const { data, total } = result
     setPedidos(data)
     setTotalPedidos(total)
     return result
-  }, [filtroEstado])
+  }, [filtroEstado, mesaIdFiltrada])
 
   const handleLoadError = useCallback((error) => {
     console.error('Error:', error)
@@ -248,7 +264,7 @@ export default function Pedidos() {
       return 'ignored'
     }
 
-    if (!matchesPedidoFilter(pedidoActualizado, filtroEstado)) {
+    if (!matchesPedidoFilter(pedidoActualizado, filtroEstado, mesaIdFiltrada)) {
       setPedidos((current) => current.filter((pedido) => pedido.id !== pedidoActualizado.id))
       return 'removed'
     }
@@ -260,7 +276,7 @@ export default function Pedidos() {
     )))
 
     return 'updated'
-  }, [filtroEstado])
+  }, [filtroEstado, mesaIdFiltrada])
 
   const obtenerPedidoPorId = useCallback(async (id) => {
     const response = await api.get(`/pedidos/${id}`)
@@ -268,7 +284,7 @@ export default function Pedidos() {
   }, [])
 
   const clearFocusParams = useCallback(() => {
-    if (!searchParams.get('pedidoId') && !searchParams.get('openPago')) {
+    if (!searchParams.get('pedidoId') && !searchParams.get('openPago') && !searchParams.get('mesaId')) {
       return
     }
 
@@ -300,7 +316,11 @@ export default function Pedidos() {
 
   const handleSseUpdate = useCallback(async (eventName, event) => {
     let data = null
-    try { data = JSON.parse(event.data) } catch {}
+    try {
+      data = JSON.parse(event.data)
+    } catch (_error) {
+      data = null
+    }
     const pedidoId = data?.id || data?.pedidoId
     if (!pedidoId) return
 
@@ -362,9 +382,11 @@ export default function Pedidos() {
 
   const cerrarModalPago = useCallback(() => {
     qrSyncInFlightRef.current = false
+    pagoSubmitInFlightRef.current = false
     setShowPagoModal(false)
     setQrPresencial(null)
     setGeneratingQr(false)
+    setRegistrandoPago(false)
     setSyncingQr(false)
     setPagoForm(buildPagoForm(null))
   }, [])
@@ -438,7 +460,7 @@ export default function Pedidos() {
     }
 
     openFromQuery().catch(() => {})
-  }, [abrirPago, abrirPagoDesdeQuery, clearFocusParams, pedidoEnfocadoId])
+  }, [abrirPago, abrirPagoDesdeQuery, clearFocusParams, pedidoEnfocadoId, verDetalle])
 
   const handleCanalCobroChange = useCallback((canalCobro) => {
     const pendiente = calcularPendientePedido(pedidoSeleccionado)
@@ -525,6 +547,13 @@ export default function Pedidos() {
 
   const registrarPago = async (e) => {
     e.preventDefault()
+    if (pagoSubmitInFlightRef.current) {
+      return
+    }
+
+    pagoSubmitInFlightRef.current = true
+    setRegistrandoPago(true)
+
     try {
       if (pagoForm.canalCobro === 'QR_PRESENCIAL') {
         setGeneratingQr(true)
@@ -567,7 +596,9 @@ export default function Pedidos() {
     } catch (error) {
       console.error('Error:', error)
     } finally {
+      pagoSubmitInFlightRef.current = false
       setGeneratingQr(false)
+      setRegistrandoPago(false)
     }
   }
 
@@ -860,7 +891,7 @@ export default function Pedidos() {
                         <TruckIcon className="w-5 h-5" />
                       </button>
                     )}
-                    {!['COBRADO', 'CERRADO', 'CANCELADO'].includes(pedido.estado) && !esSoloMozo && (
+                    {!['COBRADO', 'CERRADO', 'CANCELADO'].includes(pedido.estado) && puedeRegistrarPago && (
                       <button
                         onClick={() => abrirPago(pedido)}
                         type="button"
@@ -870,7 +901,7 @@ export default function Pedidos() {
                         <CurrencyDollarIcon className="w-5 h-5" />
                       </button>
                     )}
-                    {['COBRADO', 'CERRADO'].includes(pedido.estado) && !pedido.comprobanteFiscal && !esSoloMozo && (
+                    {['COBRADO', 'CERRADO'].includes(pedido.estado) && !pedido.comprobanteFiscal && puedeFacturar && (
                       <button
                         onClick={() => abrirFacturacion(pedido)}
                         type="button"
@@ -916,6 +947,7 @@ export default function Pedidos() {
             <div className="space-y-4 overflow-y-auto flex-1">
               <div className="text-sm text-text-secondary">
                 <p><strong className="text-text-primary">Tipo:</strong> {pedidoSeleccionado.tipo}</p>
+                <p><strong className="text-text-primary">Sucursal:</strong> {pedidoSeleccionado.sucursal?.nombre || '-'}</p>
                 {pedidoSeleccionado.mesa && <p><strong className="text-text-primary">Mesa:</strong> {pedidoSeleccionado.mesa.numero}</p>}
                 {pedidoSeleccionado.clienteNombre && <p><strong className="text-text-primary">Cliente:</strong> {pedidoSeleccionado.clienteNombre}</p>}
                 <p><strong className="text-text-primary">Mozo:</strong> {pedidoSeleccionado.usuario?.nombre}</p>
@@ -978,13 +1010,15 @@ export default function Pedidos() {
 
               {pedidoSeleccionado.estado === 'COBRADO' && (
                 <div className="border-t border-border-default pt-3 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => cerrarPedido(pedidoSeleccionado)}
-                    className="btn btn-primary text-sm"
-                  >
-                    Cerrar pedido
-                  </button>
-                  {!pedidoSeleccionado.comprobanteFiscal && !esSoloMozo && (
+                  {puedeCerrarPedido && (
+                    <button
+                      onClick={() => cerrarPedido(pedidoSeleccionado)}
+                      className="btn btn-primary text-sm"
+                    >
+                      Cerrar pedido
+                    </button>
+                  )}
+                  {!pedidoSeleccionado.comprobanteFiscal && puedeFacturar && (
                     <button
                       onClick={() => abrirFacturacion(pedidoSeleccionado)}
                       className="btn btn-secondary text-sm"
@@ -995,7 +1029,7 @@ export default function Pedidos() {
                 </div>
               )}
 
-              {pedidoSeleccionado.estado === 'CERRADO' && !pedidoSeleccionado.comprobanteFiscal && !esSoloMozo && (
+              {pedidoSeleccionado.estado === 'CERRADO' && !pedidoSeleccionado.comprobanteFiscal && puedeFacturar && (
                 <div className="border-t border-border-default pt-3">
                   <button
                     onClick={() => abrirFacturacion(pedidoSeleccionado)}
@@ -1006,7 +1040,7 @@ export default function Pedidos() {
                 </div>
               )}
 
-              {pedidoSeleccionado.estado === 'CERRADO' && pedidoSeleccionado.mesaId && (
+              {pedidoSeleccionado.estado === 'CERRADO' && pedidoSeleccionado.mesaId && puedeLiberarMesa && (
                 <div className="border-t border-border-default pt-3">
                   <button
                     onClick={() => liberarMesa(pedidoSeleccionado.mesaId)}
@@ -1055,7 +1089,7 @@ export default function Pedidos() {
                       <QRCodeSVG value={qrPresencial.qrData} size={220} />
                     ) : (
                       <div className="text-center text-sm text-text-secondary py-8 px-6">
-                        Mercado Pago no devolvio el contenido del QR. Usa "Revisar estado" o genera una nueva orden si el cobro fue rechazado.
+                        Mercado Pago no devolvio el contenido del QR. Usa &quot;Revisar estado&quot; o genera una nueva orden si el cobro fue rechazado.
                       </div>
                     )}
                   </div>
@@ -1234,7 +1268,7 @@ export default function Pedidos() {
                   <button type="button" onClick={cerrarModalPago} className="btn btn-secondary flex-1">
                     Cancelar
                   </button>
-                  <Button type="submit" variant="success" className="flex-1" loading={generatingQr}>
+                  <Button type="submit" variant="success" className="flex-1" loading={generatingQr || registrandoPago}>
                     {esQrPresencial ? 'Generar QR presencial' : 'Registrar Pago'}
                   </Button>
                 </div>

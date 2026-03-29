@@ -40,11 +40,12 @@ vi.mock('../components/pedidos/NuevoPedidoModal', () => ({
   default: () => null
 }))
 
-const buildPedidosUrl = ({ estado = '', limit = 50, offset = 0 } = {}) => {
+const buildPedidosUrl = ({ estado = '', limit = 50, offset = 0, mesaId = null } = {}) => {
   const params = new URLSearchParams()
 
   if (estado) params.set('estado', estado)
   if (estado === 'CERRADO' || estado === 'CANCELADO') params.set('incluirCerrados', 'true')
+  if (mesaId) params.set('mesaId', String(mesaId))
 
   params.set('limit', String(limit))
   params.set('offset', String(offset))
@@ -122,6 +123,31 @@ describe('Pedidos page', () => {
     })
   })
 
+  it('aplica mesaId en la consulta y mantiene el foco del pedido', async () => {
+    const pedido = {
+      id: 3,
+      tipo: 'MESA',
+      total: '180',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesaId: 7,
+      mesa: { id: 7, numero: 7 },
+      clienteNombre: 'Mesa 7',
+      pagos: []
+    }
+
+    api.get.mockResolvedValueOnce({ data: { data: [pedido], total: 1 } })
+
+    renderPage(['/pedidos?mesaId=7'])
+
+    expect(await screen.findByText('#3')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(buildPedidosUrl({ mesaId: 7 }))
+    })
+  })
+
   it('abre detalle y registra pago', async () => {
     const pedido = {
       id: 9,
@@ -180,6 +206,44 @@ describe('Pedidos page', () => {
     })
 
     expect(toast.success).toHaveBeenCalledWith('Pago registrado')
+  })
+
+  it('oculta CTAs de pago y cierre para mozo', async () => {
+    useAuth.mockReturnValue({ usuario: { rol: 'MOZO' } })
+
+    const pedido = {
+      id: 88,
+      tipo: 'MESA',
+      total: '400',
+      estado: 'COBRADO',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { id: 5, numero: 5 },
+      mesaId: 5,
+      clienteNombre: null,
+      usuario: { nombre: 'Caja' },
+      comprobanteFiscal: null,
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      if (url === `/pedidos/${pedido.id}`) return Promise.resolve({ data: { ...pedido, items: [] } })
+      return Promise.resolve({ data: [] })
+    })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#88')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: `Facturar pedido #${pedido.id}` })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: `Ver detalle del pedido #${pedido.id}` }))
+    expect(await screen.findByText(`Pedido #${pedido.id}`)).toBeInTheDocument()
+
+    expect(screen.queryByRole('button', { name: 'Cerrar pedido' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Facturar' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Liberar mesa' })).toBeNull()
   })
 
   it('genera un QR presencial para cobrar el saldo pendiente', async () => {
@@ -311,6 +375,67 @@ describe('Pedidos page', () => {
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(`/pedidos/${pedido.id}`)
+    })
+  })
+
+  it('evita doble submit en el pago manual', async () => {
+    const pedido = {
+      id: 57,
+      tipo: 'MESA',
+      total: '250',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { numero: 2 },
+      clienteNombre: null,
+      usuario: { nombre: 'Caja' },
+      pagos: []
+    }
+
+    const pedidoDetalle = {
+      ...pedido,
+      items: [
+        {
+          id: 1,
+          cantidad: 1,
+          subtotal: '250',
+          producto: { nombre: 'Hamburguesa' }
+        }
+      ]
+    }
+
+    const deferred = createDeferred()
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      if (url === `/pedidos/${pedido.id}`) return Promise.resolve({ data: pedidoDetalle })
+      return Promise.resolve({ data: [] })
+    })
+    api.post.mockReturnValueOnce(deferred.promise)
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#57')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: `Registrar pago del pedido #${pedido.id}` }))
+    await screen.findByRole('button', { name: 'Registrar Pago' })
+
+    const submitButton = screen.getByRole('button', { name: 'Registrar Pago' })
+    await user.click(submitButton)
+    await user.click(submitButton)
+
+    expect(api.post).toHaveBeenCalledTimes(1)
+
+    deferred.resolve({
+      data: {
+        pago: { id: 1 },
+        pedido: { ...pedidoDetalle, estado: 'COBRADO' }
+      }
+    })
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('Pago registrado')
     })
   })
 

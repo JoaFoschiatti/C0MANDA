@@ -106,7 +106,7 @@ describe('Reportes Endpoints', () => {
 
     await prisma.pedido.createMany({
       data: [
-        { tipo: 'MOSTRADOR', estado: 'COBRADO', subtotal: 100, total: 100 },
+        { tipo: 'MOSTRADOR', estado: 'COBRADO', estadoPago: 'APROBADO', subtotal: 100, total: 100 },
         { tipo: 'MOSTRADOR', estado: 'PENDIENTE', subtotal: 50, total: 50 },
         { tipo: 'MOSTRADOR', estado: 'EN_PREPARACION', subtotal: 30, total: 30 }
       ]
@@ -118,18 +118,18 @@ describe('Reportes Endpoints', () => {
       .expect(200);
 
     expect(response.body).toEqual(expect.objectContaining({
-      ventasHoy: 180,
+      ventasHoy: 100,
       pedidosHoy: 3,
       pedidosPendientes: 2,
       mesasOcupadas: 1,
       mesasTotal: 2,
-      alertasStock: 2,
+      alertasStock: 6,
       lotesVencidosPendientes: 1,
       empleadosTrabajando: 1,
-      tareasPendientes: 4,
+      tareasPendientes: 8,
       tareasCaja: 1,
-      tareasStock: 3,
-      tareasAltaPrioridad: 3
+      tareasStock: 7,
+      tareasAltaPrioridad: 8
     }));
   });
 
@@ -217,6 +217,7 @@ describe('Reportes Endpoints', () => {
         mesaId: mesaCobrada.id,
         tipo: 'MESA',
         estado: 'COBRADO',
+        estadoPago: 'APROBADO',
         subtotal: 300,
         total: 300
       }
@@ -310,15 +311,15 @@ describe('Reportes Endpoints', () => {
       .expect(200);
 
     expect(responseAdmin.body.resumen).toEqual(expect.objectContaining({
-      total: 8,
-      altaPrioridad: 5,
+      total: 12,
+      altaPrioridad: 9,
       caja: 4,
-      stock: 4,
+      stock: 8,
       mesasEsperandoCuenta: 1,
       qrPendientes: 1,
       pedidosPorCerrar: 1,
       mesasPorLiberar: 1,
-      stockBajo: 2,
+      stockBajo: 6,
       lotesPorVencer: 1,
       lotesVencidosPendientes: 1
     }));
@@ -332,7 +333,7 @@ describe('Reportes Endpoints', () => {
       'MESA_CERRADA_PENDIENTE_LIBERACION',
       'QR_PRESENCIAL_PENDIENTE'
     ]));
-    expect(responseAdmin.body.stock).toHaveLength(4);
+    expect(responseAdmin.body.stock).toHaveLength(8);
 
     const tareaCobrado = responseAdmin.body.caja.find((item) => item.tipo === 'PEDIDO_COBRADO_PENDIENTE_CIERRE');
     expect(tareaCobrado.entidad).toEqual(expect.objectContaining({
@@ -363,7 +364,7 @@ describe('Reportes Endpoints', () => {
       .set('Authorization', authHeader(cajeroToken))
       .expect(200);
 
-    expect(responseCajero.body.resumen.total).toBe(8);
+    expect(responseCajero.body.resumen.total).toBe(12);
 
     await request(app)
       .get('/api/reportes/tareas-centro')
@@ -410,6 +411,7 @@ describe('Reportes Endpoints', () => {
       data: {
         tipo: 'MOSTRADOR',
         estado: 'COBRADO',
+        estadoPago: 'APROBADO',
         usuarioId: admin.id,
         subtotal: 100,
         total: 100,
@@ -438,6 +440,7 @@ describe('Reportes Endpoints', () => {
       data: {
         tipo: 'DELIVERY',
         estado: 'COBRADO',
+        estadoPago: 'APROBADO',
         usuarioId: null,
         subtotal: 50,
         total: 50,
@@ -517,6 +520,7 @@ describe('Reportes Endpoints', () => {
       data: {
         tipo: 'MOSTRADOR',
         estado: 'COBRADO',
+        estadoPago: 'APROBADO',
         subtotal: 400,
         total: 400,
         createdAt
@@ -564,6 +568,7 @@ describe('Reportes Endpoints', () => {
         {
           tipo: 'MOSTRADOR',
           estado: 'COBRADO',
+          estadoPago: 'APROBADO',
           usuarioId: admin.id,
           subtotal: 100,
           total: 100,
@@ -572,6 +577,7 @@ describe('Reportes Endpoints', () => {
         {
           tipo: 'MOSTRADOR',
           estado: 'COBRADO',
+          estadoPago: 'APROBADO',
           usuarioId: null,
           subtotal: 50,
           total: 50,
@@ -635,6 +641,7 @@ describe('Reportes Endpoints', () => {
       data: {
         tipo: 'MOSTRADOR',
         estado: 'COBRADO',
+        estadoPago: 'APROBADO',
         subtotal: 300,
         total: 300,
         createdAt

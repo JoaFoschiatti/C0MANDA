@@ -3,6 +3,7 @@ const { prisma } = require('../db/prisma');
 const { logger } = require('../utils/logger');
 const { decimalToNumber } = require('../utils/decimal');
 const { obtenerLotesVencidosPendientes } = require('../services/lotes-stock.service');
+const { withAdvisoryLock } = require('../services/distributed-lock.service');
 
 const JOB_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -31,15 +32,15 @@ const buildNotificationPayload = (lotes, generatedAt) => {
   };
 };
 
-const procesarLotesVencidos = async (referenceDate = new Date()) => {
+const procesarLotesVencidos = async (referenceDate = new Date(), db = prisma) => {
   try {
-    const lotesPendientes = await obtenerLotesVencidosPendientes(prisma, { referenceDate });
+    const lotesPendientes = await obtenerLotesVencidosPendientes(db, { referenceDate });
     if (lotesPendientes.length === 0) {
       return [];
     }
 
     const now = new Date();
-    await prisma.loteStock.updateMany({
+    await db.loteStock.updateMany({
       where: {
         id: { in: lotesPendientes.map((lote) => lote.id) }
       },
@@ -62,6 +63,12 @@ const procesarLotesVencidos = async (referenceDate = new Date()) => {
   }
 };
 
+const ejecutarLotesVencidosConLock = async (referenceDate = new Date()) => withAdvisoryLock(
+  prisma,
+  'jobs.lotes-vencidos',
+  async (tx) => procesarLotesVencidos(referenceDate, tx)
+);
+
 const iniciarJobLotesVencidos = () => {
   if (process.env.NODE_ENV === 'test') {
     return null;
@@ -72,9 +79,9 @@ const iniciarJobLotesVencidos = () => {
   }
 
   logger.info('Job de lotes vencidos iniciado');
-  procesarLotesVencidos();
+  void ejecutarLotesVencidosConLock();
   intervalId = setInterval(() => {
-    procesarLotesVencidos();
+    void ejecutarLotesVencidosConLock();
   }, JOB_INTERVAL_MS);
 
   return intervalId;

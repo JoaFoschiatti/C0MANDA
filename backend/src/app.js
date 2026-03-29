@@ -1,5 +1,6 @@
 require('dotenv').config({ quiet: true });
 const express = require('express');
+const compression = require('compression');
 const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
@@ -14,7 +15,6 @@ const productosRoutes = require('./routes/productos.routes');
 const pedidosRoutes = require('./routes/pedidos.routes');
 const ingredientesRoutes = require('./routes/ingredientes.routes');
 const fichajesRoutes = require('./routes/fichajes.routes');
-const liquidacionesRoutes = require('./routes/liquidaciones.routes');
 const reportesRoutes = require('./routes/reportes.routes');
 const pagosRoutes = require('./routes/pagos.routes');
 const impresionRoutes = require('./routes/impresion.routes');
@@ -99,6 +99,19 @@ app.use(cookieParser());
 
 // Servir archivos estáticos (imágenes de productos)
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path.startsWith('/api/eventos')) {
+      return false;
+    }
+
+    if (req.headers.accept?.includes('text/event-stream')) {
+      return false;
+    }
+
+    return compression.filter(req, res);
+  }
+}));
 
 // Rutas de la API
 app.use('/api/auth', authRoutes);
@@ -109,7 +122,6 @@ app.use('/api/productos', productosRoutes);
 app.use('/api/pedidos', pedidosRoutes);
 app.use('/api/ingredientes', ingredientesRoutes);
 app.use('/api/fichajes', fichajesRoutes);
-app.use('/api/liquidaciones', liquidacionesRoutes);
 app.use('/api/reportes', reportesRoutes);
 app.use('/api/pagos', pagosRoutes);
 app.use('/api/impresion', impresionRoutes);

@@ -1,16 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
+const { ensureBaseSucursales } = require('../../services/sucursales.service');
+const { loadTestEnv } = require('./load-test-env');
 
 module.exports = async function globalSetup() {
-  const dotenv = require('dotenv');
-  dotenv.config({ quiet: true });
-
-  // Force IPv4 to match jest-setup.js behaviour
-  if (process.env.DATABASE_URL) {
-    process.env.DATABASE_URL = process.env.DATABASE_URL.replace('@localhost', '@127.0.0.1');
-  }
-  if (process.env.DIRECT_URL) {
-    process.env.DIRECT_URL = process.env.DIRECT_URL.replace('@localhost', '@127.0.0.1');
-  }
+  loadTestEnv();
 
   const prisma = new PrismaClient();
 
@@ -36,9 +29,9 @@ module.exports = async function globalSetup() {
     await prisma.pedido.deleteMany();
     await prisma.reserva.deleteMany();
     await prisma.loteStock.deleteMany();
+    await prisma.ingredienteStock.deleteMany();
     await prisma.cierreCaja.deleteMany();
     await prisma.fichaje.deleteMany();
-    await prisma.liquidacion.deleteMany();
     await prisma.refreshToken.deleteMany();
     await prisma.usuario.deleteMany({
       where: { email: { not: 'admin@comanda.local' } }
@@ -52,6 +45,9 @@ module.exports = async function globalSetup() {
     await prisma.mercadoPagoConfig.deleteMany();
     await prisma.clienteFiscal.deleteMany();
     await prisma.puntoVentaFiscal.deleteMany();
+    await prisma.sucursal.deleteMany();
+
+    await ensureBaseSucursales(prisma);
   } finally {
     await prisma.$disconnect();
   }

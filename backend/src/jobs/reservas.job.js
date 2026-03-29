@@ -1,15 +1,17 @@
 const eventBus = require('../services/event-bus');
 const { prisma } = require('../db/prisma');
 const { logger } = require('../utils/logger');
+const { withAdvisoryLock } = require('../services/distributed-lock.service');
+const { invalidateMesaPublicSessions } = require('../services/public-order-security.service');
 
 let intervalId = null;
 
-const procesarReservas = async () => {
+const procesarReservas = async (db = prisma) => {
   try {
     const ahora = new Date();
     const en15Min = new Date(ahora.getTime() + 15 * 60 * 1000);
 
-    const reservasProximas = await prisma.reserva.findMany({
+    const reservasProximas = await db.reserva.findMany({
       where: {
         estado: 'CONFIRMADA',
         fechaHora: { gte: ahora, lte: en15Min }
@@ -19,12 +21,11 @@ const procesarReservas = async () => {
 
     for (const reserva of reservasProximas) {
       if (reserva.mesa.estado === 'LIBRE') {
-        await prisma.$transaction(async (tx) => {
-          await tx.mesa.update({
-            where: { id: reserva.mesaId },
-            data: { estado: 'RESERVADA' }
-          });
+        await db.mesa.update({
+          where: { id: reserva.mesaId },
+          data: { estado: 'RESERVADA' }
         });
+        await invalidateMesaPublicSessions(db, { mesaId: reserva.mesaId });
 
         eventBus.publish('mesa.updated', {
           mesaId: reserva.mesaId,
@@ -39,7 +40,7 @@ const procesarReservas = async () => {
 
     const hace30Min = new Date(ahora.getTime() - 30 * 60 * 1000);
 
-    const reservasVencidas = await prisma.reserva.findMany({
+    const reservasVencidas = await db.reserva.findMany({
       where: {
         estado: 'CONFIRMADA',
         fechaHora: { lt: hace30Min }
@@ -48,21 +49,19 @@ const procesarReservas = async () => {
     });
 
     for (const reserva of reservasVencidas) {
-      const mesaLiberada = await prisma.$transaction(async (tx) => {
-        await tx.reserva.update({
-          where: { id: reserva.id },
-          data: { estado: 'NO_LLEGO' }
-        });
-
-        if (reserva.mesa.estado === 'RESERVADA') {
-          await tx.mesa.update({
-            where: { id: reserva.mesaId },
-            data: { estado: 'LIBRE' }
-          });
-          return true;
-        }
-        return false;
+      await db.reserva.update({
+        where: { id: reserva.id },
+        data: { estado: 'NO_LLEGO' }
       });
+
+      const mesaLiberada = reserva.mesa.estado === 'RESERVADA';
+      if (mesaLiberada) {
+        await db.mesa.update({
+          where: { id: reserva.mesaId },
+          data: { estado: 'LIBRE' }
+        });
+        await invalidateMesaPublicSessions(db, { mesaId: reserva.mesaId });
+      }
 
       if (mesaLiberada) {
         eventBus.publish('mesa.updated', {
@@ -85,6 +84,8 @@ const procesarReservas = async () => {
   }
 };
 
+const ejecutarReservasConLock = async () => withAdvisoryLock(prisma, 'jobs.reservas', async (tx) => procesarReservas(tx));
+
 const iniciarJobReservas = () => {
   if (process.env.NODE_ENV === 'test') {
     return null;
@@ -95,8 +96,10 @@ const iniciarJobReservas = () => {
   }
 
   logger.info('Job de reservas iniciado');
-  procesarReservas();
-  intervalId = setInterval(procesarReservas, 60 * 1000);
+  void ejecutarReservasConLock();
+  intervalId = setInterval(() => {
+    void ejecutarReservasConLock();
+  }, 60 * 1000);
   return intervalId;
 };
 

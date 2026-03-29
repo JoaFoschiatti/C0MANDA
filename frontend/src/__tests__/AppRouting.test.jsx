@@ -43,7 +43,6 @@ vi.mock('../pages/admin/Mesas', () => ({ default: () => <div>Mesas</div> }))
 vi.mock('../pages/admin/Categorias', () => ({ default: () => <div>Categorias</div> }))
 vi.mock('../pages/admin/Productos', () => ({ default: () => <div>Productos</div> }))
 vi.mock('../pages/admin/Ingredientes', () => ({ default: () => <div>Ingredientes</div> }))
-vi.mock('../pages/admin/Liquidaciones', () => ({ default: () => <div>Liquidaciones</div> }))
 vi.mock('../pages/admin/Reportes', () => ({ default: () => <div>Reportes</div> }))
 vi.mock('../pages/admin/Configuracion', () => ({ default: () => <div>Configuracion</div> }))
 vi.mock('../pages/admin/CierreCaja', () => ({ default: () => <div>CierreCaja</div> }))
@@ -89,5 +88,16 @@ describe('App routing', () => {
     )
 
     expect(await screen.findByText('Dashboard')).toBeInTheDocument()
+  })
+
+  it('redirige pedidos para un rol no autorizado', async () => {
+    authState = { usuario: { rol: 'COCINERO' }, loading: false }
+    render(
+      <MemoryRouter initialEntries={['/pedidos']}>
+        <App />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByTestId('redirect-by-role')).toBeInTheDocument()
   })
 })

@@ -27,9 +27,9 @@ router.post('/webhook/mercadopago', webhookLimiter, asyncHandler(pagosController
 router.use(verificarToken);
 
 router.post('/', esAdminOCajero, validate({ body: registrarPagoBodySchema }), asyncHandler(pagosController.registrarPago));
-router.post('/mercadopago/preferencia', validate({ body: crearPreferenciaBodySchema }), asyncHandler(pagosController.crearPreferenciaMercadoPago));
+router.post('/mercadopago/preferencia', esAdminOCajero, validate({ body: crearPreferenciaBodySchema }), asyncHandler(pagosController.crearPreferenciaMercadoPago));
 router.post('/qr/orden', esAdminOCajero, validate({ body: crearQrOrdenBodySchema }), asyncHandler(pagosController.crearQrOrdenPresencial));
-router.get('/pedido/:pedidoId', validate({ params: pedidoIdParamSchema }), asyncHandler(pagosController.listarPagosPedido));
+router.get('/pedido/:pedidoId', esAdminOCajero, validate({ params: pedidoIdParamSchema }), asyncHandler(pagosController.listarPagosPedido));
 
 module.exports = router;
 

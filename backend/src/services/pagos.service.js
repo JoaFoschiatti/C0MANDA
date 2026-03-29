@@ -1,9 +1,15 @@
 const { createHttpError } = require('../utils/http-error');
 const { createQrOrder } = require('./mercadopago.service');
-
-const sumPagosRegistrados = (pagos = []) => pagos
-  .filter((pago) => !['RECHAZADO', 'CANCELADO'].includes(pago.estado))
-  .reduce((sum, pago) => sum + parseFloat(pago.monto), 0);
+const {
+  buildPedidoCobroSummary,
+  cancelPendingPaymentsForChannel
+} = require('./payment-state.service');
+const { isPedidoTerminal } = require('./order-state.service');
+const {
+  buildPedidoPaidUpdateData,
+  invalidateMesaPublicSessions,
+  shouldCloseMesaOnPaid
+} = require('./public-order-security.service');
 
 const registrarPago = async (prisma, payload) => {
   const {
@@ -35,15 +41,29 @@ const registrarPago = async (prisma, payload) => {
       throw createHttpError.badRequest('No se puede pagar un pedido cancelado');
     }
 
-    const totalPagado = sumPagosRegistrados(pedido.pagos);
-    const pendiente = parseFloat(pedido.total) - totalPagado;
+    if (isPedidoTerminal(pedido.estado) || pedido.estado === 'COBRADO') {
+      throw createHttpError.badRequest('No se puede registrar un pago en este pedido');
+    }
+
+    const cobroActual = buildPedidoCobroSummary(pedido);
+    const pendiente = cobroActual.pendiente;
 
     if (montoPago > pendiente + 0.01) {
       throw createHttpError.badRequest(`El monto excede el pendiente ($${pendiente.toFixed(2)})`);
     }
 
-    const efectivoEntregado = montoAbonado != null ? parseFloat(montoAbonado) : null;
+    if (metodo !== 'EFECTIVO' && montoAbonado != null) {
+      throw createHttpError.badRequest('montoAbonado solo puede registrarse para pagos en efectivo');
+    }
+
+    const efectivoEntregado = metodo === 'EFECTIVO' && montoAbonado != null
+      ? parseFloat(montoAbonado)
+      : null;
     const montoAComparar = montoPago + montoPropina;
+
+    if (metodo === 'EFECTIVO' && efectivoEntregado != null && efectivoEntregado + 0.01 < montoAComparar) {
+      throw createHttpError.badRequest('El monto abonado no alcanza para cubrir pago y propina');
+    }
 
     const pago = await tx.pago.create({
       data: {
@@ -63,23 +83,26 @@ const registrarPago = async (prisma, payload) => {
       }
     });
 
-    const nuevoTotalPagado = totalPagado + montoPago;
+    const nuevoCobro = buildPedidoCobroSummary({
+      total: pedido.total,
+      pagos: [...pedido.pagos, pago]
+    });
     let mesaUpdated = null;
 
-    if (nuevoTotalPagado >= parseFloat(pedido.total) - 0.01) {
+    if (nuevoCobro.fullyPaid) {
+      const pedidoData = buildPedidoPaidUpdateData(pedido, nuevoCobro);
+
       await tx.pedido.update({
         where: { id: pedidoId },
-        data: {
-          estado: 'COBRADO',
-          estadoPago: 'APROBADO'
-        }
+        data: pedidoData
       });
 
-      if (pedido.mesaId) {
+      if (shouldCloseMesaOnPaid(pedido, nuevoCobro)) {
         await tx.mesa.update({
           where: { id: pedido.mesaId },
           data: { estado: 'CERRADA' }
         });
+        await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
         mesaUpdated = { mesaId: pedido.mesaId, estado: 'CERRADA' };
       }
     }
@@ -92,8 +115,8 @@ const registrarPago = async (prisma, payload) => {
     return {
       pago,
       pedido: pedidoActualizado,
-      totalPagado: nuevoTotalPagado,
-      pendiente: Math.max(0, parseFloat(pedidoActualizado?.total || 0) - nuevoTotalPagado),
+      totalPagado: nuevoCobro.totalPagado,
+      pendiente: nuevoCobro.pendiente,
       mesaUpdated
     };
   }, {
@@ -115,16 +138,17 @@ const listarPagosPedido = async (prisma, pedidoId) => {
     })
   ]);
 
-  const totalPagado = sumPagosRegistrados(pagos);
-  const totalPedido = parseFloat(pedido?.total || 0);
-  const totalPropina = pagos.reduce((sum, pago) => sum + parseFloat(pago.propinaMonto || 0), 0);
+  const cobro = buildPedidoCobroSummary({
+    total: pedido?.total || 0,
+    pagos
+  });
 
   return {
     pagos,
-    totalPedido,
-    totalPagado,
-    totalPropina,
-    pendiente: Math.max(0, totalPedido - totalPagado)
+    totalPedido: cobro.totalPedido,
+    totalPagado: cobro.totalPagado,
+    totalPropina: cobro.totalPropina,
+    pendiente: cobro.pendiente
   };
 };
 
@@ -170,8 +194,8 @@ const crearOrdenQrPresencial = async (prisma, payload) => {
     throw createHttpError.badRequest('No se puede generar un QR presencial para este pedido');
   }
 
-  const totalPagado = sumPagosRegistrados(pedido.pagos);
-  const pendiente = Math.max(0, parseFloat(pedido.total) - totalPagado);
+  const cobroActual = buildPedidoCobroSummary(pedido);
+  const pendiente = cobroActual.pendiente;
 
   if (pendiente <= 0.01) {
     throw createHttpError.badRequest('El pedido ya fue cubierto en su totalidad');
@@ -220,19 +244,27 @@ const crearOrdenQrPresencial = async (prisma, payload) => {
     }))
   }, idempotencyKey);
 
-  const pago = await prisma.pago.create({
-    data: {
+  const pago = await prisma.$transaction(async (tx) => {
+    await cancelPendingPaymentsForChannel(tx, {
       pedidoId,
-      monto: pendiente,
-      metodo: 'MERCADOPAGO',
       canalCobro: 'QR_PRESENCIAL',
-      estado: 'PENDIENTE',
-      referencia: orderResponse.id?.toString() || null,
-      comprobante: orderResponse.qr_data || null,
-      propinaMonto: propina,
-      propinaMetodo: propina > 0 ? (propinaMetodo || 'MERCADOPAGO') : null,
-      idempotencyKey
-    }
+      metodo: 'MERCADOPAGO'
+    });
+
+    return tx.pago.create({
+      data: {
+        pedidoId,
+        monto: pendiente,
+        metodo: 'MERCADOPAGO',
+        canalCobro: 'QR_PRESENCIAL',
+        estado: 'PENDIENTE',
+        referencia: orderResponse.id?.toString() || null,
+        comprobante: orderResponse.qr_data || null,
+        propinaMonto: propina,
+        propinaMetodo: propina > 0 ? (propinaMetodo || 'MERCADOPAGO') : null,
+        idempotencyKey
+      }
+    });
   });
 
   return {

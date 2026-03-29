@@ -110,10 +110,19 @@ const obtener = async (prisma, id) => {
 const modificadoresDeProducto = async (prisma, productoId) => {
   const producto = await prisma.producto.findUnique({
     where: { id: productoId },
-    include: {
+    select: {
+      id: true,
       modificadores: {
-        include: {
-          modificador: true
+        select: {
+          modificador: {
+            select: {
+              id: true,
+              nombre: true,
+              tipo: true,
+              precio: true,
+              activo: true
+            }
+          }
         }
       }
     }

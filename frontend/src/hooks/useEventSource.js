@@ -1,120 +1,89 @@
 import { useEffect, useRef } from 'react'
 import { createEventSource } from '../services/eventos'
 
-/**
- * Hook para conectarse a Server-Sent Events (SSE).
- *
- * GestioNeo usa SSE para actualizaciones en tiempo real:
- * - Nuevos pedidos en cocina
- * - Cambios de estado de mesas
- * - Actualizaciones de pagos
- * - Notificaciones de stock agotado
- *
- * El servidor emite eventos en `/api/eventos` y este hook los escucha.
- *
- * @param {Object} options - Opciones de configuración
- * @param {boolean} [options.enabled=true] - Si debe conectarse (útil para habilitar/deshabilitar)
- * @param {Object} options.events - Mapa de nombre de evento → función handler
- * @param {Function} [options.onOpen] - Callback cuando la conexión se establece
- * @param {Function} [options.onError] - Callback cuando hay error de conexión
- *
- * @returns {void}
- *
- * @example
- * // En la pantalla de cocina
- * useEventSource({
- *   enabled: true,
- *   events: {
- *     'pedido.created': (event) => {
- *       const data = JSON.parse(event.data);
- *       // data = { id: 123, items: [...], mesa: {...} }
- *       setPedidos(prev => [...prev, data]);
- *       playNotificationSound();
- *     },
- *     'pedido.updated': (event) => {
- *       const data = JSON.parse(event.data);
- *       setPedidos(prev => prev.map(p =>
- *         p.id === data.id ? { ...p, estado: data.estado } : p
- *       ));
- *     },
- *     'mesa.updated': (event) => {
- *       const data = JSON.parse(event.data);
- *       setMesas(prev => prev.map(m =>
- *         m.id === data.mesaId ? { ...m, estado: data.estado } : m
- *       ));
- *     }
- *   },
- *   onOpen: () => console.log('Conectado a eventos'),
- *   onError: (err) => console.error('Error SSE:', err)
- * });
- *
- * @example
- * // Habilitar/deshabilitar según estado
- * const [escuchando, setEscuchando] = useState(true);
- *
- * useEventSource({
- *   enabled: escuchando,
- *   events: { ... }
- * });
- *
- * // Botón para pausar notificaciones
- * <button onClick={() => setEscuchando(prev => !prev)}>
- *   {escuchando ? 'Pausar' : 'Reanudar'} notificaciones
- * </button>
- *
- * @see backend/src/services/event-bus.js - Implementación del servidor SSE
- */
-export default function useEventSource({ enabled = true, events = {}, onOpen, onError } = {}) {
+const INITIAL_BACKOFF = 1000
+const MAX_BACKOFF = 30000
+const BACKOFF_MULTIPLIER = 2
+
+export default function useEventSource({ enabled = true, events = {}, onOpen, onError, onConnectionChange } = {}) {
   const eventsRef = useRef(events)
   const onOpenRef = useRef(onOpen)
   const onErrorRef = useRef(onError)
+  const onConnectionChangeRef = useRef(onConnectionChange)
 
-  useEffect(() => {
-    eventsRef.current = events
-  }, [events])
-
-  useEffect(() => {
-    onOpenRef.current = onOpen
-  }, [onOpen])
-
-  useEffect(() => {
-    onErrorRef.current = onError
-  }, [onError])
+  useEffect(() => { eventsRef.current = events }, [events])
+  useEffect(() => { onOpenRef.current = onOpen }, [onOpen])
+  useEffect(() => { onErrorRef.current = onError }, [onError])
+  useEffect(() => { onConnectionChangeRef.current = onConnectionChange }, [onConnectionChange])
 
   const eventNamesKey = Object.keys(events).sort().join('|')
 
   useEffect(() => {
     if (!enabled) return undefined
-    const source = createEventSource()
-    if (!source) return undefined
 
-    const listeners = {}
-    Object.keys(eventsRef.current).forEach((eventName) => {
-      const handler = (event) => {
-        const currentHandler = eventsRef.current[eventName]
-        if (currentHandler) currentHandler(event)
-      }
-      listeners[eventName] = handler
-      source.addEventListener(eventName, handler)
-    })
+    let sourceRef = null
+    let reconnectTimer = null
+    let reconnectAttempt = 0
+    let disposed = false
 
-    if (onErrorRef.current) {
-      source.onerror = (err) => {
-        onErrorRef.current?.(err)
-      }
-    }
+    function connect() {
+      if (disposed) return
 
-    if (onOpenRef.current) {
+      const source = createEventSource()
+      if (!source) return
+      sourceRef = source
+
+      const listeners = {}
+      Object.keys(eventsRef.current).forEach((eventName) => {
+        const handler = (event) => {
+          const currentHandler = eventsRef.current[eventName]
+          if (currentHandler) currentHandler(event)
+        }
+        listeners[eventName] = handler
+        source.addEventListener(eventName, handler)
+      })
+
       source.onopen = () => {
+        reconnectAttempt = 0
         onOpenRef.current?.()
+        onConnectionChangeRef.current?.(true)
+      }
+
+      source.onerror = () => {
+        onErrorRef.current?.()
+        onConnectionChangeRef.current?.(false)
+
+        // Clean up current source
+        Object.entries(listeners).forEach(([eventName, handler]) => {
+          source.removeEventListener(eventName, handler)
+        })
+        source.close()
+        sourceRef = null
+
+        scheduleReconnect()
       }
     }
+
+    function scheduleReconnect() {
+      if (disposed) return
+
+      const delay = Math.min(INITIAL_BACKOFF * (BACKOFF_MULTIPLIER ** reconnectAttempt), MAX_BACKOFF)
+      reconnectAttempt++
+
+      reconnectTimer = setTimeout(() => {
+        connect()
+      }, delay)
+    }
+
+    connect()
 
     return () => {
-      Object.entries(listeners).forEach(([eventName, handler]) => {
-        source.removeEventListener(eventName, handler)
-      })
-      source.close()
+      disposed = true
+      clearTimeout(reconnectTimer)
+      if (sourceRef) {
+        sourceRef.close()
+        sourceRef = null
+      }
     }
   }, [enabled, eventNamesKey])
 }

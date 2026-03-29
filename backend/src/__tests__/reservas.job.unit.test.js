@@ -8,8 +8,7 @@ const mockPrisma = {
   },
   mesa: {
     update: jest.fn()
-  },
-  $transaction: jest.fn((fn) => fn(mockPrisma))
+  }
 };
 
 jest.mock('../services/event-bus', () => ({
@@ -72,6 +71,39 @@ describe('reservas.job (unit)', () => {
     expect(mockPublish).toHaveBeenCalledWith('mesa.updated', expect.objectContaining({ mesaId: 5 }));
     expect(mockPublish).toHaveBeenCalledWith('mesa.updated', expect.objectContaining({ mesaId: 6 }));
     expect(mockPublish).toHaveBeenCalledWith('reserva.updated', expect.objectContaining({ id: 2 }));
+  });
+
+  it('acepta un transaction client sin $transaction', async () => {
+    const txClient = {
+      reserva: {
+        findMany: jest.fn()
+          .mockResolvedValueOnce([
+            { id: 11, mesaId: 15, mesa: { estado: 'LIBRE', numero: 7 } }
+          ])
+          .mockResolvedValueOnce([
+            { id: 12, mesaId: 16, mesa: { estado: 'RESERVADA', numero: 8 } }
+          ]),
+        update: jest.fn()
+      },
+      mesa: {
+        update: jest.fn()
+      }
+    };
+
+    await procesarReservas(txClient);
+
+    expect(txClient.mesa.update).toHaveBeenCalledWith({
+      where: { id: 15 },
+      data: { estado: 'RESERVADA' }
+    });
+    expect(txClient.reserva.update).toHaveBeenCalledWith({
+      where: { id: 12 },
+      data: { estado: 'NO_LLEGO' }
+    });
+    expect(txClient.mesa.update).toHaveBeenCalledWith({
+      where: { id: 16 },
+      data: { estado: 'LIBRE' }
+    });
   });
 
   it('no actualiza mesa si ya esta reservada', async () => {
