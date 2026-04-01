@@ -30,8 +30,6 @@ export function getTaskLink(task, esAdmin) {
         : mesaId
           ? buildPath('/mesas', { mesaId })
           : null
-    case 'QR_PRESENCIAL_PENDIENTE':
-      return pedidoId ? buildPath('/pedidos', { pedidoId, openPago: 1 }) : null
     case 'LOTE_VENCIDO_PENDIENTE_DESCARTE':
       return esAdmin && ingredienteId
         ? buildPath('/ingredientes', {

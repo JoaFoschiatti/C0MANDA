@@ -3,14 +3,13 @@ const eventBus = require('../services/event-bus');
 const { getPrisma } = require('../utils/get-prisma');
 const { getNegocio } = require('../db/prisma');
 const emailService = require('../services/email.service');
-const { getPayment, getQrOrder, saveTransaction } = require('../services/mercadopago.service');
+const { getPayment, saveTransaction } = require('../services/mercadopago.service');
 const pagosService = require('../services/pagos.service');
 const { logger } = require('../utils/logger');
 const { buildPedidoCobroSummary } = require('../services/payment-state.service');
 const { isPedidoTerminal } = require('../services/order-state.service');
 const {
   buildPedidoPaidUpdateData,
-  invalidateMesaPublicSessions,
   shouldCloseMesaOnPaid
 } = require('../services/public-order-security.service');
 
@@ -96,7 +95,6 @@ const finalizeApprovedPedido = async (tx, pedidoId) => {
       where: { id: pedido.mesaId },
       data: { estado: 'CERRADA' }
     });
-    await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
     mesaUpdated = { mesaId: pedido.mesaId, estado: 'CERRADA' };
   }
 
@@ -172,11 +170,10 @@ const crearPreferenciaMercadoPago = async (req, res) => {
   res.json(result);
 };
 
-const crearQrOrdenPresencial = async (req, res) => {
+const obtenerConfiguracionTransferenciaMercadoPago = async (req, res) => {
   const prisma = getPrisma(req);
-  const result = await pagosService.crearOrdenQrPresencial(prisma, req.body);
-
-  res.status(201).json(result);
+  const result = await pagosService.obtenerConfiguracionTransferenciaMercadoPago(prisma);
+  res.json(result);
 };
 
 const verifyWebhookSignature = (req) => {
@@ -223,53 +220,6 @@ const verifyWebhookSignature = (req) => {
   }
 };
 
-const handleQrOrderWebhook = async (prisma, orderId) => {
-  const pagoExistente = await prisma.pago.findFirst({
-    where: {
-      referencia: orderId,
-      canalCobro: 'QR_PRESENCIAL'
-    },
-    orderBy: { createdAt: 'desc' }
-  });
-
-  if (!pagoExistente) {
-    logger.info('Webhook QR: no se encontro pago local para la orden', { orderId });
-    return null;
-  }
-
-  let orderInfo;
-  try {
-    orderInfo = await getQrOrder(orderId);
-  } catch (error) {
-    logger.error('Webhook QR: error consultando orden en MercadoPago:', error);
-    return null;
-  }
-
-  const orderStatus = orderInfo.status?.toString().toLowerCase();
-  const paymentTx = orderInfo.transactions?.payments?.[0] || null;
-  const approved = ['closed', 'processed', 'paid'].includes(orderStatus) || paymentTx?.status === 'approved';
-
-  const updatedPago = await prisma.pago.update({
-    where: { id: pagoExistente.id },
-    data: {
-      estado: approved ? 'APROBADO' : 'PENDIENTE',
-      mpPaymentId: paymentTx?.id?.toString() || pagoExistente.mpPaymentId,
-      comprobante: orderInfo.qr_data || pagoExistente.comprobante
-    }
-  });
-
-  let finalized = null;
-  if (approved) {
-    finalized = await prisma.$transaction(async (tx) => finalizeApprovedPedido(tx, pagoExistente.pedidoId));
-  }
-
-  return {
-    pedidoId: pagoExistente.pedidoId,
-    pago: updatedPago,
-    finalized
-  };
-};
-
 const webhookMercadoPago = async (req, res) => {
   try {
     const prisma = getPrisma(req);
@@ -286,31 +236,6 @@ const webhookMercadoPago = async (req, res) => {
     }
 
     const { type, action, data } = req.body;
-
-    if (type === 'order' || action?.startsWith('order.')) {
-      const orderId = (data?.id || req.query['data.id'] || '').toString();
-
-      if (!orderId) {
-        return res.sendStatus(200);
-      }
-
-      const qrResult = await handleQrOrderWebhook(prisma, orderId);
-
-      if (qrResult?.finalized?.pedido) {
-        eventBus.publish('pago.updated', {
-          pedidoId: qrResult.pedidoId,
-          estadoPago: qrResult.finalized.pedido.estadoPago,
-          totalPagado: qrResult.finalized.totalPagado
-        });
-
-        if (!qrResult.finalized.requiresReview) {
-          publishMesaUpdated(qrResult.finalized.mesaUpdated);
-          publishPedidoUpdated(qrResult.finalized.pedido);
-        }
-      }
-
-      return res.sendStatus(200);
-    }
 
     if (type === 'payment' || action === 'payment.created' || action === 'payment.updated') {
       const paymentId = data?.id || req.query['data.id'];
@@ -497,8 +422,8 @@ const listarPagosPedido = async (req, res) => {
 
 module.exports = {
   registrarPago,
+  obtenerConfiguracionTransferenciaMercadoPago,
   crearPreferenciaMercadoPago,
-  crearQrOrdenPresencial,
   webhookMercadoPago,
   listarPagosPedido
 };

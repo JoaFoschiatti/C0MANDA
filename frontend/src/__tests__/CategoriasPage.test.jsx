@@ -31,7 +31,7 @@ describe('Categorias page', () => {
     vi.clearAllMocks()
   })
 
-  it('carga y muestra categorías', async () => {
+  it('carga y muestra categorias', async () => {
     api.get.mockResolvedValueOnce({
       data: [
         {
@@ -49,9 +49,11 @@ describe('Categorias page', () => {
 
     expect(await screen.findByText('Burgers')).toBeInTheDocument()
     expect(api.get).toHaveBeenCalledWith('/categorias')
+    expect(screen.getByRole('button', { name: /Editar .*Burgers/i })).toHaveAttribute('title', 'Editar')
+    expect(screen.getByRole('button', { name: /Eliminar .*Burgers/i })).toHaveAttribute('title', 'Eliminar')
   })
 
-  it('crea una categoría desde el modal', async () => {
+  it('crea una categoria desde el modal', async () => {
     api.get
       .mockResolvedValueOnce({ data: [] })
       .mockResolvedValueOnce({
@@ -71,9 +73,9 @@ describe('Categorias page', () => {
     const user = userEvent.setup()
     render(<Categorias />)
 
-    await screen.findByRole('button', { name: /Nueva Categoría/i })
+    await screen.findByRole('button', { name: /Nueva Categor/i })
 
-    await user.click(screen.getByRole('button', { name: /Nueva Categoría/i }))
+    await user.click(screen.getByRole('button', { name: /Nueva Categor/i }))
     await user.type(screen.getByLabelText('Nombre'), 'Papas')
     await user.click(screen.getByRole('button', { name: 'Crear' }))
 
@@ -84,8 +86,7 @@ describe('Categorias page', () => {
       )
     })
 
-    expect(toast.success).toHaveBeenCalledWith('Categoría creada')
+    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/^Categor/))
     expect(await screen.findByText('Papas')).toBeInTheDocument()
   })
 })
-

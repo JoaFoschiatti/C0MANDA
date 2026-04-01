@@ -1,7 +1,7 @@
 import { useNetworkStatusContext } from '../../context/NetworkStatusContext'
 
 export default function OfflineBanner() {
-  const { isOnline, pendingCount, syncStatus } = useNetworkStatusContext()
+  const { isOnline, apiAvailable, pendingCount, syncStatus } = useNetworkStatusContext()
 
   if (isOnline && syncStatus === 'syncing') {
     return (
@@ -9,6 +9,14 @@ export default function OfflineBanner() {
         <span className="inline-block animate-spin mr-2">&#8635;</span>
         Sincronizando operaciones pendientes...
         {pendingCount > 0 && ` (${pendingCount} restantes)`}
+      </div>
+    )
+  }
+
+  if (isOnline && !apiAvailable) {
+    return (
+      <div className="bg-red-600 text-white text-center py-2 px-4 text-sm font-medium z-50 relative">
+        Backend no disponible &mdash; Reintentando conexion automaticamente
       </div>
     )
   }

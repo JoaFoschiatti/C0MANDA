@@ -43,7 +43,6 @@ enum EstadoPedido {
 enum MetodoPago {
   EFECTIVO
   MERCADOPAGO
-  TARJETA
 }
 
 enum CanalCobro {
@@ -207,35 +206,17 @@ model Mesa {
   posY        Int?
   rotacion    Int        @default(0)
   grupoMesaId Int?
-  qrToken     String     @unique @default(uuid())
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   sucursal    Sucursal   @relation(fields: [sucursalId], references: [id])
   pedidos     Pedido[]
   reservas    Reserva[]
-  publicSessions MesaPublicSession[]
 
   @@index([sucursalId])
   @@index([estado])
   @@index([zona, activa])
   @@index([grupoMesaId])
   @@map("mesas")
-}
-
-model MesaPublicSession {
-  id           Int      @id @default(autoincrement())
-  mesaId        Int
-  sessionToken  String   @unique
-  expiresAt     DateTime
-  revokedAt     DateTime?
-  lastUsedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  mesa          Mesa     @relation(fields: [mesaId], references: [id], onDelete: Cascade)
-  pedidos       Pedido[]
-
-  @@index([mesaId, revokedAt, expiresAt])
-  @@map("mesa_public_sessions")
 }
 
 model Reserva {
@@ -406,7 +387,6 @@ model Pedido {
   estado            EstadoPedido       @default(PENDIENTE)
   sucursalId        Int                @default(1)
   mesaId            Int?
-  mesaPublicSessionId Int?
   usuarioId         Int?
   clienteNombre     String?
   clienteTelefono   String?
@@ -428,7 +408,6 @@ model Pedido {
   updatedAt         DateTime           @updatedAt
   sucursal          Sucursal           @relation(fields: [sucursalId], references: [id])
   mesa              Mesa?              @relation(fields: [mesaId], references: [id])
-  mesaPublicSession MesaPublicSession? @relation(fields: [mesaPublicSessionId], references: [id], onDelete: SetNull)
   usuario           Usuario?           @relation("PedidoCreador", fields: [usuarioId], references: [id])
   repartidor        Usuario?           @relation("PedidoRepartidor", fields: [repartidorId], references: [id])
   items             PedidoItem[]
@@ -447,7 +426,6 @@ model Pedido {
   @@index([createdAt])
   @@index([estadoPago, createdAt])
   @@index([mesaId])
-  @@index([mesaPublicSessionId])
   @@index([usuarioId])
   @@index([repartidorId])
   @@index([repartidorId, estado, createdAt], map: "pedidos_repartidor_estado_created_at_idx")
@@ -542,7 +520,6 @@ model CierreCaja {
   horaCierre     DateTime?
   fondoInicial   Decimal    @db.Decimal(10, 2)
   totalEfectivo  Decimal    @default(0) @db.Decimal(10, 2)
-  totalTarjeta   Decimal    @default(0) @db.Decimal(10, 2)
   totalMP        Decimal    @default(0) @db.Decimal(10, 2)
   efectivoFisico Decimal?   @db.Decimal(10, 2)
   diferencia     Decimal?   @db.Decimal(10, 2)

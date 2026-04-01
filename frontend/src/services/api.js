@@ -1,9 +1,16 @@
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { isQueueableOperation, addToQueue, processQueue } from '../utils/offline-queue'
+import {
+  isBackendConnectivityError,
+  markBackendAvailable,
+  markBackendUnavailable,
+} from './backendStatus'
 
 const MAX_RETRIES = 3
 const RETRY_DELAYS = [1000, 2000, 4000]
+const OFFLINE_TOAST_ID = 'network-offline'
+const BACKEND_UNAVAILABLE_TOAST_ID = 'backend-unavailable'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -33,7 +40,7 @@ api.interceptors.request.use(
 
     const error = new Error('Sin conexion a internet')
     error.__offline = true
-    toast.error('Sin conexion a internet')
+    toast.error('Sin conexion a internet', { id: OFFLINE_TOAST_ID })
     return Promise.reject(error)
   },
   error => Promise.reject(error)
@@ -71,9 +78,27 @@ api.interceptors.response.use(
 
 // --- Response interceptor: 401 + toast ---
 api.interceptors.response.use(
-  response => response,
+  response => {
+    markBackendAvailable()
+    toast.dismiss(BACKEND_UNAVAILABLE_TOAST_ID)
+    return response
+  },
   error => {
     if (error.__queued || error.__offline) return Promise.reject(error)
+
+    if (error.response) {
+      markBackendAvailable()
+    }
+
+    if (navigator.onLine && isBackendConnectivityError(error)) {
+      markBackendUnavailable()
+
+      toast.error('Backend no disponible. Reintentando automaticamente.', {
+        id: BACKEND_UNAVAILABLE_TOAST_ID
+      })
+
+      return Promise.reject(error)
+    }
 
     const message = error.response?.data?.error?.message || 'Error de conexion'
     const skipToast = Boolean(error.config?.skipToast)

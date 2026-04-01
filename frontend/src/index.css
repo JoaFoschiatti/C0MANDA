@@ -762,6 +762,280 @@ body {
 }
 
 /* ============================================ */
+/* MESA STATUS CARDS                            */
+/* ============================================ */
+
+.mesa-status-theme--libre {
+  --mesa-status-bg: #F0FBF5;
+  --mesa-status-bg-hover: #E5F7ED;
+  --mesa-status-border: #63B08A;
+  --mesa-status-border-strong: #2F8A61;
+  --mesa-status-pill-bg: #D8F4E5;
+  --mesa-status-pill-border: #9BD4B6;
+  --mesa-status-accent: #1D6847;
+  --mesa-status-muted: #44735D;
+  --mesa-status-note: #5E8C76;
+}
+
+.mesa-status-theme--ocupada {
+  --mesa-status-bg: #FFF1EF;
+  --mesa-status-bg-hover: #FFE5E1;
+  --mesa-status-border: #E08D7F;
+  --mesa-status-border-strong: #D25744;
+  --mesa-status-pill-bg: #FFD9D2;
+  --mesa-status-pill-border: #F0ABA0;
+  --mesa-status-accent: #A33C2D;
+  --mesa-status-muted: #91524C;
+  --mesa-status-note: #A9665D;
+}
+
+.mesa-status-theme--reservada {
+  --mesa-status-bg: #FFF9E7;
+  --mesa-status-bg-hover: #FFF0CE;
+  --mesa-status-border: #E0B84A;
+  --mesa-status-border-strong: #C38D0D;
+  --mesa-status-pill-bg: #FFF0B8;
+  --mesa-status-pill-border: #F1D06D;
+  --mesa-status-accent: #8C650D;
+  --mesa-status-muted: #9C7722;
+  --mesa-status-note: #B88C39;
+}
+
+.mesa-status-theme--esperando {
+  --mesa-status-bg: #FFF0E2;
+  --mesa-status-bg-hover: #FFE2CC;
+  --mesa-status-border: #EEA464;
+  --mesa-status-border-strong: #DB7C2A;
+  --mesa-status-pill-bg: #FFD8B6;
+  --mesa-status-pill-border: #F2BB83;
+  --mesa-status-accent: #A14E16;
+  --mesa-status-muted: #A76638;
+  --mesa-status-note: #C47C4A;
+}
+
+.mesa-status-theme--cerrada {
+  --mesa-status-bg: #F2F6FA;
+  --mesa-status-bg-hover: #E7EEF6;
+  --mesa-status-border: #9EADBF;
+  --mesa-status-border-strong: #74859B;
+  --mesa-status-pill-bg: #DEE6F0;
+  --mesa-status-pill-border: #B8C5D4;
+  --mesa-status-accent: #425468;
+  --mesa-status-muted: #5E6F84;
+  --mesa-status-note: #7A8797;
+}
+
+.mesa-status-card {
+  border-width: 2px;
+  border-style: solid;
+  border-color: var(--mesa-status-border);
+  border-radius: 1.4rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.18)),
+    var(--mesa-status-bg);
+  box-shadow: 0 10px 24px rgba(42, 28, 16, 0.06);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+}
+
+@media (min-width: 640px) {
+  .mesa-status-card {
+    border-radius: 1.55rem;
+  }
+}
+
+.mesa-status-card--interactive:hover {
+  transform: translateY(-1px);
+  border-color: var(--mesa-status-border-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.22)),
+    var(--mesa-status-bg-hover);
+  box-shadow: 0 14px 30px rgba(42, 28, 16, 0.08);
+}
+
+.mesa-status-card--interactive:focus-within {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.9),
+    0 0 0 5px color-mix(in srgb, var(--mesa-status-border-strong) 70%, white 30%),
+    0 14px 30px rgba(42, 28, 16, 0.08);
+}
+
+.mesa-status-card-hitarea {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: none;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.mesa-status-card-hitarea:focus {
+  outline: none;
+}
+
+.mesa-status-card--selected {
+  outline: 2px solid color-mix(in srgb, var(--mesa-status-border-strong) 80%, white 20%);
+  outline-offset: 3px;
+}
+
+.mesa-status-card--focused {
+  outline: 2px solid color-mix(in srgb, var(--mesa-status-border-strong) 62%, white 38%);
+  outline-offset: 3px;
+  box-shadow: 0 16px 32px rgba(42, 28, 16, 0.12);
+}
+
+.mesa-status-swatch {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 0.4rem;
+  border: 2px solid var(--mesa-status-border);
+  background-color: var(--mesa-status-bg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.mesa-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.18rem 0.55rem;
+  border-radius: 9999px;
+  border: 1px solid var(--mesa-status-pill-border);
+  background: var(--mesa-status-pill-bg);
+  color: var(--mesa-status-accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+
+.mesa-status-accent {
+  color: var(--mesa-status-accent);
+}
+
+.mesa-status-muted {
+  color: var(--mesa-status-muted);
+}
+
+.mesa-status-note {
+  color: var(--mesa-status-note);
+}
+
+.mesa-status-card-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  padding: 0.75rem;
+  opacity: 0;
+  transform: translateY(0.5rem);
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0) 28%,
+    rgba(255, 255, 255, 0.72) 58%,
+    rgba(255, 255, 255, 0.92) 82%,
+    rgba(255, 255, 255, 0.98) 100%
+  );
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.mesa-status-card:hover .mesa-status-card-overlay,
+.mesa-status-card:focus-within .mesa-status-card-overlay,
+.mesa-status-card--selected .mesa-status-card-overlay,
+.mesa-status-card--focused .mesa-status-card-overlay {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.mesa-status-card-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.mesa-status-overlay__ghost-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 1.95rem;
+  border-radius: 1.05rem;
+  border: 1px solid color-mix(in srgb, var(--mesa-status-border) 55%, white 45%);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--mesa-status-accent);
+  font-size: 0.74rem;
+  font-weight: 600;
+  transition: all 0.16s ease;
+}
+
+.mesa-status-overlay__ghost-action:hover {
+  border-color: var(--mesa-status-border-strong);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.mesa-status-overlay__ghost-action--danger {
+  color: var(--color-error-600);
+  border-color: rgba(239, 68, 68, 0.22);
+}
+
+.mesa-status-overlay__ghost-action--danger:hover {
+  border-color: var(--color-error-600);
+  background: var(--color-error-50);
+}
+
+.mesa-status-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.9rem;
+  border-radius: 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--mesa-status-border) 55%, white 45%);
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--mesa-status-accent);
+  transition: all 0.16s ease;
+}
+
+.mesa-status-action:hover {
+  border-color: var(--mesa-status-border-strong);
+  background: var(--mesa-status-pill-bg);
+}
+
+.mesa-status-action--danger {
+  color: var(--color-error-600);
+  border-color: rgba(239, 68, 68, 0.22);
+}
+
+.mesa-status-action--danger:hover {
+  border-color: var(--color-error-600);
+  background: var(--color-error-50);
+}
+
+.mesa-status-primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 1.95rem;
+  border-radius: 1.05rem;
+  border: 1px solid var(--mesa-status-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.1)), var(--mesa-status-pill-bg);
+  color: var(--mesa-status-accent);
+  font-size: 0.74rem;
+  font-weight: 700;
+  transition: all 0.16s ease;
+}
+
+.mesa-status-primary-action:hover {
+  border-color: var(--mesa-status-border-strong);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.12)), var(--mesa-status-bg-hover);
+}
+
+/* ============================================ */
 /* LOADING / SPINNERS                           */
 /* ============================================ */
 

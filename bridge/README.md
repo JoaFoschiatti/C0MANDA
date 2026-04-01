@@ -5,7 +5,8 @@ Servicio local para imprimir jobs desde el backend en cloud usando el spooler de
 ## Requisitos
 - Windows 10+
 - Node.js 18+
-- Impresora instalada en Windows (ej: EPSON T2000 3I)
+- Impresora instalada en Windows y visible en el panel de impresoras
+- EPSON TM-T20III conectada por USB a la misma PC donde corre el bridge
 
 ## Configuracion
 
@@ -15,10 +16,17 @@ Variables necesarias:
 BRIDGE_API_URL=https://tu-dominio.com/api
 BRIDGE_TOKEN=tu_token_seguro
 BRIDGE_ID=pc-caja-1
-PRINTER_NAME=EPSON T2000 3I
+PRINTER_NAME=EPSON TM-T20III
 PRINT_ADAPTER=spooler
 POLL_INTERVAL_MS=2000
+REQUEST_TIMEOUT_MS=10000
 ```
+
+Notas importantes:
+- El nombre de `PRINTER_NAME` debe coincidir exactamente con el nombre que Windows muestra para la impresora.
+- USB funciona sin problemas si Windows ya ve la impresora instalada.
+- El bridge puede correr como servicio con NSSM o PM2.
+- La cuenta del servicio debe tener permisos para ver y usar la impresora.
 
 ## Ejecutar
 
@@ -26,6 +34,6 @@ POLL_INTERVAL_MS=2000
 node index.js
 ```
 
-Para correr como servicio en Windows, se recomienda NSSM o PM2.
+Antes de correrlo como servicio, probalo en una consola normal para confirmar que el spooler imprime bien.
 
 La guia de entrega y operacion del bridge esta en [docs/entrega/bridge-windows.md](/C:/Programacion/Comanda/docs/entrega/bridge-windows.md).

@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react'
+import useBackendAvailability from './useBackendAvailability'
+import useNetworkStatus from './useNetworkStatus'
 
 export default function usePolling(callback, intervalMs, options = {}) {
   const { immediate = true, enabled = true, onError } = options
+  const { apiAvailable } = useBackendAvailability()
+  const { isOnline } = useNetworkStatus()
   const savedCallback = useRef(callback)
   const onErrorRef = useRef(onError)
 
@@ -14,7 +18,9 @@ export default function usePolling(callback, intervalMs, options = {}) {
   }, [onError])
 
   useEffect(() => {
-    if (!enabled || intervalMs == null) return undefined
+    const shouldPoll = enabled && isOnline && apiAvailable
+
+    if (!shouldPoll || intervalMs == null) return undefined
     const invoke = () => {
       try {
         const result = savedCallback.current?.()
@@ -41,5 +47,5 @@ export default function usePolling(callback, intervalMs, options = {}) {
     }
     const id = setInterval(invoke, intervalMs)
     return () => clearInterval(id)
-  }, [enabled, intervalMs, immediate])
+  }, [apiAvailable, enabled, intervalMs, immediate, isOnline])
 }

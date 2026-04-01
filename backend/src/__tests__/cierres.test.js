@@ -81,8 +81,7 @@ describe('Cierres (Caja) Endpoints', () => {
     await prisma.pago.createMany({
       data: [
         { pedidoId: pedido.id, monto: 500, metodo: 'EFECTIVO', estado: 'APROBADO', createdAt },
-        { pedidoId: pedido.id, monto: 200, metodo: 'TARJETA', estado: 'APROBADO', createdAt },
-        { pedidoId: pedido.id, monto: 300, metodo: 'MERCADOPAGO', estado: 'APROBADO', createdAt }
+        { pedidoId: pedido.id, monto: 500, metodo: 'MERCADOPAGO', estado: 'APROBADO', createdAt }
       ]
     });
 
@@ -92,8 +91,8 @@ describe('Cierres (Caja) Endpoints', () => {
       .expect(200);
 
     expect(response.body.ventasEfectivo).toBeGreaterThanOrEqual(500);
-    expect(response.body.ventasTarjeta).toBeGreaterThanOrEqual(200);
-    expect(response.body.ventasMercadoPago).toBeGreaterThanOrEqual(300);
+    expect(response.body.ventasTarjeta).toBeUndefined();
+    expect(response.body.ventasMercadoPago).toBeGreaterThanOrEqual(500);
     expect(response.body.totalVentas).toBeGreaterThanOrEqual(1000);
     expect(response.body.efectivoEsperado).toBeGreaterThanOrEqual(1500);
   });

@@ -51,7 +51,6 @@ const TASK_PRIORITY_ORDER = {
 
 const UPCOMING_EXPIRY_WINDOW_DAYS = 7;
 const ACTIVE_PEDIDO_STATES = ['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO'];
-const NON_FINAL_PEDIDO_STATES = ['CANCELADO', 'CERRADO'];
 const HISTORICAL_VENTA_PEDIDO_WHERE = {
   estadoPago: 'APROBADO',
   estado: { in: ['COBRADO', 'CERRADO'] }
@@ -163,7 +162,6 @@ const buildTaskSummary = (caja, stock) => {
     caja: caja.length,
     stock: stock.length,
     mesasEsperandoCuenta: countTaskType(caja, 'MESA_ESPERANDO_CUENTA'),
-    qrPendientes: countTaskType(caja, 'QR_PRESENCIAL_PENDIENTE'),
     pedidosPorCerrar: countTaskType(caja, 'PEDIDO_COBRADO_PENDIENTE_CIERRE'),
     mesasPorLiberar: countTaskType(caja, 'MESA_CERRADA_PENDIENTE_LIBERACION'),
     stockBajo: countTaskType(stock, 'INGREDIENTE_STOCK_BAJO'),
@@ -188,30 +186,6 @@ const buildMesaEsperandoCuentaTask = (mesa) => {
     entidad: {
       mesaId: mesa.id,
       pedidoId: pedidoActivo?.id ?? null
-    }
-  };
-};
-
-const buildQrPendienteTask = (pago) => {
-  const mesaNumero = pago.pedido?.mesa?.numero;
-  const monto = decimalToNumber(pago.monto);
-  const propinaMonto = decimalToNumber(pago.propinaMonto);
-  const total = monto + propinaMonto;
-
-  return {
-    id: `caja:qr-presencial-pendiente:${pago.id}`,
-    categoria: 'CAJA',
-    tipo: 'QR_PRESENCIAL_PENDIENTE',
-    prioridad: 'MEDIA',
-    fechaReferencia: pago.updatedAt.toISOString(),
-    titulo: `QR presencial pendiente para pedido #${pago.pedido.id}`,
-    descripcion: mesaNumero
-      ? `Pedido #${pago.pedido.id} en mesa ${mesaNumero} mantiene un cobro QR pendiente por $${total.toFixed(2)}.`
-      : `Pedido #${pago.pedido.id} mantiene un cobro QR pendiente por $${total.toFixed(2)}.`,
-    entidad: {
-      pagoId: pago.id,
-      pedidoId: pago.pedido.id,
-      mesaId: pago.pedido.mesaId ?? null
     }
   };
 };
@@ -304,7 +278,6 @@ const buildLotePorVencerTask = (lote) => ({
 const tareasCentro = async (prisma, referenceDate = new Date()) => {
   const [
     mesasEsperandoCuenta,
-    pagosQrPendientes,
     pedidosPorCerrar,
     mesasCerradas,
     lotesVencidos,
@@ -330,34 +303,6 @@ const tareasCentro = async (prisma, referenceDate = new Date()) => {
           take: 1,
           select: {
             id: true
-          }
-        }
-      }
-    }),
-    prisma.pago.findMany({
-      where: {
-        canalCobro: 'QR_PRESENCIAL',
-        estado: 'PENDIENTE',
-        pedido: {
-          estado: {
-            notIn: NON_FINAL_PEDIDO_STATES
-          }
-        }
-      },
-      select: {
-        id: true,
-        monto: true,
-        propinaMonto: true,
-        updatedAt: true,
-        pedido: {
-          select: {
-            id: true,
-            mesaId: true,
-            mesa: {
-              select: {
-                numero: true
-              }
-            }
           }
         }
       }
@@ -461,7 +406,6 @@ const tareasCentro = async (prisma, referenceDate = new Date()) => {
 
   const caja = sortTaskItems([
     ...mesasEsperandoCuenta.map(buildMesaEsperandoCuentaTask),
-    ...pagosQrPendientes.map(buildQrPendienteTask),
     ...pedidosPorCerrar.map(buildPedidoPorCerrarTask),
     ...mesasCerradas
       .filter((mesa) => !mesa.pedidos.some((pedido) => pedido.estado === 'COBRADO'))

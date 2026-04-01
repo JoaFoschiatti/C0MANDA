@@ -636,10 +636,10 @@ describe('Pedidos Endpoints', () => {
         pedidoId: pedido.id,
         monto: 50,
         metodo: 'MERCADOPAGO',
-        canalCobro: 'QR_PRESENCIAL',
+        canalCobro: 'CAJA',
         estado: 'PENDIENTE',
-        referencia: `QR-${uniqueId('pedido-list')}`,
-        comprobante: 'qr-data'
+        referencia: `TRF-${uniqueId('pedido-list')}`,
+        comprobante: 'comprobante-transferencia'
       }
     });
 
@@ -678,9 +678,9 @@ describe('Pedidos Endpoints', () => {
     });
     expect(listado.pagos).toEqual([
       expect.objectContaining({
-        canalCobro: 'QR_PRESENCIAL',
+        canalCobro: 'CAJA',
         estado: 'PENDIENTE',
-        comprobante: 'qr-data'
+        comprobante: 'comprobante-transferencia'
       })
     ]);
     expect(listado.impresion).toEqual(expect.objectContaining({

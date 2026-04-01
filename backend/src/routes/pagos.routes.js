@@ -8,8 +8,7 @@ const { asyncHandler } = require('../utils/async-handler');
 const {
   pedidoIdParamSchema,
   registrarPagoBodySchema,
-  crearPreferenciaBodySchema,
-  crearQrOrdenBodySchema
+  crearPreferenciaBodySchema
 } = require('../schemas/pagos.schemas');
 
 const webhookLimiter = rateLimit({
@@ -20,16 +19,15 @@ const webhookLimiter = rateLimit({
   message: { error: { message: 'Demasiadas solicitudes al webhook' } }
 });
 
-// Webhook público de MercadoPago (sin auth)
+// Webhook publico de MercadoPago (sin auth)
 router.post('/webhook/mercadopago', webhookLimiter, asyncHandler(pagosController.webhookMercadoPago));
 
 // Rutas protegidas
 router.use(verificarToken);
 
 router.post('/', esAdminOCajero, validate({ body: registrarPagoBodySchema }), asyncHandler(pagosController.registrarPago));
+router.get('/mercadopago/transferencia-config', esAdminOCajero, asyncHandler(pagosController.obtenerConfiguracionTransferenciaMercadoPago));
 router.post('/mercadopago/preferencia', esAdminOCajero, validate({ body: crearPreferenciaBodySchema }), asyncHandler(pagosController.crearPreferenciaMercadoPago));
-router.post('/qr/orden', esAdminOCajero, validate({ body: crearQrOrdenBodySchema }), asyncHandler(pagosController.crearQrOrdenPresencial));
 router.get('/pedido/:pedidoId', esAdminOCajero, validate({ params: pedidoIdParamSchema }), asyncHandler(pagosController.listarPagosPedido));
 
 module.exports = router;
-

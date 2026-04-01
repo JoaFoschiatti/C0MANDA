@@ -2,7 +2,6 @@ const eventBus = require('../services/event-bus');
 const { prisma } = require('../db/prisma');
 const { logger } = require('../utils/logger');
 const { withAdvisoryLock } = require('../services/distributed-lock.service');
-const { invalidateMesaPublicSessions } = require('../services/public-order-security.service');
 
 let intervalId = null;
 
@@ -25,7 +24,6 @@ const procesarReservas = async (db = prisma) => {
           where: { id: reserva.mesaId },
           data: { estado: 'RESERVADA' }
         });
-        await invalidateMesaPublicSessions(db, { mesaId: reserva.mesaId });
 
         eventBus.publish('mesa.updated', {
           mesaId: reserva.mesaId,
@@ -60,7 +58,6 @@ const procesarReservas = async (db = prisma) => {
           where: { id: reserva.mesaId },
           data: { estado: 'LIBRE' }
         });
-        await invalidateMesaPublicSessions(db, { mesaId: reserva.mesaId });
       }
 
       if (mesaLiberada) {

@@ -34,9 +34,6 @@ vi.mock('../pages/Login', () => ({
 vi.mock('../pages/MenuPublico', () => ({
   default: () => <div>MenuPublico</div>
 }))
-vi.mock('../pages/MenuMesaPublico', () => ({
-  default: () => <div>MenuMesaPublico</div>
-}))
 vi.mock('../pages/admin/Dashboard', () => ({ default: () => <div>Dashboard</div> }))
 vi.mock('../pages/admin/Usuarios', () => ({ default: () => <div>Usuarios</div> }))
 vi.mock('../pages/admin/Mesas', () => ({ default: () => <div>Mesas</div> }))

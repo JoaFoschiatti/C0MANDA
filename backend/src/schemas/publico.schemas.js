@@ -21,10 +21,6 @@ const pedidoIdParamSchema = z.object({
   id: positiveIntSchema
 }).strip();
 
-const qrTokenParamSchema = z.object({
-  qrToken: z.string({ required_error: 'Token QR requerido' }).trim().min(1).max(255)
-}).strip();
-
 const publicOrderAccessQuerySchema = z.object({
   token: z.string({ required_error: 'Token requerido' }).trim().min(1, 'Token requerido')
 }).strip();
@@ -57,18 +53,9 @@ const createPublicOrderBodySchema = z.object({
   observaciones: optionalTrimmedString(500)
 }).strip();
 
-const createPublicTableOrderBodySchema = z.object({
-  sessionToken: z.string({ required_error: 'Sesion de mesa requerida' }).trim().min(1).max(255),
-  items: z.array(publicOrderItemSchema).min(1, 'El pedido debe tener al menos un producto'),
-  clienteNombre: z.string({ required_error: 'Nombre requerido' }).trim().min(1).max(150),
-  observaciones: optionalTrimmedString(500)
-}).strip();
-
 module.exports = {
   pedidoIdParamSchema,
-  qrTokenParamSchema,
   publicOrderAccessQuerySchema,
   publicOrderPaymentBodySchema,
-  createPublicOrderBodySchema,
-  createPublicTableOrderBodySchema
+  createPublicOrderBodySchema
 };

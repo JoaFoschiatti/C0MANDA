@@ -87,25 +87,6 @@ async function getMercadoPagoClient() {
   }
 }
 
-async function getMercadoPagoAccessToken() {
-  const config = await getMercadoPagoConfigRecord();
-
-  if (!config || !config.isActive) {
-    return null;
-  }
-
-  if (config.isOAuth && config.expiresAt && new Date() > config.expiresAt) {
-    return refreshOAuthToken(config);
-  }
-
-  try {
-    return decrypt(config.accessToken);
-  } catch (error) {
-    logger.error('Error al desencriptar token de MP:', error);
-    return null;
-  }
-}
-
 async function isMercadoPagoConfigured() {
   const config = await prisma.mercadoPagoConfig.findUnique({
     where: { id: 1 },
@@ -165,50 +146,6 @@ async function getPayment(paymentId) {
 
   const payment = new Payment(client);
   return payment.get({ id: paymentId });
-}
-
-async function createQrOrder(orderData, idempotencyKey) {
-  const accessToken = await getMercadoPagoAccessToken();
-  if (!accessToken) {
-    throw new Error('MercadoPago no esta configurado para este negocio');
-  }
-
-  const response = await fetch('https://api.mercadopago.com/v1/orders', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      'X-Idempotency-Key': idempotencyKey
-    },
-    body: JSON.stringify(orderData)
-  });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    logger.error('Error creando orden QR en MercadoPago:', data);
-    throw new Error(data.message || data.error || 'No se pudo crear la orden QR en MercadoPago');
-  }
-
-  return data;
-}
-
-async function getQrOrder(orderId) {
-  const accessToken = await getMercadoPagoAccessToken();
-  if (!accessToken) {
-    throw new Error('MercadoPago no esta configurado para este negocio');
-  }
-
-  const response = await fetch(`https://api.mercadopago.com/v1/orders/${orderId}`, {
-    headers: { Authorization: `Bearer ${accessToken}` }
-  });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    logger.error('Error consultando orden QR en MercadoPago:', data);
-    throw new Error(data.message || data.error || 'No se pudo consultar la orden QR en MercadoPago');
-  }
-
-  return data;
 }
 
 async function searchPaymentByReference(externalReference) {
@@ -336,13 +273,10 @@ async function getTransactionHistory(options = {}) {
 
 module.exports = {
   getMercadoPagoClient,
-  getMercadoPagoAccessToken,
   isMercadoPagoConfigured,
   getMercadoPagoConfigInfo,
   createPreference,
-  createQrOrder,
   getPayment,
-  getQrOrder,
   searchPaymentByReference,
   saveTransaction,
   getTransactionHistory

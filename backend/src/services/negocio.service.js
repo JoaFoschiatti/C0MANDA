@@ -57,7 +57,29 @@ const actualizarNegocio = async (prisma, data) => {
   };
 };
 
+const subirLogo = async (prisma, file) => {
+  if (!file) {
+    throw createHttpError.badRequest('No se subio ninguna imagen');
+  }
+
+  const logoUrl = `/uploads/${file.filename}`;
+
+  await prisma.negocio.update({
+    where: { id: 1 },
+    data: {
+      logo: logoUrl
+    },
+    select: NEGOCIO_SELECT
+  });
+
+  return {
+    url: logoUrl,
+    message: 'Logo subido correctamente'
+  };
+};
+
 module.exports = {
   obtenerNegocio,
-  actualizarNegocio
+  actualizarNegocio,
+  subirLogo
 };

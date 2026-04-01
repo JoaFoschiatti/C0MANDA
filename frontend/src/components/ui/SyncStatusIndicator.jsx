@@ -1,12 +1,15 @@
 import { useNetworkStatusContext } from '../../context/NetworkStatusContext'
 
 export default function SyncStatusIndicator() {
-  const { isOnline, sseConnected, pendingCount, syncStatus } = useNetworkStatusContext()
+  const { isOnline, apiAvailable, sseConnected, pendingCount, syncStatus } = useNetworkStatusContext()
 
   let color, title
   if (!isOnline) {
     color = 'bg-red-500'
     title = 'Sin conexion'
+  } else if (!apiAvailable) {
+    color = 'bg-red-500'
+    title = 'Backend no disponible'
   } else if (syncStatus === 'syncing' || !sseConnected) {
     color = 'bg-yellow-400'
     title = syncStatus === 'syncing' ? 'Sincronizando...' : 'Reconectando...'

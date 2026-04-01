@@ -60,7 +60,7 @@ describe('Pagos Endpoints', () => {
     const pago2 = await request(app)
       .post('/api/pagos')
       .set('Authorization', authHeader(token))
-      .send({ pedidoId: pedido.id, monto: 60, metodo: 'TARJETA' })
+      .send({ pedidoId: pedido.id, monto: 60, metodo: 'MERCADOPAGO' })
       .expect(201);
 
     expect(Number(pago2.body.totalPagado)).toBe(100);
@@ -162,6 +162,38 @@ describe('Pagos Endpoints', () => {
     expect(response.body.pedido.operacionConfirmada).toBe(true);
   });
 
+  it('POST /api/pagos permite registrar MercadoPago por caja sin referencia ni comprobante', async () => {
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MOSTRADOR',
+        subtotal: 50,
+        total: 50
+      }
+    });
+
+    const response = await request(app)
+      .post('/api/pagos')
+      .set('Authorization', authHeader(token))
+      .send({
+        pedidoId: pedido.id,
+        monto: 50,
+        metodo: 'MERCADOPAGO',
+        canalCobro: 'CAJA'
+      })
+      .expect(201);
+
+    expect(response.body.pago.referencia).toBeNull();
+    expect(response.body.pago.comprobante).toBeNull();
+    expect(response.body.pedido.estado).toBe('COBRADO');
+
+    const pagoPersistido = await prisma.pago.findUnique({
+      where: { id: response.body.pago.id }
+    });
+
+    expect(pagoPersistido.referencia).toBeNull();
+    expect(pagoPersistido.comprobante).toBeNull();
+  });
+
   it('POST /api/pagos rechaza pedido inexistente', async () => {
     const response = await request(app)
       .post('/api/pagos')
@@ -170,6 +202,124 @@ describe('Pagos Endpoints', () => {
       .expect(404);
 
     expect(response.body.error.message).toBe('Pedido no encontrado');
+  });
+
+  it('POST /api/pagos rechaza TARJETA como metodo de pago nuevo', async () => {
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MOSTRADOR',
+        subtotal: 30,
+        total: 30
+      }
+    });
+
+    const response = await request(app)
+      .post('/api/pagos')
+      .set('Authorization', authHeader(token))
+      .send({
+        pedidoId: pedido.id,
+        monto: 30,
+        metodo: 'TARJETA'
+      })
+      .expect(400);
+
+    expect(response.body.error.message).toBe('Datos inválidos');
+    expect(response.body.error.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'metodo' })
+    ]));
+  });
+
+  it('POST /api/pagos rechaza TARJETA como metodo de propina nuevo', async () => {
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MOSTRADOR',
+        subtotal: 30,
+        total: 30
+      }
+    });
+
+    const response = await request(app)
+      .post('/api/pagos')
+      .set('Authorization', authHeader(token))
+      .send({
+        pedidoId: pedido.id,
+        monto: 30,
+        metodo: 'EFECTIVO',
+        propinaMonto: 5,
+        propinaMetodo: 'TARJETA'
+      })
+      .expect(400);
+
+    expect(response.body.error.message).toBe('Datos inválidos');
+    expect(response.body.error.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'propinaMetodo' })
+    ]));
+  });
+
+  it('POST /api/pagos rechaza QR_PRESENCIAL como canal de cobro nuevo', async () => {
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MOSTRADOR',
+        subtotal: 30,
+        total: 30
+      }
+    });
+
+    const response = await request(app)
+      .post('/api/pagos')
+      .set('Authorization', authHeader(token))
+      .send({
+        pedidoId: pedido.id,
+        monto: 30,
+        metodo: 'MERCADOPAGO',
+        canalCobro: 'QR_PRESENCIAL'
+      })
+      .expect(400);
+
+    expect(response.body.error.message).toBe('Datos inválidos');
+    expect(response.body.error.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'canalCobro' })
+    ]));
+  });
+
+  it('POST /api/pagos/qr/orden ya no esta disponible', async () => {
+    await request(app)
+      .post('/api/pagos/qr/orden')
+      .set('Authorization', authHeader(token))
+      .send({
+        pedidoId: 1,
+        propinaMonto: 0
+      })
+      .expect(404);
+  });
+
+  it('GET /api/pagos/mercadopago/transferencia-config devuelve alias, titular y cvu', async () => {
+    await prisma.configuracion.upsert({
+      where: { clave: 'mercadopago_transfer_alias' },
+      update: { valor: 'mi-local.mp' },
+      create: { clave: 'mercadopago_transfer_alias', valor: 'mi-local.mp' }
+    });
+    await prisma.configuracion.upsert({
+      where: { clave: 'mercadopago_transfer_titular' },
+      update: { valor: 'Mi Local SA' },
+      create: { clave: 'mercadopago_transfer_titular', valor: 'Mi Local SA' }
+    });
+    await prisma.configuracion.upsert({
+      where: { clave: 'mercadopago_transfer_cvu' },
+      update: { valor: '0000003100000000000001' },
+      create: { clave: 'mercadopago_transfer_cvu', valor: '0000003100000000000001' }
+    });
+
+    const response = await request(app)
+      .get('/api/pagos/mercadopago/transferencia-config')
+      .set('Authorization', authHeader(token))
+      .expect(200);
+
+    expect(response.body).toEqual({
+      alias: 'mi-local.mp',
+      titular: 'Mi Local SA',
+      cvu: '0000003100000000000001'
+    });
   });
 
   it('POST /api/pagos/mercadopago/preferencia crea preferencia mock', async () => {

@@ -173,36 +173,6 @@ describe('Reportes Endpoints', () => {
       }
     });
 
-    const mesaQr = await prisma.mesa.create({
-      data: {
-        numero: 12,
-        capacidad: 4,
-        estado: 'OCUPADA',
-        activa: true
-      }
-    });
-
-    const pedidoQr = await prisma.pedido.create({
-      data: {
-        mesaId: mesaQr.id,
-        tipo: 'MESA',
-        estado: 'ENTREGADO',
-        subtotal: 180,
-        total: 180
-      }
-    });
-
-    await prisma.pago.create({
-      data: {
-        pedidoId: pedidoQr.id,
-        monto: 180,
-        propinaMonto: 20,
-        metodo: 'MERCADOPAGO',
-        canalCobro: 'QR_PRESENCIAL',
-        estado: 'PENDIENTE'
-      }
-    });
-
     const mesaCobrada = await prisma.mesa.create({
       data: {
         numero: 13,
@@ -311,12 +281,11 @@ describe('Reportes Endpoints', () => {
       .expect(200);
 
     expect(responseAdmin.body.resumen).toEqual(expect.objectContaining({
-      total: 12,
+      total: 11,
       altaPrioridad: 9,
-      caja: 4,
+      caja: 3,
       stock: 8,
       mesasEsperandoCuenta: 1,
-      qrPendientes: 1,
       pedidosPorCerrar: 1,
       mesasPorLiberar: 1,
       stockBajo: 6,
@@ -330,9 +299,9 @@ describe('Reportes Endpoints', () => {
       'PEDIDO_COBRADO_PENDIENTE_CIERRE'
     ]);
     expect(tiposCaja).toEqual(expect.arrayContaining([
-      'MESA_CERRADA_PENDIENTE_LIBERACION',
-      'QR_PRESENCIAL_PENDIENTE'
+      'MESA_CERRADA_PENDIENTE_LIBERACION'
     ]));
+    expect(tiposCaja).not.toContain('QR_PRESENCIAL_PENDIENTE');
     expect(responseAdmin.body.stock).toHaveLength(8);
 
     const tareaCobrado = responseAdmin.body.caja.find((item) => item.tipo === 'PEDIDO_COBRADO_PENDIENTE_CIERRE');
@@ -364,7 +333,7 @@ describe('Reportes Endpoints', () => {
       .set('Authorization', authHeader(cajeroToken))
       .expect(200);
 
-    expect(responseCajero.body.resumen.total).toBe(12);
+    expect(responseCajero.body.resumen.total).toBe(11);
 
     await request(app)
       .get('/api/reportes/tareas-centro')
@@ -432,7 +401,7 @@ describe('Reportes Endpoints', () => {
     await prisma.pago.createMany({
       data: [
         { pedidoId: pedido1.id, monto: 40, metodo: 'EFECTIVO', estado: 'APROBADO' },
-        { pedidoId: pedido1.id, monto: 60, metodo: 'TARJETA', estado: 'APROBADO' }
+        { pedidoId: pedido1.id, monto: 60, metodo: 'MERCADOPAGO', estado: 'APROBADO' }
       ]
     });
 
@@ -477,8 +446,7 @@ describe('Reportes Endpoints', () => {
     expect(response.body.ticketPromedio).toBe(75);
     expect(response.body.ventasPorMetodo).toEqual(expect.objectContaining({
       EFECTIVO: 40,
-      TARJETA: 60,
-      MERCADOPAGO: 50
+      MERCADOPAGO: 110
     }));
     expect(response.body.ventasPorTipo).toEqual(expect.objectContaining({
       MOSTRADOR: { cantidad: 1, total: 100 },

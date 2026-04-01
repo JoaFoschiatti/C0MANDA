@@ -30,7 +30,7 @@ export default function CajaEstadoActual({
 
       {cajaActual?.cajaAbierta ? (
         <div>
-          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="rounded-xl bg-info-50 p-4">
               <p className="text-sm text-info-600">Fondo Inicial</p>
               <p className="text-2xl font-bold text-info-700">
@@ -41,12 +41,6 @@ export default function CajaEstadoActual({
               <p className="text-sm text-success-600">Ventas Efectivo</p>
               <p className="text-2xl font-bold text-success-700">
                 {formatCurrency(cajaActual.caja.ventasActuales?.efectivo)}
-              </p>
-            </div>
-            <div className="rounded-xl bg-primary-50 p-4">
-              <p className="text-sm text-primary-600">Ventas Tarjeta</p>
-              <p className="text-2xl font-bold text-primary-700">
-                {formatCurrency(cajaActual.caja.ventasActuales?.tarjeta)}
               </p>
             </div>
             <div className="rounded-xl bg-warning-50 p-4">

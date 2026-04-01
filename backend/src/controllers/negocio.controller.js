@@ -11,7 +11,13 @@ const actualizarNegocio = async (req, res) => {
   res.json(result);
 };
 
+const subirLogo = async (req, res) => {
+  const result = await negocioService.subirLogo(prisma, req.file);
+  res.json(result);
+};
+
 module.exports = {
   obtenerNegocio,
-  actualizarNegocio
+  actualizarNegocio,
+  subirLogo
 };

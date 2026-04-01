@@ -77,4 +77,39 @@ describe('MozoMesas page', () => {
     expect(await screen.findByText('Patio')).toBeInTheDocument()
     consoleError.mockRestore()
   })
+
+  it('usa temas visuales distintos por estado sin perder informacion operativa', async () => {
+    api.get
+      .mockResolvedValueOnce({
+        data: [
+          { id: 1, numero: 1, capacidad: 4, estado: 'LIBRE', zona: 'Salon' },
+          { id: 2, numero: 2, capacidad: 2, estado: 'OCUPADA', zona: 'Salon', pedidos: [{ id: 99 }] },
+          { id: 3, numero: 3, capacidad: 6, estado: 'RESERVADA', zona: 'Salon' },
+          { id: 4, numero: 4, capacidad: 4, estado: 'ESPERANDO_CUENTA', zona: 'Salon', pedidos: [{ id: 120 }] },
+          { id: 5, numero: 5, capacidad: 4, estado: 'CERRADA', zona: 'Salon', pedidos: [{ id: 150 }] }
+        ]
+      })
+      .mockResolvedValueOnce({
+        data: [{ id: 10, mesaId: 1, fechaHora: new Date().toISOString(), clienteNombre: 'Ana' }]
+      })
+
+    const { container } = render(
+      <MemoryRouter>
+        <MozoMesas />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Salon')).toBeInTheDocument()
+    expect(screen.getByText('Pedido #99')).toBeInTheDocument()
+    expect(screen.getByText('Pedido #120')).toBeInTheDocument()
+    expect(screen.getByText('Pedido #150')).toBeInTheDocument()
+    expect(screen.getByText(/Reserva \d/)).toBeInTheDocument()
+    expect(container.querySelector('.mesa-status-card-overlay')).not.toBeInTheDocument()
+
+    expect(container.querySelector('#mesa-card-1')).toHaveClass('mesa-status-theme--libre')
+    expect(container.querySelector('#mesa-card-2')).toHaveClass('mesa-status-theme--ocupada')
+    expect(container.querySelector('#mesa-card-3')).toHaveClass('mesa-status-theme--reservada')
+    expect(container.querySelector('#mesa-card-4')).toHaveClass('mesa-status-theme--esperando')
+    expect(container.querySelector('#mesa-card-5')).toHaveClass('mesa-status-theme--cerrada')
+  })
 })

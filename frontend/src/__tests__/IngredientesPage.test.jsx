@@ -219,6 +219,9 @@ describe('Ingredientes page', () => {
     renderPage()
 
     await screen.findByText('Queso')
+    expect(screen.getByRole('button', { name: 'Descartar lotes vencidos: Queso' })).toHaveAttribute('title', 'Descartar lotes vencidos')
+    expect(screen.getByRole('button', { name: 'Movimiento de stock: Queso' })).toHaveAttribute('title', 'Movimiento de stock')
+    expect(screen.getByRole('button', { name: 'Editar ingrediente: Queso' })).toHaveAttribute('title', 'Editar')
     await user.click(screen.getByRole('button', { name: 'Descartar lotes vencidos: Queso' }))
     await user.clear(screen.getByLabelText('Cantidad a descartar (kg)'))
     await user.type(screen.getByLabelText('Cantidad a descartar (kg)'), '1.5')

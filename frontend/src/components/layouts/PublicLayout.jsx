@@ -1,3 +1,5 @@
+import { OfflineBanner } from '../ui'
+
 export default function PublicLayout({ children }) {
   return (
     <div className="public-shell">
@@ -12,6 +14,8 @@ export default function PublicLayout({ children }) {
           </div>
         </div>
       </header>
+
+      <OfflineBanner />
 
       <main className="flex-1">
         {children}

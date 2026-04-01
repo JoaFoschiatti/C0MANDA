@@ -85,7 +85,6 @@ const cleanupOperationalData = async () => {
   await prisma.pedidoAuditoria.deleteMany();
   await prisma.pedidoItem.deleteMany();
   await prisma.pedido.deleteMany();
-  await prisma.mesaPublicSession.deleteMany();
   await prisma.reserva.deleteMany();
   await prisma.loteStock.deleteMany();
   await prisma.ingredienteStock.deleteMany();

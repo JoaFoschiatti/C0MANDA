@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import AdminLayout from '../components/layouts/AdminLayout'
+import { NetworkStatusProvider } from '../context/NetworkStatusContext'
 import { ThemeProvider } from '../context/ThemeContext'
 
 const mocks = vi.hoisted(() => ({
@@ -24,9 +25,11 @@ vi.mock('../context/AuthContext', () => ({
 }))
 
 const renderLayout = () => render(
-  <ThemeProvider>
-    <AdminLayout />
-  </ThemeProvider>,
+  <NetworkStatusProvider>
+    <ThemeProvider>
+      <AdminLayout />
+    </ThemeProvider>
+  </NetworkStatusProvider>,
   { wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter> }
 )
 
