@@ -35,7 +35,10 @@ export default function ProductoFormModal({
           </div>
 
           <div>
-            <label className="label" htmlFor="imagen-input">Imagen</label>
+            <label className="label" htmlFor="imagen-input">Imagen principal del producto</label>
+            <p className="mt-1 text-sm text-text-secondary">
+              Se mostrara en el catalogo del admin y en el menu publico.
+            </p>
             <input
               type="file"
               id="imagen-input"
@@ -49,13 +52,19 @@ export default function ProductoFormModal({
             >
               {imagePreview ? (
                 <div className="flex flex-col items-center">
-                  <img src={imagePreview} alt="Preview" className="w-32 h-32 object-cover rounded-xl mb-2" />
-                  <span className="text-sm text-text-secondary">Click para cambiar imagen</span>
+                  <img
+                    src={imagePreview}
+                    alt={`Preview de ${form.nombre || 'producto'}`}
+                    className="w-32 h-32 object-cover rounded-xl mb-2"
+                  />
+                  <span className="text-sm text-text-secondary">
+                    Vista previa disponible. Click para reemplazar imagen.
+                  </span>
                 </div>
               ) : (
                 <div className="flex flex-col items-center text-text-tertiary">
                   <PhotoIcon className="w-12 h-12 mb-2" />
-                  <span className="text-sm">Click para subir imagen</span>
+                  <span className="text-sm">Click para subir imagen principal</span>
                   <span className="text-xs mt-1">PNG, JPG, WebP (max. 5MB)</span>
                 </div>
               )}

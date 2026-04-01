@@ -61,6 +61,49 @@ describe('Productos page', () => {
     expect(api.get).toHaveBeenCalledWith('/categorias', expect.objectContaining({ skipToast: true }))
   })
 
+  it('muestra miniatura y fallback en la grilla admin', async () => {
+    const categoria = { id: 10, nombre: 'Platos' }
+    const productos = [
+      {
+        id: 1,
+        nombre: 'Hamburguesa',
+        precio: 1500,
+        categoriaId: 10,
+        categoria,
+        disponible: true,
+        destacado: false,
+        imagen: '/uploads/hamburguesa.png',
+        productoBaseId: null,
+        variantes: []
+      },
+      {
+        id: 2,
+        nombre: 'Empanada',
+        precio: 500,
+        categoriaId: 10,
+        categoria,
+        disponible: true,
+        destacado: false,
+        productoBaseId: null,
+        variantes: []
+      }
+    ]
+
+    api.get.mockImplementation((url) => {
+      if (url === '/productos/con-variantes') return Promise.resolve({ data: productos })
+      if (url === '/categorias') return Promise.resolve({ data: [categoria] })
+      return Promise.reject(new Error(`Unexpected url: ${url}`))
+    })
+
+    render(<Productos />)
+
+    expect(await screen.findByAltText('Imagen de Hamburguesa')).toHaveAttribute(
+      'src',
+      '/uploads/hamburguesa.png'
+    )
+    expect(screen.getByLabelText('Sin imagen para Empanada')).toBeInTheDocument()
+  })
+
   it('cambia a vista plana', async () => {
     const categoria = { id: 10, nombre: 'Platos' }
     const productoAgrupado = {
@@ -125,6 +168,7 @@ describe('Productos page', () => {
 
     api.post.mockResolvedValueOnce({ data: { id: 1 } })
 
+    const imageFile = new File(['image-bytes'], 'hamburguesa.png', { type: 'image/png' })
     const user = userEvent.setup({ applyAccept: false })
     render(<Productos />)
 
@@ -133,6 +177,13 @@ describe('Productos page', () => {
     await user.type(screen.getByLabelText('Nombre'), 'Papas')
     await user.type(screen.getByLabelText('Precio ($)'), '100')
     await user.selectOptions(screen.getByLabelText('Categoria'), '10')
+    fireEvent.change(screen.getByLabelText(/Imagen principal del producto/i), {
+      target: { files: [imageFile] }
+    })
+
+    await waitFor(() => {
+      expect(screen.getByAltText('Preview de Papas').getAttribute('src')).toContain('data:image/png')
+    })
 
     await user.click(screen.getByRole('button', { name: 'Crear' }))
 
@@ -146,7 +197,41 @@ describe('Productos page', () => {
       )
     })
 
+    const submittedFormData = api.post.mock.calls[0][1]
+    expect(submittedFormData.get('imagen')).toBe(imageFile)
     expect(toast.success).toHaveBeenCalledWith('Producto creado')
+  })
+
+  it('muestra la imagen existente al editar un producto', async () => {
+    const categoria = { id: 10, nombre: 'Platos' }
+    const producto = {
+      id: 1,
+      nombre: 'Hamburguesa',
+      descripcion: 'Con cheddar',
+      precio: 1200,
+      categoriaId: 10,
+      categoria,
+      disponible: true,
+      destacado: false,
+      imagen: '/uploads/hamburguesa.png',
+      productoBaseId: null,
+      variantes: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === '/productos/con-variantes') return Promise.resolve({ data: [producto] })
+      if (url === '/categorias') return Promise.resolve({ data: [categoria] })
+      return Promise.reject(new Error(`Unexpected url: ${url}`))
+    })
+
+    const user = userEvent.setup()
+    render(<Productos />)
+
+    expect(await screen.findByText('Hamburguesa')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Editar producto: Hamburguesa/i }))
+
+    expect(await screen.findByAltText('Preview de Hamburguesa')).toHaveAttribute('src', '/uploads/hamburguesa.png')
   })
 
   it('rechaza una imagen con formato invalido antes de enviar el formulario', async () => {
@@ -162,7 +247,7 @@ describe('Productos page', () => {
     await user.click(await screen.findByRole('button', { name: /Nuevo Producto/i }))
 
     const invalidFile = new File(['contenido'], 'catalogo.txt', { type: 'text/plain' })
-    fireEvent.change(screen.getByLabelText('Imagen'), {
+    fireEvent.change(screen.getByLabelText(/Imagen principal del producto/i), {
       target: { files: [invalidFile] }
     })
 

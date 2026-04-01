@@ -1,17 +1,39 @@
+const fs = require('fs');
+const path = require('path');
 const request = require('supertest');
 const app = require('../app');
 const {
   prisma,
   uniqueId,
-    createUsuario,
+  createUsuario,
   signTokenForUser,
   authHeader,
   cleanupOperationalData,
   ensureNegocio
 } = require('./helpers/test-helpers');
 
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+
+const pngMinimal = Buffer.from(
+  '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bf0a0000000049454e44ae426082',
+  'hex'
+);
+
+const deleteUploadedFile = (url) => {
+  if (!url) {
+    return;
+  }
+
+  const filename = String(url).replace('/uploads/', '');
+  const filePath = path.join(UPLOADS_DIR, filename);
+
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+};
+
 describe('Productos Endpoints', () => {
-    let token;
+  let token;
 
   beforeAll(async () => {
         await cleanupOperationalData();
@@ -63,7 +85,54 @@ describe('Productos Endpoints', () => {
     expect(response.body.ingredientes[0].ingredienteId).toBe(ingrediente.id);
   });
 
-  it('GET /api/productos lista productos disponibles', async () => {
+  it('POST /api/productos sube imagen y la devuelve en la respuesta', async () => {
+    const categoria = await prisma.categoria.create({
+      data: { nombre: `Cat-${uniqueId('cat-image')}`, orden: 1, activa: true }
+    });
+
+    const response = await request(app)
+      .post('/api/productos')
+      .set('Authorization', authHeader(token))
+      .field('nombre', `Prod-${uniqueId('prod-image')}`)
+      .field('descripcion', 'Producto con imagen')
+      .field('precio', '123')
+      .field('categoriaId', String(categoria.id))
+      .field('disponible', 'true')
+      .field('destacado', 'false')
+      .attach('imagen', pngMinimal, { filename: 'producto.png', contentType: 'image/png' })
+      .expect(201);
+
+    expect(response.body.imagen).toMatch(/^\/uploads\/producto-/);
+    expect(response.body.categoriaId).toBe(categoria.id);
+
+    const filename = response.body.imagen.replace('/uploads/', '');
+    const filePath = path.join(UPLOADS_DIR, filename);
+
+    expect(fs.existsSync(filePath)).toBe(true);
+    deleteUploadedFile(response.body.imagen);
+  });
+
+  it('POST /api/productos rechaza archivos no imagen', async () => {
+    const categoria = await prisma.categoria.create({
+      data: { nombre: `Cat-${uniqueId('cat-invalid')}`, orden: 1, activa: true }
+    });
+
+    const response = await request(app)
+      .post('/api/productos')
+      .set('Authorization', authHeader(token))
+      .field('nombre', `Prod-${uniqueId('prod-invalid')}`)
+      .field('descripcion', 'Producto invalido')
+      .field('precio', '123')
+      .field('categoriaId', String(categoria.id))
+      .field('disponible', 'true')
+      .field('destacado', 'false')
+      .attach('imagen', Buffer.from('hola'), { filename: 'producto.txt', contentType: 'text/plain' })
+      .expect(400);
+
+    expect(response.body.error.message).toMatch(/Solo se permiten/i);
+  });
+
+  it('GET /api/productos lista productos disponibles con imagen', async () => {
     const categoria = await prisma.categoria.create({
       data: { nombre: `Cat-${uniqueId('cat-list')}`, orden: 1, activa: true }
     });
@@ -73,7 +142,8 @@ describe('Productos Endpoints', () => {
         nombre: `Prod-${uniqueId('prod-list')}`,
         precio: 10,
         categoriaId: categoria.id,
-        disponible: true
+        disponible: true,
+        imagen: '/uploads/prod-list.png'
       }
     });
 
@@ -82,8 +152,11 @@ describe('Productos Endpoints', () => {
       .set('Authorization', authHeader(token))
       .expect(200);
 
-    const ids = response.body.map((item) => item.id);
-    expect(ids).toContain(producto.id);
+    const encontrado = response.body.find((item) => item.id === producto.id);
+    expect(encontrado).toEqual(expect.objectContaining({
+      id: producto.id,
+      imagen: '/uploads/prod-list.png'
+    }));
   });
 
   it('POST /api/productos/:id/variantes crea una variante y copia ingredientes', async () => {
@@ -105,7 +178,8 @@ describe('Productos Endpoints', () => {
         nombre: `Prod-${uniqueId('base')}`,
         precio: 100,
         categoriaId: categoria.id,
-        disponible: true
+        disponible: true,
+        imagen: '/uploads/base-variante.png'
       }
     });
 
@@ -141,7 +215,47 @@ describe('Productos Endpoints', () => {
 
     const baseEnRespuesta = listado.body.find((producto) => producto.id === productoBase.id);
     expect(baseEnRespuesta).toBeDefined();
+    expect(baseEnRespuesta.imagen).toBe('/uploads/base-variante.png');
+    expect(baseEnRespuesta.variantes[0].imagen).toBe('/uploads/base-variante.png');
     expect(baseEnRespuesta.variantes.some((variante) => variante.id === response.body.id)).toBe(true);
+  });
+
+  it('PUT /api/productos/:id reemplaza la imagen al actualizar', async () => {
+    const categoria = await prisma.categoria.create({
+      data: { nombre: `Cat-${uniqueId('cat-update')}`, orden: 1, activa: true }
+    });
+
+    const createResponse = await request(app)
+      .post('/api/productos')
+      .set('Authorization', authHeader(token))
+      .field('nombre', `Prod-${uniqueId('prod-update')}`)
+      .field('descripcion', 'Producto original')
+      .field('precio', '100')
+      .field('categoriaId', String(categoria.id))
+      .field('disponible', 'true')
+      .field('destacado', 'false')
+      .attach('imagen', pngMinimal, { filename: 'producto-original.png', contentType: 'image/png' })
+      .expect(201);
+
+    const firstImageUrl = createResponse.body.imagen;
+
+    const updateResponse = await request(app)
+      .put(`/api/productos/${createResponse.body.id}`)
+      .set('Authorization', authHeader(token))
+      .field('nombre', `Prod-${uniqueId('prod-update')}-editado`)
+      .field('descripcion', 'Producto actualizado')
+      .field('precio', '150')
+      .field('categoriaId', String(categoria.id))
+      .field('disponible', 'true')
+      .field('destacado', 'true')
+      .attach('imagen', pngMinimal, { filename: 'producto-nuevo.png', contentType: 'image/png' })
+      .expect(200);
+
+    expect(updateResponse.body.imagen).toMatch(/^\/uploads\/producto-/);
+    expect(updateResponse.body.imagen).not.toBe(firstImageUrl);
+
+    deleteUploadedFile(firstImageUrl);
+    deleteUploadedFile(updateResponse.body.imagen);
   });
 
   it('GET /api/productos/:id devuelve el producto solicitado', async () => {

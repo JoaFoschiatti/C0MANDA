@@ -1,30 +1,98 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import toast from 'react-hot-toast'
+import useBackendAvailability from '../hooks/useBackendAvailability'
 import useNetworkStatus from '../hooks/useNetworkStatus'
 import { getQueueCount } from '../utils/offline-queue'
 import { processOfflineQueue } from '../services/api'
-import toast from 'react-hot-toast'
+import { markBackendAvailable, markBackendUnavailable } from '../services/backendStatus'
 
 const NetworkStatusContext = createContext(null)
+const BACKEND_UNAVAILABLE_TOAST_ID = 'backend-unavailable'
+const BACKEND_HEALTHCHECK_INTERVAL_MS = 5000
+const API_URL = import.meta.env.VITE_API_URL || '/api'
+const HEALTHCHECK_URL = /^https?:\/\//.test(API_URL)
+  ? `${API_URL.replace(/\/api\/?$/, '')}/api/health`
+  : import.meta.env.DEV
+    ? 'http://127.0.0.1:3001/api/health'
+    : '/api/health'
 
 export function NetworkStatusProvider({ children }) {
   const { isOnline } = useNetworkStatus()
+  const { apiAvailable } = useBackendAvailability()
   const [sseConnected, setSseConnected] = useState(false)
   const [pendingCount, setPendingCount] = useState(() => getQueueCount())
   const [syncStatus, setSyncStatus] = useState('idle') // 'idle' | 'syncing' | 'error'
   const wasOfflineRef = useRef(false)
+  const previousApiAvailableRef = useRef(apiAvailable)
 
   const refreshPendingCount = useCallback(() => {
     setPendingCount(getQueueCount())
   }, [])
 
-  // Track offline→online transitions and process queue
+  useEffect(() => {
+    if (!isOnline) {
+      setSseConnected(false)
+    }
+  }, [isOnline])
+
+  useEffect(() => {
+    if (previousApiAvailableRef.current === apiAvailable) {
+      return
+    }
+
+    previousApiAvailableRef.current = apiAvailable
+
+    if (apiAvailable) {
+      toast.dismiss(BACKEND_UNAVAILABLE_TOAST_ID)
+      return
+    }
+
+    setSseConnected(false)
+  }, [apiAvailable])
+
+  useEffect(() => {
+    if (!isOnline || apiAvailable) {
+      return undefined
+    }
+
+    let cancelled = false
+
+    const checkBackendHealth = async () => {
+      try {
+        const response = await fetch(HEALTHCHECK_URL, {
+          cache: 'no-store',
+          credentials: 'include'
+        })
+
+        if (!cancelled && response.ok) {
+          markBackendAvailable()
+        } else if (!cancelled) {
+          markBackendUnavailable()
+        }
+      } catch {
+        if (!cancelled) {
+          markBackendUnavailable()
+        }
+      }
+    }
+
+    checkBackendHealth()
+    const intervalId = setInterval(checkBackendHealth, BACKEND_HEALTHCHECK_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [apiAvailable, isOnline])
+
+  // Track offline->online transitions and process queue only after the API is back.
   useEffect(() => {
     if (!isOnline) {
       wasOfflineRef.current = true
       return
     }
 
-    if (!wasOfflineRef.current) return
+    if (!apiAvailable || !wasOfflineRef.current) return
     wasOfflineRef.current = false
 
     const pending = getQueueCount()
@@ -46,10 +114,11 @@ export function NetworkStatusProvider({ children }) {
         setSyncStatus('error')
         refreshPendingCount()
       })
-  }, [isOnline, refreshPendingCount])
+  }, [apiAvailable, isOnline, refreshPendingCount])
 
   const value = {
     isOnline,
+    apiAvailable,
     sseConnected,
     setSseConnected,
     pendingCount,

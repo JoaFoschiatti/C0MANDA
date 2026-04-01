@@ -18,6 +18,9 @@ export default function Modal({
   size = 'md',
   children,
   className,
+  bodyClassName,
+  footer,
+  footerClassName,
 }) {
   return (
     <Transition show={open} as={Fragment}>
@@ -51,16 +54,23 @@ export default function Modal({
                 <div className="modal-header">
                   <h3 className="text-heading-3">{title}</h3>
                   <button
+                    type="button"
                     onClick={onClose}
+                    aria-label="Cerrar modal"
                     className="btn btn-ghost btn-icon"
                   >
                     <XMarkIcon className="w-5 h-5" />
                   </button>
                 </div>
               )}
-              <div className="modal-body overflow-y-auto">
+              <div className={clsx('modal-body overflow-y-auto', bodyClassName)}>
                 {children}
               </div>
+              {footer ? (
+                <div className={clsx('modal-footer', footerClassName)}>
+                  {footer}
+                </div>
+              ) : null}
             </DialogPanel>
           </TransitionChild>
         </div>

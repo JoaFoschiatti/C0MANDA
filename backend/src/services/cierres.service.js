@@ -3,14 +3,14 @@ const { createHttpError } = require('../utils/http-error');
 const round2 = (n) => Math.round(n * 100) / 100;
 
 // Mapa de metodos de pago DB -> claves internas
-const METODO_KEY = { EFECTIVO: 'efectivo', TARJETA: 'tarjeta', MERCADOPAGO: 'mercadopago' };
+const METODO_KEY = { EFECTIVO: 'efectivo', MERCADOPAGO: 'mercadopago' };
 
 const calcularVentasDesdeFecha = async (prisma, desde) => {
   const pagos = await prisma.pago.findMany({
     where: { createdAt: { gte: desde }, estado: 'APROBADO' }
   });
 
-  const totales = { efectivo: 0, tarjeta: 0, mercadopago: 0, total: 0 };
+  const totales = { efectivo: 0, mercadopago: 0, total: 0 };
 
   for (const pago of pagos) {
     const monto = parseFloat(pago.monto);
@@ -20,7 +20,6 @@ const calcularVentasDesdeFecha = async (prisma, desde) => {
   }
 
   totales.efectivo = round2(totales.efectivo);
-  totales.tarjeta = round2(totales.tarjeta);
   totales.mercadopago = round2(totales.mercadopago);
   totales.total = round2(totales.total);
 
@@ -99,7 +98,6 @@ const cerrarCaja = async (prisma, id, efectivoFisico, observaciones) => {
     data: {
       horaCierre: new Date(),
       totalEfectivo: ventas.efectivo,
-      totalTarjeta: ventas.tarjeta,
       totalMP: ventas.mercadopago,
       efectivoFisico: efectivoContado,
       diferencia,
@@ -116,7 +114,6 @@ const cerrarCaja = async (prisma, id, efectivoFisico, observaciones) => {
     resumen: {
       fondoInicial: parseFloat(caja.fondoInicial),
       ventasEfectivo: ventas.efectivo,
-      ventasTarjeta: ventas.tarjeta,
       ventasMercadoPago: ventas.mercadopago,
       totalVentas: ventas.total,
       efectivoEsperado,
@@ -158,7 +155,6 @@ const resumenActual = async (prisma) => {
   return {
     fondoInicial: parseFloat(caja.fondoInicial),
     ventasEfectivo: ventas.efectivo,
-    ventasTarjeta: ventas.tarjeta,
     ventasMercadoPago: ventas.mercadopago,
     totalVentas: ventas.total,
     efectivoEsperado,

@@ -160,6 +160,7 @@ export default function Modificadores() {
                     <button
                       aria-label={`Editar modificador: ${mod.nombre}`}
                       onClick={() => abrirModal(mod)}
+                      title="Editar"
                       className="p-1 text-text-tertiary hover:text-text-primary transition-colors"
                     >
                       <PencilIcon className="w-4 h-4" />
@@ -167,6 +168,7 @@ export default function Modificadores() {
                     <button
                       aria-label={`Eliminar modificador: ${mod.nombre}`}
                       onClick={() => eliminarModificador(mod.id)}
+                      title="Eliminar"
                       className="p-1 text-error-400 hover:text-error-600 transition-colors"
                     >
                       <TrashIcon className="w-4 h-4" />
@@ -217,6 +219,7 @@ export default function Modificadores() {
                     <button
                       aria-label={`Editar modificador: ${mod.nombre}`}
                       onClick={() => abrirModal(mod)}
+                      title="Editar"
                       className="p-1 text-text-tertiary hover:text-text-primary transition-colors"
                     >
                       <PencilIcon className="w-4 h-4" />
@@ -224,6 +227,7 @@ export default function Modificadores() {
                     <button
                       aria-label={`Eliminar modificador: ${mod.nombre}`}
                       onClick={() => eliminarModificador(mod.id)}
+                      title="Eliminar"
                       className="p-1 text-error-400 hover:text-error-600 transition-colors"
                     >
                       <TrashIcon className="w-4 h-4" />

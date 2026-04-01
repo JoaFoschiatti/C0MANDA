@@ -1,5 +1,4 @@
 const { createHttpError } = require('../utils/http-error');
-const { invalidateMesaPublicSessions } = require('./public-order-security.service');
 
 const buildDayRange = (fecha) => {
   const inicio = new Date(`${fecha}T00:00:00`);
@@ -181,7 +180,6 @@ const cambiarEstado = async (prisma, id, estado) => {
         where: { id: reserva.mesaId },
         data: { estado: 'LIBRE' }
       });
-      await invalidateMesaPublicSessions(tx, { mesaId: reserva.mesaId });
       mesaUpdatedEvent = { mesaId: reserva.mesaId, estado: 'LIBRE' };
     }
 
@@ -236,7 +234,6 @@ const eliminar = async (prisma, id) => {
         where: { id: reserva.mesaId },
         data: { estado: 'LIBRE' }
       });
-      await invalidateMesaPublicSessions(tx, { mesaId: reserva.mesaId });
     }
 
     await tx.reserva.delete({ where: { id } });

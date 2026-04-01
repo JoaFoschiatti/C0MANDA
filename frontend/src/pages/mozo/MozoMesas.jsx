@@ -1,11 +1,25 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../services/api'
-import { PlusIcon, CalendarDaysIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
 import useAsync from '../../hooks/useAsync'
 import usePolling from '../../hooks/usePolling'
 import useEventSource from '../../hooks/useEventSource'
 import { PageHeader, Spinner } from '../../components/ui'
+import MesaOperationCard from '../../components/mesas/MesaOperationCard'
+import MesaStatusLegend from '../../components/mesas/MesaStatusLegend'
+
+function getMesaSecondaryText(mesa, reservaProxima, formatHora) {
+  if (['OCUPADA', 'ESPERANDO_CUENTA', 'CERRADA'].includes(mesa.estado) && mesa.pedidos?.[0]) {
+    return `Pedido #${mesa.pedidos[0].id}`
+  }
+
+  if (reservaProxima && ['LIBRE', 'RESERVADA'].includes(mesa.estado)) {
+    return `Reserva ${formatHora(reservaProxima.fechaHora)}`
+  }
+
+  return null
+}
 
 export default function MozoMesas() {
   const [mesas, setMesas] = useState([])
@@ -65,23 +79,6 @@ export default function MozoMesas() {
       hour: '2-digit',
       minute: '2-digit'
     })
-  }
-
-  const getEstadoStyle = (estado) => {
-    switch (estado) {
-      case 'LIBRE':
-        return 'bg-success-50 border-success-200 hover:bg-success-100'
-      case 'OCUPADA':
-        return 'bg-error-50 border-error-200 hover:bg-error-100'
-      case 'RESERVADA':
-        return 'bg-warning-50 border-warning-200 hover:bg-warning-100'
-      case 'ESPERANDO_CUENTA':
-        return 'bg-amber-50 border-amber-200 hover:bg-amber-100'
-      case 'CERRADA':
-        return 'bg-slate-50 border-slate-200 hover:bg-slate-100'
-      default:
-        return 'bg-surface-hover border-border-subtle'
-    }
   }
 
   const handleMesaClick = (mesa) => {
@@ -172,63 +169,26 @@ export default function MozoMesas() {
       />
 
       {/* Leyenda */}
-      <div className="flex gap-4 mb-6 text-sm text-text-secondary">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-success-100 border border-success-200"></div>
-          <span>Libre</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-error-100 border border-error-200"></div>
-          <span>Ocupada</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-warning-100 border border-warning-200"></div>
-          <span>Reservada</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-amber-100 border border-amber-200"></div>
-          <span>Esperando cuenta</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded bg-slate-100 border border-slate-200"></div>
-          <span>Cerrada</span>
-        </div>
-      </div>
+      <MesaStatusLegend className="mb-6" />
 
       {Object.entries(mesasPorZona).map(([zona, mesasZona]) => (
         <div key={zona} className="mb-8">
           <h2 className="text-heading-3 text-text-secondary mb-4">{zona}</h2>
-          <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          <div className="flex flex-wrap gap-4">
             {mesasZona.map((mesa) => {
               const reservaProxima = getReservaProxima(mesa.id)
+              const secondaryText = getMesaSecondaryText(mesa, reservaProxima, formatHora)
+
               return (
-                <button
+                <MesaOperationCard
                   key={mesa.id}
+                  mesa={mesa}
+                  secondaryText={secondaryText}
+                  reservaTooltip={reservaProxima
+                    ? `Reserva a las ${formatHora(reservaProxima.fechaHora)} - ${reservaProxima.clienteNombre}`
+                    : null}
                   onClick={() => handleMesaClick(mesa)}
-                  className={`p-4 rounded-xl border transition-all relative ${getEstadoStyle(mesa.estado)}`}
-                >
-                  {reservaProxima && (
-                    <div className="absolute -top-2 -right-2 bg-warning-500 text-white rounded-full p-1" title={`Reserva a las ${formatHora(reservaProxima.fechaHora)} - ${reservaProxima.clienteNombre}`}>
-                      <CalendarDaysIcon className="w-4 h-4" />
-                    </div>
-                  )}
-                  <div className="text-3xl font-bold text-text-primary mb-1">
-                    {mesa.numero}
-                  </div>
-                  <div className="text-xs text-text-secondary">
-                    {mesa.capacidad} personas
-                  </div>
-                  {['OCUPADA', 'ESPERANDO_CUENTA', 'CERRADA'].includes(mesa.estado) && mesa.pedidos?.[0] && (
-                    <div className="text-xs text-text-tertiary mt-2">
-                      Pedido #{mesa.pedidos[0].id}
-                    </div>
-                  )}
-                  {reservaProxima && mesa.estado === 'LIBRE' && (
-                    <div className="text-xs text-warning-600 mt-2 font-medium">
-                      Reserva {formatHora(reservaProxima.fechaHora)}
-                    </div>
-                  )}
-                </button>
+                />
               )
             })}
           </div>

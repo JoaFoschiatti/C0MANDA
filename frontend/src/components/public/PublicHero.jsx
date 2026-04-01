@@ -3,6 +3,7 @@ import { resolvePublicAssetUrl } from '../../utils/public-assets'
 
 export default function PublicHero({ config, backendUrl }) {
   const bannerUrl = resolvePublicAssetUrl(config?.banner_imagen, backendUrl)
+  const logoUrl = resolvePublicAssetUrl(config?.logo, backendUrl) || '/comanda-logo.png'
   const backgroundStyle = bannerUrl
     ? {
         backgroundImage: `linear-gradient(135deg, rgba(26, 17, 10, 0.84), rgba(45, 30, 18, 0.74)), url(${bannerUrl})`,
@@ -17,7 +18,11 @@ export default function PublicHero({ config, backendUrl }) {
       <div className="public-hero__content">
         <div className="public-hero__eyebrow">Menu del restaurante</div>
         <div className="public-hero__main">
-          <img src="/comanda-logo.png" alt="Comanda" className="public-hero__badge" />
+          <img
+            src={logoUrl}
+            alt={config?.nombre_negocio || 'Comanda'}
+            className="public-hero__badge"
+          />
           <div>
             <h1 className="public-hero__title">
               {config?.nombre_negocio || 'Menu del local'}

@@ -7,7 +7,6 @@ import useAsync from './useAsync'
 const COLORS_METODO = {
   EFECTIVO: '#22c55e',
   MERCADOPAGO: '#06b6d4',
-  TARJETA: '#8b5cf6',
 }
 
 const COLORS_TIPO = {

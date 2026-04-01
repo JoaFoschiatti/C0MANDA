@@ -13,11 +13,9 @@ const {
 } = require('../services/public-order-security.service');
 const {
   pedidoIdParamSchema,
-  qrTokenParamSchema,
   publicOrderAccessQuerySchema,
   publicOrderPaymentBodySchema,
-  createPublicOrderBodySchema,
-  createPublicTableOrderBodySchema
+  createPublicOrderBodySchema
 } = require('../schemas/publico.schemas');
 
 const router = express.Router();
@@ -70,25 +68,18 @@ const buildLimiter = ({
   });
 };
 
-const publicOrderingPaused = (kind) => (req, res, next) => {
-  const paused = kind === 'table'
-    ? process.env.PUBLIC_TABLE_ORDERING_PAUSED === 'true'
-    : process.env.PUBLIC_ORDERING_PAUSED === 'true';
-
-  if (!paused) {
+const publicOrderingPaused = (req, res, next) => {
+  if (process.env.PUBLIC_ORDERING_PAUSED !== 'true') {
     return next();
   }
 
   logger.warn('Public ordering circuit breaker activo', {
-    kind,
     ip: getRequestIp(buildPublicRequestMeta(req))
   });
 
   return res.status(503).json({
     error: {
-      message: kind === 'table'
-        ? 'Los pedidos por QR estan temporalmente pausados. Solicita asistencia al personal.'
-        : 'Los pedidos online estan temporalmente pausados. Intenta nuevamente en unos minutos.'
+      message: 'Los pedidos online estan temporalmente pausados. Intenta nuevamente en unos minutos.'
     }
   });
 };
@@ -142,32 +133,6 @@ const createOrderClientRequestLimiter = buildLimiter({
     phone: req.body?.clienteTelefono,
     clientRequestId: req.body?.clientRequestId,
     cause: 'client-request-replay'
-  })
-});
-
-const tableOrderIpLimiter = buildLimiter({
-  name: 'public-table-order-ip-limit',
-  windowMs: 15 * 60 * 1000,
-  max: 12,
-  keyGenerator: (req) => `public-table:ip:${getRequestIp(buildPublicRequestMeta(req))}`,
-  message: 'Demasiados intentos desde este origen. Solicita asistencia al personal.',
-  buildSignal: (req, requestMeta) => ({
-    requestMeta,
-    qrToken: req.params.qrToken,
-    cause: 'qr-ip-limit'
-  })
-});
-
-const tableOrderMesaLimiter = buildLimiter({
-  name: 'public-table-order-mesa-limit',
-  windowMs: 5 * 60 * 1000,
-  max: 5,
-  keyGenerator: (req) => `public-table:mesa:${req.params.qrToken}:${getRequestIp(buildPublicRequestMeta(req))}`,
-  message: 'La mesa alcanzo el limite temporal de intentos. Vuelve a escanear el QR o solicita asistencia.',
-  buildSignal: (req, requestMeta) => ({
-    requestMeta,
-    qrToken: req.params.qrToken,
-    cause: 'qr-mesa-burst'
   })
 });
 
@@ -248,55 +213,11 @@ const getOrderStatusHandler = asyncHandler(async (req, res) => {
   res.json(result.pedido);
 });
 
-const getMesaContextHandler = asyncHandler(async (req, res) => {
-  const mesaContext = await publicoService.getPublicTableSession(
-    prisma,
-    req.params.qrToken,
-    buildPublicRequestMeta(req)
-  );
-
-  const negocio = await getNegocio();
-  const [config, categorias] = await Promise.all([
-    publicoService.getPublicConfig(prisma, negocio),
-    publicoService.getPublicMenu(prisma, { sucursalId: mesaContext.mesa.sucursalId })
-  ]);
-
-  res.json({
-    mesa: {
-      id: mesaContext.mesa.id,
-      numero: mesaContext.mesa.numero,
-      zona: mesaContext.mesa.zona,
-      capacidad: mesaContext.mesa.capacidad,
-      estado: mesaContext.mesa.estado
-    },
-    mesaSession: mesaContext.session,
-    negocio: config.negocio,
-    config: config.config,
-    categorias
-  });
-});
-
-const createMesaOrderHandler = asyncHandler(async (req, res) => {
-  const result = await publicoService.createPublicTableOrder(prisma, {
-    qrToken: req.params.qrToken,
-    body: req.body,
-    requestMeta: buildPublicRequestMeta(req)
-  });
-
-  result.events.forEach((event) => eventBus.publish(event.topic, event.payload));
-
-  res.status(201).json({
-    mesa: result.mesa,
-    pedido: result.pedido,
-    message: 'Pedido enviado a la mesa correctamente'
-  });
-});
-
 router.get('/config', getConfigHandler);
 router.get('/menu', getMenuHandler);
 router.post(
   '/pedido',
-  publicOrderingPaused('web'),
+  publicOrderingPaused,
   createOrderIpLimiter,
   createOrderBurstLimiter,
   createOrderPhoneLimiter,
@@ -306,20 +227,11 @@ router.post(
 );
 router.post(
   '/pedido/:id/pagar',
-  publicOrderingPaused('web'),
+  publicOrderingPaused,
   paymentRetryLimiter,
   validate({ params: pedidoIdParamSchema, body: publicOrderPaymentBodySchema }),
   startPaymentHandler
 );
 router.get('/pedido/:id', validate({ params: pedidoIdParamSchema, query: publicOrderAccessQuerySchema }), getOrderStatusHandler);
-router.get('/mesa/:qrToken', validate({ params: qrTokenParamSchema }), getMesaContextHandler);
-router.post(
-  '/mesa/:qrToken/pedido',
-  publicOrderingPaused('table'),
-  tableOrderIpLimiter,
-  tableOrderMesaLimiter,
-  validate({ params: qrTokenParamSchema, body: createPublicTableOrderBodySchema }),
-  createMesaOrderHandler
-);
 
 module.exports = router;

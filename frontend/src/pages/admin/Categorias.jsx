@@ -118,6 +118,7 @@ export default function Categorias() {
                   <button
                     aria-label={`Editar categoría: ${categoria.nombre}`}
                     onClick={() => handleEdit(categoria)}
+                    title="Editar"
                     className="text-primary-500 hover:text-primary-600 transition-colors"
                   >
                     <PencilIcon className="w-5 h-5" />
@@ -125,6 +126,7 @@ export default function Categorias() {
                   <button
                     aria-label={`Eliminar categoría: ${categoria.nombre}`}
                     onClick={() => handleDelete(categoria.id)}
+                    title="Eliminar"
                     className="text-error-500 hover:text-error-600 transition-colors"
                   >
                     <TrashIcon className="w-5 h-5" />

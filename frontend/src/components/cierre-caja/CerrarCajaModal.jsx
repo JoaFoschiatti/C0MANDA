@@ -41,10 +41,6 @@ export default function CerrarCajaModal({
               <span className="font-medium text-success-600">{formatCurrency(resumen.ventasEfectivo)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-text-secondary">Ventas Tarjeta:</span>
-              <span className="font-medium text-primary-600">{formatCurrency(resumen.ventasTarjeta)}</span>
-            </div>
-            <div className="flex justify-between">
               <span className="text-text-secondary">Ventas MercadoPago:</span>
               <span className="font-medium text-warning-600">
                 {formatCurrency(resumen.ventasMercadoPago)}
@@ -77,7 +73,7 @@ export default function CerrarCajaModal({
                 value={efectivoFisico}
                 onChange={(event) => setEfectivoFisico(event.target.value)}
                 className="input pl-8"
-                placeholder="0.00"
+                placeholder="0"
                 autoFocus
                 required
               />

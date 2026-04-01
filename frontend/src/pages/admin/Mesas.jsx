@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import clsx from 'clsx'
 import {
   DndContext,
   DragOverlay,
@@ -14,7 +15,6 @@ import {
   TrashIcon,
   MapIcon,
   ViewColumnsIcon,
-  CalendarDaysIcon,
 } from '@heroicons/react/24/outline'
 
 import api from '../../services/api'
@@ -23,7 +23,9 @@ import useAsync from '../../hooks/useAsync'
 import usePolling from '../../hooks/usePolling'
 import useEventSource from '../../hooks/useEventSource'
 import useKeyboardShortcuts from '../../hooks/useKeyboardShortcuts'
-import { EmptyState, PageHeader, Button, Spinner } from '../../components/ui'
+import { EmptyState, PageHeader, Button, Spinner, Modal } from '../../components/ui'
+import MesaOperationCard from '../../components/mesas/MesaOperationCard'
+import MesaStatusLegend from '../../components/mesas/MesaStatusLegend'
 import ShortcutsHelp from '../../components/ui/ShortcutsHelp'
 import MesaChip from '../../components/plano/MesaChip'
 import ZonaDroppable from '../../components/plano/ZonaDroppable'
@@ -44,6 +46,18 @@ const FORM_INICIAL = {
   capacidad: 4,
 }
 
+function getMesaSecondaryText(mesa, reservaProxima, formatHora) {
+  if (['OCUPADA', 'ESPERANDO_CUENTA', 'CERRADA'].includes(mesa.estado) && mesa.pedidos?.[0]) {
+    return `Pedido #${mesa.pedidos[0].id}`
+  }
+
+  if (reservaProxima && ['LIBRE', 'RESERVADA'].includes(mesa.estado)) {
+    return `Reserva ${formatHora(reservaProxima.fechaHora)}`
+  }
+
+  return null
+}
+
 export default function Mesas() {
   const { usuario } = useAuth()
   const navigate = useNavigate()
@@ -57,6 +71,7 @@ export default function Mesas() {
   const [showModal, setShowModal] = useState(false)
   const [editando, setEditando] = useState(null)
   const [form, setForm] = useState(FORM_INICIAL)
+  const [mesaPendienteDesactivacion, setMesaPendienteDesactivacion] = useState(null)
 
   const [paredes, setParedes] = useState({ Interior: [], Exterior: [] })
   const [paredesChanged, setParedesChanged] = useState(false)
@@ -194,14 +209,23 @@ export default function Mesas() {
     setShowModal(true)
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Desactivar esta mesa?')) {
+  const handleDelete = (mesa) => {
+    setMesaPendienteDesactivacion(mesa)
+  }
+
+  const cerrarConfirmacionDesactivar = () => {
+    setMesaPendienteDesactivacion(null)
+  }
+
+  const confirmarDesactivarMesa = async () => {
+    if (!mesaPendienteDesactivacion) {
       return
     }
 
     try {
-      await api.delete(`/mesas/${id}`, { skipToast: true })
+      await api.delete(`/mesas/${mesaPendienteDesactivacion.id}`, { skipToast: true })
       toast.success('Mesa desactivada')
+      cerrarConfirmacionDesactivar()
       refrescarAsync()
     } catch (error) {
       toast.error(error.response?.data?.error?.message || 'Error al desactivar mesa')
@@ -396,6 +420,16 @@ export default function Mesas() {
     }
   }
 
+  const handleLiberarMesa = async (mesa) => {
+    try {
+      await api.post(`/mesas/${mesa.id}/liberar`, {}, { skipToast: true })
+      toast.success(`Mesa ${mesa.numero} liberada`)
+      refrescarAsync()
+    } catch (error) {
+      toast.error(error.response?.data?.error?.message || 'Error al liberar mesa')
+    }
+  }
+
   const handleMesaClick = (mesa) => {
     if (mesa.estado === 'LIBRE') {
       if (esAdmin) navigate(`/mozo/nuevo-pedido/${mesa.id}`)
@@ -404,40 +438,6 @@ export default function Mesas() {
 
     if (['OCUPADA', 'ESPERANDO_CUENTA', 'CERRADA'].includes(mesa.estado) && mesa.pedidos?.[0]) {
       navigate(`/pedidos?mesaId=${mesa.id}`)
-    }
-  }
-
-  const getEstadoBadge = (estado) => {
-    switch (estado) {
-      case 'LIBRE':
-        return 'badge-success'
-      case 'OCUPADA':
-        return 'badge-error'
-      case 'RESERVADA':
-        return 'badge-warning'
-      case 'ESPERANDO_CUENTA':
-        return 'badge-warning'
-      case 'CERRADA':
-        return 'badge-info'
-      default:
-        return 'badge-info'
-    }
-  }
-
-  const getMesaCardTone = (estado) => {
-    switch (estado) {
-      case 'LIBRE':
-        return 'bg-success-50 border-success-200'
-      case 'OCUPADA':
-        return 'bg-error-50 border-error-200'
-      case 'RESERVADA':
-        return 'bg-warning-50 border-warning-200'
-      case 'ESPERANDO_CUENTA':
-        return 'bg-amber-50 border-amber-200'
-      case 'CERRADA':
-        return 'bg-slate-50 border-slate-200'
-      default:
-        return ''
     }
   }
 
@@ -463,10 +463,11 @@ export default function Mesas() {
     '2': () => setTab('plano'),
     'Escape': () => {
       if (showShortcutsHelp) setShowShortcutsHelp(false)
+      else if (mesaPendienteDesactivacion) cerrarConfirmacionDesactivar()
       else if (showModal) cerrarModal()
     },
     '?': () => setShowShortcutsHelp(prev => !prev),
-  }), [esAdmin, showShortcutsHelp, showModal, abrirModalNuevaMesa, cerrarModal]))
+  }), [esAdmin, showShortcutsHelp, mesaPendienteDesactivacion, showModal, abrirModalNuevaMesa, cerrarModal]))
 
   // ============ VALORES COMPUTADOS ============
 
@@ -582,28 +583,7 @@ export default function Mesas() {
 
       {tab === 'operacion' && (
         <div>
-          <div className="mb-5 flex flex-wrap gap-4 text-sm text-text-secondary">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-success-100 border border-success-200"></div>
-              <span>Libre</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-error-100 border border-error-200"></div>
-              <span>Ocupada</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-warning-100 border border-warning-200"></div>
-              <span>Reservada</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-amber-100 border border-amber-200"></div>
-              <span>Esperando cuenta</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded bg-slate-100 border border-slate-200"></div>
-              <span>Cerrada</span>
-            </div>
-          </div>
+          <MesaStatusLegend className="mb-5" />
 
           {seleccionGrupo.length > 0 && (
             <div className="mb-4 flex items-center gap-3 rounded-xl border border-primary-200 bg-primary-50 p-3">
@@ -640,131 +620,125 @@ export default function Mesas() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
+                <div className="flex flex-wrap gap-4">
                   {mesasZona.map((mesa) => {
                     const reservaProxima = getReservaProxima(mesa.id)
                     const isSelected = seleccionGrupo.includes(mesa.id)
-
-                    return (
-                      <div
-                        id={`mesa-card-${mesa.id}`}
-                        key={mesa.id}
-                        className={`
-                          card card-hover relative cursor-pointer transition-all text-left
-                          ${!mesa.activa ? 'opacity-50' : ''}
-                          ${isSelected ? 'ring-2 ring-primary-500' : ''}
-                          ${mesa.id === mesaEnfocadaId ? 'ring-2 ring-primary-300 shadow-lg' : ''}
-                          ${getMesaCardTone(mesa.estado)}
-                          ${grupoColores[mesa.grupoMesaId] ? `ring-2 ring-offset-1 ${grupoColores[mesa.grupoMesaId]}` : ''}
-                        `}
-                        onClick={() => handleMesaClick(mesa)}
-                      >
-                        {reservaProxima && (
-                          <div
-                            className="absolute -top-2 -right-2 bg-warning-500 text-white rounded-full p-1"
-                            title={`Reserva a las ${formatHora(reservaProxima.fechaHora)} - ${reservaProxima.clienteNombre}`}
+                    const secondaryText = getMesaSecondaryText(mesa, reservaProxima, formatHora)
+                    const showPrimaryAction = ['OCUPADA', 'CERRADA'].includes(mesa.estado)
+                    const showAdminActions = esAdmin
+                    const overlay = (showPrimaryAction || showAdminActions) ? (
+                      <div className="mesa-status-card-actions">
+                        {mesa.estado === 'OCUPADA' && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handlePedirCuenta(mesa)
+                            }}
+                            className="mesa-status-primary-action"
+                            title="Solicitar cuenta"
+                            aria-label={`Solicitar cuenta de la mesa ${mesa.numero}`}
                           >
-                            <CalendarDaysIcon className="w-4 h-4" />
-                          </div>
+                            Cuenta
+                          </button>
                         )}
 
-                        {esAdmin && mesa.grupoMesaId && (
+                        {mesa.estado === 'CERRADA' && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleLiberarMesa(mesa)
+                            }}
+                            className="mesa-status-primary-action"
+                            title="Liberar mesa"
+                            aria-label={`Liberar mesa ${mesa.numero}`}
+                          >
+                            Liberar mesa
+                          </button>
+                        )}
+
+                        {mesa.grupoMesaId && (
                           <button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation()
                               handleDesagrupar(mesa.grupoMesaId)
                             }}
-                            className="absolute -top-2 -left-2 bg-surface border border-border-default text-text-tertiary rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-error-50 hover:text-error-500 transition-colors"
+                            aria-label={`Desagrupar mesa ${mesa.numero}`}
                             title="Desagrupar"
+                            className="mesa-status-overlay__ghost-action mesa-status-overlay__ghost-action--danger"
                           >
-                            &times;
+                            Desagrupar
                           </button>
                         )}
 
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-3xl font-bold text-text-primary">{mesa.numero}</div>
-                            <p className="mt-1 text-xs text-text-tertiary">{mesa.capacidad} personas</p>
-                          </div>
-                          <span className={`badge ${getEstadoBadge(mesa.estado)}`}>{mesa.estado}</span>
-                        </div>
-
-                        {mesa.estado === 'OCUPADA' && mesa.pedidos?.[0] && (
-                          <div className="mt-3 text-xs text-text-tertiary">
-                            Pedido #{mesa.pedidos[0].id}
-                          </div>
-                        )}
-
-                        {reservaProxima && mesa.estado === 'LIBRE' && (
-                          <div className="mt-1 text-xs font-medium text-warning-700">
-                            Reserva {formatHora(reservaProxima.fechaHora)}
-                          </div>
-                        )}
-
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          {mesa.estado === 'OCUPADA' && (
+                        {showAdminActions && (
+                          <div className="grid grid-cols-3 gap-1.5">
                             <button
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation()
-                                handlePedirCuenta(mesa)
+                                handleEdit(mesa)
                               }}
-                              className="mesa-primary-action"
-                              title={`Solicitar cuenta para mesa ${mesa.numero}`}
+                              aria-label={`Editar mesa ${mesa.numero}`}
+                              title="Editar"
+                              className="mesa-status-action"
                             >
-                              Cuenta
+                              <PencilIcon className="w-4 h-4" />
                             </button>
-                          )}
-                          {esAdmin && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  handleEdit(mesa)
-                                }}
-                                aria-label={`Editar mesa ${mesa.numero}`}
-                                title={`Editar mesa ${mesa.numero}`}
-                                className="mesa-action-btn mesa-action-btn--primary"
-                              >
-                                <PencilIcon className="w-4 h-4" />
-                                <span className="hidden xl:inline">Editar</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  toggleSeleccionGrupo(mesa.id)
-                                }}
-                                aria-label={`Seleccionar mesa ${mesa.numero} para agrupar`}
-                                title={`Seleccionar mesa ${mesa.numero} para agrupar`}
-                                className={`mesa-action-btn ${
-                                  isSelected
-                                    ? 'border-primary-300 bg-primary-50 text-primary-700'
-                                    : 'text-text-tertiary hover:text-text-secondary'
-                                }`}
-                              >
-                                <ViewColumnsIcon className="w-4 h-4" />
-                                <span className="hidden xl:inline">Agrupar</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  handleDelete(mesa.id)
-                                }}
-                                aria-label={`Desactivar mesa ${mesa.numero}`}
-                                title={`Desactivar mesa ${mesa.numero}`}
-                                className="mesa-action-btn mesa-action-btn--danger"
-                              >
-                                <TrashIcon className="w-4 h-4" />
-                                <span className="hidden xl:inline">Baja</span>
-                              </button>
-                            </>
-                          )}
-                        </div>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                toggleSeleccionGrupo(mesa.id)
+                              }}
+                              aria-label={`Seleccionar mesa ${mesa.numero} para agrupar`}
+                              title="Seleccionar para agrupar"
+                              className={clsx(
+                                'mesa-status-action',
+                                isSelected && 'border-primary-300 bg-primary-50 text-primary-700'
+                              )}
+                            >
+                              <ViewColumnsIcon className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleDelete(mesa)
+                              }}
+                              aria-label={`Desactivar mesa ${mesa.numero}`}
+                              title="Desactivar"
+                              className="mesa-status-action mesa-status-action--danger"
+                            >
+                              <TrashIcon className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
                       </div>
+                    ) : null
+
+                    return (
+                      <MesaOperationCard
+                        key={mesa.id}
+                        mesa={mesa}
+                        secondaryText={secondaryText}
+                        reservaTooltip={reservaProxima
+                          ? `Reserva a las ${formatHora(reservaProxima.fechaHora)} - ${reservaProxima.clienteNombre}`
+                          : null}
+                        overlay={overlay}
+                        className={clsx(
+                          'transition-all',
+                          !mesa.activa && 'opacity-50',
+                          isSelected && 'mesa-status-card--selected',
+                          mesa.id === mesaEnfocadaId && 'mesa-status-card--focused',
+                          grupoColores[mesa.grupoMesaId] && `ring-2 ring-offset-1 ${grupoColores[mesa.grupoMesaId]}`
+                        )}
+                        forceOverlayVisible={isSelected || mesa.id === mesaEnfocadaId}
+                        onClick={() => handleMesaClick(mesa)}
+                      />
                     )
                   })}
                 </div>
@@ -966,6 +940,32 @@ export default function Mesas() {
           </div>
         </div>
       )}
+
+      <Modal
+        open={Boolean(mesaPendienteDesactivacion)}
+        onClose={cerrarConfirmacionDesactivar}
+        title="Desactivar mesa"
+        size="sm"
+        footer={(
+          <>
+            <Button type="button" variant="secondary" className="flex-1" onClick={cerrarConfirmacionDesactivar}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="danger" className="flex-1" onClick={confirmarDesactivarMesa}>
+              Desactivar
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-3 text-sm text-text-secondary">
+          <p>
+            La mesa {mesaPendienteDesactivacion?.numero} dejara de mostrarse en operacion y en el plano.
+          </p>
+          <p>
+            Puedes desactivarla si ya no se usa en el salon.
+          </p>
+        </div>
+      </Modal>
     </div>
   )
 }

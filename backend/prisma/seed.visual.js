@@ -35,9 +35,7 @@ async function main() {
 
   printBlock('Credenciales demo', result.credentials.map((item) => `${item.rol}: ${item.email} / ${item.password}`));
   printBlock('URLs utiles', [
-    `Menu publico: ${result.urls.menuPublico}`,
-    `Menu mesa 1: ${result.urls.menuMesa1}`,
-    `Menu mesa 7: ${result.urls.menuMesa7}`
+    `Menu publico: ${result.urls.menuPublico}`
   ]);
   printBlock('Conteos', Object.entries(result.counts).map(([key, value]) => `${key}: ${value}`));
 

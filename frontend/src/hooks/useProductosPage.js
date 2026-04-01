@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import api from '../services/api'
 import useAsync from './useAsync'
 import { validateImageFile } from '../utils/file-validation'
+import { resolvePublicAssetUrl } from '../utils/public-assets'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 const BACKEND_URL = API_URL.replace('/api', '')
@@ -210,14 +211,7 @@ export default function useProductosPage() {
       destacado: producto.destacado,
     })
 
-    if (producto.imagen) {
-      const imageUrl = producto.imagen.startsWith('http')
-        ? producto.imagen
-        : `${BACKEND_URL}${producto.imagen}`
-      setImagePreview(imageUrl)
-    } else {
-      setImagePreview(null)
-    }
+    setImagePreview(resolvePublicAssetUrl(producto.imagen, BACKEND_URL))
 
     setShowModal(true)
   }, [])

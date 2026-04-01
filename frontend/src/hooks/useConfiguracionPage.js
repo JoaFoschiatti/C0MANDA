@@ -11,6 +11,7 @@ const NEGOCIO_INICIAL = {
   email: '',
   telefono: '',
   direccion: '',
+  logo: '',
   colorPrimario: '#3B82F6',
   colorSecundario: '#1E40AF',
 }
@@ -26,8 +27,9 @@ const CONFIG_INICIAL = {
   delivery_habilitado: true,
   direccion_retiro: '',
   mercadopago_enabled: false,
-  mercadopago_qr_pos_id: '',
-  mercadopago_qr_mode: 'dynamic',
+  mercadopago_transfer_alias: '',
+  mercadopago_transfer_titular: '',
+  mercadopago_transfer_cvu: '',
   efectivo_enabled: true,
   whatsapp_numero: '',
   facturacion_habilitada: false,
@@ -41,7 +43,9 @@ const CONFIG_INICIAL = {
 const TEXT_CONFIG_KEYS = new Set([
   'horario_apertura',
   'horario_cierre',
-  'mercadopago_qr_pos_id',
+  'mercadopago_transfer_alias',
+  'mercadopago_transfer_titular',
+  'mercadopago_transfer_cvu',
   'whatsapp_numero',
   'facturacion_cuit_emisor',
   'facturacion_descripcion',
@@ -58,6 +62,7 @@ export default function useConfiguracionPage() {
   const [savingNegocio, setSavingNegocio] = useState(false)
   const [config, setConfig] = useState(CONFIG_INICIAL)
   const [saving, setSaving] = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
   const [uploadingBanner, setUploadingBanner] = useState(false)
   const [message, setMessage] = useState(null)
   const { set: setMessageTimeout } = useTimeout()
@@ -81,6 +86,7 @@ export default function useConfiguracionPage() {
       email: negocioResponse.data.email || '',
       telefono: negocioResponse.data.telefono || '',
       direccion: negocioResponse.data.direccion || '',
+      logo: negocioResponse.data.logo || '',
       colorPrimario: normalizeHexColor(
         negocioResponse.data.colorPrimario,
         NEGOCIO_INICIAL.colorPrimario
@@ -137,6 +143,20 @@ export default function useConfiguracionPage() {
     setConfig((prev) => ({ ...prev, [key]: value }))
   }, [])
 
+  const persistNegocio = useCallback(async (payload) => {
+    const response = await api.put('/negocio', payload, { skipToast: true })
+    setNegocio((prev) => ({
+      ...prev,
+      ...response.data.negocio,
+      colorPrimario: normalizeHexColor(response.data.negocio?.colorPrimario, payload.colorPrimario),
+      colorSecundario: normalizeHexColor(
+        response.data.negocio?.colorSecundario,
+        payload.colorSecundario
+      ),
+    }))
+    return response
+  }, [])
+
   const guardarNegocio = async () => {
     setSavingNegocio(true)
     try {
@@ -145,22 +165,43 @@ export default function useConfiguracionPage() {
         colorPrimario: normalizeHexColor(negocio.colorPrimario, NEGOCIO_INICIAL.colorPrimario),
         colorSecundario: normalizeHexColor(negocio.colorSecundario, NEGOCIO_INICIAL.colorSecundario),
       }
-      const response = await api.put('/negocio', payload, { skipToast: true })
-      setNegocio((prev) => ({
-        ...prev,
-        ...response.data.negocio,
-        colorPrimario: normalizeHexColor(
-          response.data.negocio?.colorPrimario,
-          payload.colorPrimario
-        ),
-        colorSecundario: normalizeHexColor(
-          response.data.negocio?.colorSecundario,
-          payload.colorSecundario
-        ),
-      }))
+      await persistNegocio(payload)
       mostrarMensaje('Datos del negocio guardados')
     } catch (error) {
       mostrarMensaje(error.response?.data?.error?.message || 'Error al guardar negocio', 'error')
+    } finally {
+      setSavingNegocio(false)
+    }
+  }
+
+  const guardarIdentidad = async () => {
+    setSavingNegocio(true)
+    try {
+      const payload = {
+        ...negocio,
+        colorPrimario: normalizeHexColor(negocio.colorPrimario, NEGOCIO_INICIAL.colorPrimario),
+        colorSecundario: normalizeHexColor(negocio.colorSecundario, NEGOCIO_INICIAL.colorSecundario),
+      }
+
+      await Promise.all([
+        persistNegocio(payload),
+        api.put(
+          '/configuracion',
+          {
+            tagline_negocio: config.tagline_negocio || '',
+          },
+          { skipToast: true }
+        ),
+      ])
+
+      setConfig((prev) => ({
+        ...prev,
+        nombre_negocio: payload.nombre,
+        tagline_negocio: config.tagline_negocio || '',
+      }))
+      mostrarMensaje('Identidad guardada correctamente')
+    } catch (error) {
+      mostrarMensaje(error.response?.data?.error?.message || 'Error al guardar identidad', 'error')
     } finally {
       setSavingNegocio(false)
     }
@@ -170,6 +211,9 @@ export default function useConfiguracionPage() {
     setSaving(true)
     try {
       const {
+        nombre_negocio,
+        tagline_negocio,
+        banner_imagen,
         facturacion_habilitada,
         facturacion_ambiente,
         facturacion_punto_venta,
@@ -234,6 +278,73 @@ export default function useConfiguracionPage() {
       mostrarMensaje('Error al subir banner', 'error')
     } finally {
       setUploadingBanner(false)
+      event.target.value = ''
+    }
+  }
+
+  const handleBannerRemove = async () => {
+    if (!config.banner_imagen) {
+      return
+    }
+
+    const previousBanner = config.banner_imagen
+    setConfig((prev) => ({ ...prev, banner_imagen: '' }))
+
+    try {
+      await api.put('/configuracion', { banner_imagen: '' }, { skipToast: true })
+      mostrarMensaje('Banner eliminado')
+    } catch (error) {
+      setConfig((prev) => ({ ...prev, banner_imagen: previousBanner }))
+      mostrarMensaje(error.response?.data?.error?.message || 'Error al quitar banner', 'error')
+    }
+  }
+
+  const handleLogoUpload = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+
+    const validation = validateImageFile(file)
+    if (!validation.ok) {
+      mostrarMensaje(validation.error, 'error')
+      event.target.value = ''
+      return
+    }
+
+    const formData = new FormData()
+    formData.append('logo', file)
+
+    setUploadingLogo(true)
+    try {
+      const response = await api.post('/negocio/logo', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        skipToast: true,
+      })
+      setNegocio((prev) => ({ ...prev, logo: response.data.url }))
+      mostrarMensaje('Logo subido correctamente')
+    } catch {
+      mostrarMensaje('Error al subir logo', 'error')
+    } finally {
+      setUploadingLogo(false)
+      event.target.value = ''
+    }
+  }
+
+  const handleLogoRemove = async () => {
+    if (!negocio.logo) {
+      return
+    }
+
+    const previousLogo = negocio.logo
+    setNegocio((prev) => ({ ...prev, logo: '' }))
+
+    try {
+      await api.put('/negocio', { logo: '' }, { skipToast: true })
+      mostrarMensaje('Logo eliminado')
+    } catch (error) {
+      setNegocio((prev) => ({ ...prev, logo: previousLogo }))
+      mostrarMensaje(error.response?.data?.error?.message || 'Error al quitar logo', 'error')
     }
   }
 
@@ -255,10 +366,14 @@ export default function useConfiguracionPage() {
     cargarDatosAsync,
     config,
     frontendUrl: import.meta.env.VITE_FRONTEND_URL || window.location.origin,
+    guardarIdentidad,
     guardarConfiguracion,
     guardarNegocio,
+    handleBannerRemove,
     handleBannerUpload,
     handleConfigChange,
+    handleLogoRemove,
+    handleLogoUpload,
     handleNegocioChange,
     loading,
     message,
@@ -268,5 +383,6 @@ export default function useConfiguracionPage() {
     setMessage,
     toggleTiendaAbierta,
     uploadingBanner,
+    uploadingLogo,
   }
 }

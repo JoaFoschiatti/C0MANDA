@@ -1,11 +1,15 @@
 import { useEffect, useRef } from 'react'
 import { createEventSource } from '../services/eventos'
+import useBackendAvailability from './useBackendAvailability'
+import useNetworkStatus from './useNetworkStatus'
 
 const INITIAL_BACKOFF = 1000
 const MAX_BACKOFF = 30000
 const BACKOFF_MULTIPLIER = 2
 
 export default function useEventSource({ enabled = true, events = {}, onOpen, onError, onConnectionChange } = {}) {
+  const { apiAvailable } = useBackendAvailability()
+  const { isOnline } = useNetworkStatus()
   const eventsRef = useRef(events)
   const onOpenRef = useRef(onOpen)
   const onErrorRef = useRef(onError)
@@ -19,7 +23,12 @@ export default function useEventSource({ enabled = true, events = {}, onOpen, on
   const eventNamesKey = Object.keys(events).sort().join('|')
 
   useEffect(() => {
-    if (!enabled) return undefined
+    const shouldConnect = enabled && isOnline && apiAvailable
+
+    if (!shouldConnect) {
+      onConnectionChangeRef.current?.(false)
+      return undefined
+    }
 
     let sourceRef = null
     let reconnectTimer = null
@@ -85,5 +94,5 @@ export default function useEventSource({ enabled = true, events = {}, onOpen, on
         sourceRef = null
       }
     }
-  }, [enabled, eventNamesKey])
+  }, [apiAvailable, enabled, eventNamesKey, isOnline])
 }

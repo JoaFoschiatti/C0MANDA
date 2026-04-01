@@ -28,7 +28,6 @@ const {
   canAddItemsToPedido
 } = require('./order-state.service');
 const {
-  invalidateMesaPublicSessions,
   isDeferredSettlementPedido
 } = require('./public-order-security.service');
 
@@ -627,7 +626,6 @@ const cambiarEstadoPedido = async (prisma, payload) => {
           where: { id: pedido.mesaId },
           data: { estado: 'CERRADA' }
         });
-        await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
         mesaUpdates.push({ mesaId: pedido.mesaId, estado: 'CERRADA' });
       }
 
@@ -813,7 +811,6 @@ const cancelarPedido = async (prisma, payload) => {
         where: { id: pedido.mesaId },
         data: { estado: 'LIBRE' }
       });
-      await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
       mesaUpdated = { mesaId: pedido.mesaId, estado: 'LIBRE' };
     }
 
@@ -929,7 +926,6 @@ const cerrarPedido = async (prisma, payload) => {
         where: { id: pedido.mesaId },
         data: { estado: 'CERRADA' }
       });
-      await invalidateMesaPublicSessions(tx, { mesaId: pedido.mesaId });
       mesaUpdated = { mesaId: pedido.mesaId, estado: 'CERRADA' };
     }
 
@@ -996,7 +992,6 @@ const liberarMesa = async (prisma, payload) => {
       where: { id: mesaId },
       data: { estado: 'LIBRE' }
     });
-    await invalidateMesaPublicSessions(tx, { mesaId });
 
     if (pedidoCerrado) {
       await registrarAuditoriaPedido(tx, {

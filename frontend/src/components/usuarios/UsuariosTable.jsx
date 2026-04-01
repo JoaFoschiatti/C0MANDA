@@ -52,6 +52,7 @@ export default function UsuariosTable({ usuarios, onEdit, onToggleActivo }) {
                   onClick={() => onEdit(usuario)}
                   type="button"
                   aria-label={`Editar usuario: ${usuario.nombre}`}
+                  title="Editar"
                   className="text-primary-500 transition-colors hover:text-primary-600"
                 >
                   <PencilIcon className="h-5 w-5" />

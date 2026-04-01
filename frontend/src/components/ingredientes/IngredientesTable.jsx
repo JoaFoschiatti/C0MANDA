@@ -103,7 +103,7 @@ export default function IngredientesTable({
                   aria-label={`Movimiento de stock: ${ingrediente.nombre}`}
                   onClick={() => onAbrirMovimiento(ingrediente)}
                   className="table-action-btn table-action-btn--success"
-                  title="Registrar movimiento"
+                  title="Movimiento de stock"
                 >
                   <span className="flex items-center gap-0.5">
                     <ArrowUpIcon className="w-4 h-4" />
@@ -115,7 +115,7 @@ export default function IngredientesTable({
                   aria-label={`Editar ingrediente: ${ingrediente.nombre}`}
                   onClick={() => onEdit(ingrediente)}
                   className="table-action-btn table-action-btn--primary"
-                  title={`Editar ingrediente ${ingrediente.nombre}`}
+                  title="Editar"
                 >
                   <PencilIcon className="w-4 h-4" />
                   <span className="hidden lg:inline">Editar</span>

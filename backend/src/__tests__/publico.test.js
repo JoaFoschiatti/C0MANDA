@@ -11,6 +11,12 @@ describe('Publico Endpoints', () => {
   beforeEach(async () => {
     await cleanupOperationalData();
     await ensureNegocio();
+    await prisma.negocio.update({
+      where: { id: 1 },
+      data: {
+        logo: null
+      }
+    });
   });
 
   afterAll(async () => {
@@ -23,7 +29,8 @@ describe('Publico Endpoints', () => {
       data: {
         nombre: 'Comanda Test',
         telefono: '3415550000',
-        direccion: 'Calle Falsa 123'
+        direccion: 'Calle Falsa 123',
+        logo: '/uploads/logo-test.png'
       }
     });
 
@@ -34,7 +41,8 @@ describe('Publico Endpoints', () => {
     expect(response.body.negocio).toEqual(expect.objectContaining({
       nombre: 'Comanda Test',
       telefono: '3415550000',
-      direccion: 'Calle Falsa 123'
+      direccion: 'Calle Falsa 123',
+      logo: '/uploads/logo-test.png'
     }));
     expect(response.body.config.tienda_abierta).toBe(true);
     expect(response.body.config.efectivo_enabled).toBe(true);
@@ -63,7 +71,8 @@ describe('Publico Endpoints', () => {
         nombre: `Prod-${uniqueId('base')}`,
         precio: 100,
         categoriaId: categoriaActiva.id,
-        disponible: true
+        disponible: true,
+        imagen: '/uploads/prod-base.png'
       }
     });
 
@@ -84,7 +93,8 @@ describe('Publico Endpoints', () => {
         categoriaId: categoriaActiva.id,
         disponible: true,
         productoBaseId: productoBase.id,
-        ordenVariante: 1
+        ordenVariante: 1,
+        imagen: '/uploads/prod-variante.png'
       }
     });
 
@@ -125,8 +135,11 @@ describe('Publico Endpoints', () => {
     expect(idsProductos).not.toContain(varianteDisponible.id);
 
     const baseEnRespuesta = categoria.productos.find((producto) => producto.id === productoBase.id);
+    expect(baseEnRespuesta.imagen).toBe('/uploads/prod-base.png');
     const idsVariantes = baseEnRespuesta.variantes.map((variante) => variante.id);
     expect(idsVariantes).toContain(varianteDisponible.id);
+    expect(baseEnRespuesta.variantes.find((variante) => variante.id === varianteDisponible.id).imagen)
+      .toBe('/uploads/prod-variante.png');
     expect(baseEnRespuesta.ingredientes).toBeUndefined();
     expect(baseEnRespuesta.variantes[0].ingredientes).toBeUndefined();
   });
@@ -188,91 +201,20 @@ describe('Publico Endpoints', () => {
     expect(menuResponse.headers['cache-control']).toBe('public, max-age=60, stale-while-revalidate=120');
   });
 
-  it('GET /api/publico/mesa/:qrToken devuelve una sesion efimera para ordering', async () => {
-    const mesa = await prisma.mesa.create({
-      data: {
-        numero: 76,
-        capacidad: 4,
-        estado: 'LIBRE',
-        activa: true
-      }
-    });
-
-    const response = await request(app)
-      .get(`/api/publico/mesa/${mesa.qrToken}`)
-      .expect(200);
-
-    expect(response.body.mesa.id).toBe(mesa.id);
-    expect(response.body.mesa.qrToken).toBeUndefined();
-    expect(response.body.mesaSession).toEqual(expect.objectContaining({
-      token: expect.any(String),
-      expiresAt: expect.any(String)
-    }));
+  it('GET /api/publico/mesa/:qrToken ya no existe', async () => {
+    await request(app)
+      .get('/api/publico/mesa/token-obsoleto')
+      .expect(404);
   });
 
-  it('POST /api/publico/mesa/:qrToken/pedido rechaza cantidades invalidas', async () => {
-    const mesa = await prisma.mesa.create({
-      data: {
-        numero: 77,
-        capacidad: 4,
-        estado: 'LIBRE',
-        activa: true
-      }
-    });
-
-    const mesaContext = await request(app)
-      .get(`/api/publico/mesa/${mesa.qrToken}`)
-      .expect(200);
-
-    const response = await request(app)
-      .post(`/api/publico/mesa/${mesa.qrToken}/pedido`)
+  it('POST /api/publico/mesa/:qrToken/pedido ya no existe', async () => {
+    await request(app)
+      .post('/api/publico/mesa/token-obsoleto/pedido')
       .send({
-        sessionToken: mesaContext.body.mesaSession.token,
         clienteNombre: 'Mesa Test',
-        items: [{ productoId: 1, cantidad: -1 }]
+        items: [{ productoId: 1, cantidad: 1 }]
       })
-      .expect(400);
-
-    expect(response.body.error.message).toBe('Datos inválidos');
-  });
-
-  it('POST /api/publico/mesa/:qrToken/pedido exige una sesion activa valida', async () => {
-    const categoria = await prisma.categoria.create({
-      data: {
-        nombre: `Cat-${uniqueId('mesa-sec')}`,
-        orden: 1,
-        activa: true
-      }
-    });
-
-    const producto = await prisma.producto.create({
-      data: {
-        nombre: `Prod-${uniqueId('mesa-sec')}`,
-        precio: 25,
-        categoriaId: categoria.id,
-        disponible: true
-      }
-    });
-
-    const mesa = await prisma.mesa.create({
-      data: {
-        numero: 78,
-        capacidad: 4,
-        estado: 'LIBRE',
-        activa: true
-      }
-    });
-
-    const response = await request(app)
-      .post(`/api/publico/mesa/${mesa.qrToken}/pedido`)
-      .send({
-        sessionToken: 'session-invalida',
-        clienteNombre: 'Mesa Test',
-        items: [{ productoId: producto.id, cantidad: 1 }]
-      })
-      .expect(403);
-
-    expect(response.body.error.message).toBe('La sesion del QR expiro. Vuelve a escanear el codigo.');
+      .expect(404);
   });
 
   it('POST /api/publico/pedido rechaza delivery si esta deshabilitado', async () => {

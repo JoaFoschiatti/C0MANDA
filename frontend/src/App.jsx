@@ -9,7 +9,6 @@ import RedirectByRole from './components/RedirectByRole'
 
 const Login = lazy(() => import('./pages/Login'))
 const MenuPublico = lazy(() => import('./pages/MenuPublico'))
-const MenuMesaPublico = lazy(() => import('./pages/MenuMesaPublico'))
 
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
 const Usuarios = lazy(() => import('./pages/admin/Usuarios'))
@@ -74,10 +73,6 @@ export default function App() {
       <Route
         path="/menu"
         element={<PublicLayout><LazyScreen><MenuPublico /></LazyScreen></PublicLayout>}
-      />
-      <Route
-        path="/menu/mesa/:qrToken"
-        element={<PublicLayout><LazyScreen><MenuMesaPublico /></LazyScreen></PublicLayout>}
       />
       <Route
         path="/"

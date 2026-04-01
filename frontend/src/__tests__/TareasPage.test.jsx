@@ -43,7 +43,6 @@ const baseResponse = {
     caja: 2,
     stock: 2,
     mesasEsperandoCuenta: 0,
-    qrPendientes: 0,
     pedidosPorCerrar: 1,
     mesasPorLiberar: 1,
     stockBajo: 1,

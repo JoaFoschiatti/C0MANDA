@@ -1,12 +1,10 @@
 import {
-  PhotoIcon,
   TruckIcon,
   CreditCardIcon,
   ClockIcon,
   BanknotesIcon,
   BuildingStorefrontIcon,
   LinkIcon,
-  QrCodeIcon,
   DocumentTextIcon,
 } from '@heroicons/react/24/outline'
 
@@ -15,16 +13,20 @@ import ConfigSection from '../../components/configuracion/ConfigSection'
 import ConfigMessageBanner from '../../components/configuracion/ConfigMessageBanner'
 import { PageHeader, Spinner, ColorPicker } from '../../components/ui'
 import useConfiguracionPage from '../../hooks/useConfiguracionPage'
+import { resolvePublicAssetUrl } from '../../utils/public-assets'
 
 export default function Configuracion() {
   const {
     backendUrl,
     config,
     frontendUrl,
+    guardarIdentidad,
     guardarConfiguracion,
-    guardarNegocio,
+    handleBannerRemove,
     handleBannerUpload,
     handleConfigChange,
+    handleLogoRemove,
+    handleLogoUpload,
     handleNegocioChange,
     loading,
     message,
@@ -33,7 +35,10 @@ export default function Configuracion() {
     savingNegocio,
     toggleTiendaAbierta,
     uploadingBanner,
+    uploadingLogo,
   } = useConfiguracionPage()
+  const logoPreviewUrl = resolvePublicAssetUrl(negocio.logo, backendUrl)
+  const bannerPreviewUrl = resolvePublicAssetUrl(config.banner_imagen, backendUrl)
 
   if (loading) {
     return (
@@ -52,7 +57,7 @@ export default function Configuracion() {
         actions={<ConfigMessageBanner message={message} />}
       />
 
-      <ConfigSection icon={BuildingStorefrontIcon} title="Datos del Negocio">
+      <ConfigSection icon={BuildingStorefrontIcon} title="Identidad del Negocio">
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -79,6 +84,19 @@ export default function Configuracion() {
                 className="input"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="config-tagline">
+              Tagline / Slogan
+            </label>
+            <input
+              id="config-tagline"
+              type="text"
+              value={config.tagline_negocio}
+              onChange={(event) => handleConfigChange('tagline_negocio', event.target.value)}
+              className="input"
+            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -123,6 +141,78 @@ export default function Configuracion() {
             />
           </div>
 
+          <div>
+            <label className="label" htmlFor="negocio-logo">
+              Logo del Menu Publico
+            </label>
+            <div className="flex items-center gap-4">
+              <label className="cursor-pointer" htmlFor="negocio-logo">
+                <input
+                  id="negocio-logo"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleLogoUpload}
+                  className="hidden"
+                />
+                <span className={`btn ${uploadingLogo ? 'btn-disabled' : 'btn-secondary'}`}>
+                  {uploadingLogo ? 'Subiendo...' : 'Subir Logo'}
+                </span>
+              </label>
+
+              {logoPreviewUrl && (
+                <div className="flex items-center gap-2">
+                  <img
+                    src={logoPreviewUrl}
+                    alt="Logo preview"
+                    className="h-16 w-16 rounded-2xl border border-border-default bg-white object-contain p-2"
+                  />
+                  <button
+                    onClick={handleLogoRemove}
+                    className="text-error-500 hover:text-error-600 text-sm transition-colors"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="label" htmlFor="config-banner">
+              Banner del Menu Publico
+            </label>
+            <div className="flex items-center gap-4">
+              <label className="cursor-pointer" htmlFor="config-banner">
+                <input
+                  id="config-banner"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleBannerUpload}
+                  className="hidden"
+                />
+                <span className={`btn ${uploadingBanner ? 'btn-disabled' : 'btn-secondary'}`}>
+                  {uploadingBanner ? 'Subiendo...' : 'Subir Banner'}
+                </span>
+              </label>
+
+              {bannerPreviewUrl && (
+                <div className="flex items-center gap-2">
+                  <img
+                    src={bannerPreviewUrl}
+                    alt="Banner preview"
+                    className="h-16 w-32 object-cover rounded-xl border border-border-default"
+                  />
+                  <button
+                    onClick={handleBannerRemove}
+                    className="text-error-500 hover:text-error-600 text-sm transition-colors"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="bg-info-50 p-4 rounded-xl">
             <div className="flex items-center gap-2 text-info-700">
               <LinkIcon className="w-5 h-5" />
@@ -137,20 +227,19 @@ export default function Configuracion() {
               {frontendUrl}/menu
             </a>
             <p className="text-xs text-info-600 mt-2">
-              Usa este link como version canonica. Los QR de mesa deben apuntar a
-              `/menu/mesa/:qrToken`.
+              Usa este link como version canonica para compartir la carta publica del local.
             </p>
           </div>
 
           <div className="flex justify-end">
             <button
-              onClick={guardarNegocio}
+              onClick={guardarIdentidad}
               disabled={savingNegocio}
               className={`btn btn-primary px-6 ${
                 savingNegocio ? 'opacity-50 cursor-not-allowed' : ''
               }`}
             >
-              {savingNegocio ? 'Guardando...' : 'Guardar Datos del Negocio'}
+              {savingNegocio ? 'Guardando...' : 'Guardar identidad'}
             </button>
           </div>
         </div>
@@ -194,72 +283,6 @@ export default function Configuracion() {
               onChange={(event) => handleConfigChange('horario_cierre', event.target.value)}
               className="input"
             />
-          </div>
-        </div>
-      </ConfigSection>
-
-      <ConfigSection icon={PhotoIcon} title="Branding">
-        <div className="space-y-4">
-          <div>
-            <label className="label" htmlFor="config-nombre-negocio">
-              Nombre visible en el menu
-            </label>
-            <input
-              id="config-nombre-negocio"
-              type="text"
-              value={config.nombre_negocio}
-              onChange={(event) => handleConfigChange('nombre_negocio', event.target.value)}
-              className="input"
-            />
-          </div>
-
-          <div>
-            <label className="label" htmlFor="config-tagline">
-              Tagline / Slogan
-            </label>
-            <input
-              id="config-tagline"
-              type="text"
-              value={config.tagline_negocio}
-              onChange={(event) => handleConfigChange('tagline_negocio', event.target.value)}
-              className="input"
-            />
-          </div>
-
-          <div>
-            <label className="label" htmlFor="config-banner">
-              Banner del Menu Publico
-            </label>
-            <div className="flex items-center gap-4">
-              <label className="cursor-pointer" htmlFor="config-banner">
-                <input
-                  id="config-banner"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={handleBannerUpload}
-                  className="hidden"
-                />
-                <span className={`btn ${uploadingBanner ? 'btn-disabled' : 'btn-secondary'}`}>
-                  {uploadingBanner ? 'Subiendo...' : 'Subir Banner'}
-                </span>
-              </label>
-
-              {config.banner_imagen && (
-                <div className="flex items-center gap-2">
-                  <img
-                    src={`${backendUrl}${config.banner_imagen}`}
-                    alt="Banner preview"
-                    className="h-16 w-32 object-cover rounded-xl border border-border-default"
-                  />
-                  <button
-                    onClick={() => handleConfigChange('banner_imagen', '')}
-                    className="text-error-500 hover:text-error-600 text-sm transition-colors"
-                  >
-                    Quitar
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </ConfigSection>
@@ -368,44 +391,58 @@ export default function Configuracion() {
 
         <ConfigSection className="card mt-6" title={null}>
           <h3 className="font-bold text-text-primary mb-4 flex items-center gap-2">
-            <QrCodeIcon className="w-5 h-5" />
-            QR Presencial Mercado Pago
+            <LinkIcon className="w-5 h-5" />
+            Transferencia Mercado Pago
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="label" htmlFor="config-qr-pos">
-                External POS ID
+              <label className="label" htmlFor="config-mp-transfer-alias">
+                Alias *
               </label>
               <input
-                id="config-qr-pos"
+                id="config-mp-transfer-alias"
                 type="text"
-                value={config.mercadopago_qr_pos_id}
+                value={config.mercadopago_transfer_alias}
                 onChange={(event) =>
-                  handleConfigChange('mercadopago_qr_pos_id', event.target.value)
+                  handleConfigChange('mercadopago_transfer_alias', event.target.value)
                 }
                 className="input"
-                placeholder="CAJA-PRINCIPAL"
+                placeholder="mi-resto.mp"
               />
               <p className="input-hint">
-                Identificador del POS configurado en Mercado Pago para QR dinamico.
+                Este alias se muestra en el POS cuando el cajero registra un cobro manual por transferencia.
               </p>
             </div>
             <div>
-              <label className="label" htmlFor="config-qr-mode">
-                Modo QR
+              <label className="label" htmlFor="config-mp-transfer-titular">
+                Titular
               </label>
-              <select
-                id="config-qr-mode"
-                className="input"
-                value={config.mercadopago_qr_mode}
+              <input
+                id="config-mp-transfer-titular"
+                type="text"
+                value={config.mercadopago_transfer_titular}
                 onChange={(event) =>
-                  handleConfigChange('mercadopago_qr_mode', event.target.value)
+                  handleConfigChange('mercadopago_transfer_titular', event.target.value)
                 }
-              >
-                <option value="dynamic">Dinamico</option>
-                <option value="static">Estatico</option>
-              </select>
+                className="input"
+                placeholder="Nombre del titular"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="label" htmlFor="config-mp-transfer-cvu">
+                CVU
+              </label>
+              <input
+                id="config-mp-transfer-cvu"
+                type="text"
+                value={config.mercadopago_transfer_cvu}
+                onChange={(event) =>
+                  handleConfigChange('mercadopago_transfer_cvu', event.target.value)
+                }
+                className="input"
+                placeholder="0000003100000000000000"
+              />
             </div>
           </div>
         </ConfigSection>
@@ -528,7 +565,7 @@ export default function Configuracion() {
           disabled={saving}
           className={`btn btn-primary px-8 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
-          {saving ? 'Guardando...' : 'Guardar Configuracion'}
+          {saving ? 'Guardando...' : 'Guardar configuracion operativa'}
         </button>
       </div>
     </div>

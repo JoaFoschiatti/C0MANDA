@@ -1,0 +1,16 @@
+{
+  "name": "comanda-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "setup": "npm install && npm install --prefix backend && npm install --prefix frontend",
+    "dev": "concurrently -k --kill-others-on-fail --names backend,frontend --prefix-colors green,blue \"npm:dev:backend\" \"npm:dev:frontend:wait\"",
+    "dev:backend": "npm --prefix backend run db:generate && npm --prefix backend run db:deploy && npm --prefix backend run db:bootstrap && npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:frontend:wait": "wait-on http-get://127.0.0.1:3001/api/ready && npm run dev:frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "wait-on": "^8.0.5"
+  }
+}

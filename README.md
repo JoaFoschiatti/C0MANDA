@@ -8,7 +8,7 @@ Sistema de gestion para un restaurante unico, desplegado como instalacion dedica
 - Menu publico canonico en `/menu`.
 - QR por mesa en `/menu/mesa/:qrToken`.
 - Flujo de salon: `OCUPADA -> ESPERANDO_CUENTA -> CERRADA -> LIBRE`.
-- Pagos en caja, checkout web y QR presencial de Mercado Pago.
+- Pagos en caja, checkout web y transferencias manuales por alias de Mercado Pago.
 - Facturacion electronica persistida en BD con configuracion de punto de venta y comprobantes pendientes hasta contar con credenciales ARCA del ambiente.
 
 ## Abono mensual
@@ -31,7 +31,31 @@ El abono mensual de mantenimiento no se cobra ni se controla desde la app.
 
 ## Desarrollo local
 
-### Backend
+### Flujo recomendado
+
+```bash
+copy backend\.env.example backend\.env
+npm run setup
+npm run dev
+```
+
+Este flujo asume:
+
+- PostgreSQL instalado y corriendo localmente.
+- `backend/.env` configurado con credenciales validas.
+- Arranque desde la raiz del repo.
+
+`npm run dev` orquesta el backend y el frontend en este orden:
+
+1. prepara Prisma (`db:generate`, `db:deploy`);
+2. ejecuta `db:bootstrap`;
+3. levanta la API;
+4. espera a que `http://127.0.0.1:3001/api/ready` responda `200`;
+5. recien entonces levanta Vite.
+
+Asi se evita que Vite empiece a proxyear requests a `/api` antes de que el backend exista.
+
+### Backend manual
 
 ```bash
 cd backend
@@ -50,6 +74,8 @@ cd frontend
 npm install
 npm run dev
 ```
+
+Si ejecutas solo el frontend, Vite seguira mostrando `http proxy error` mientras el backend no este levantado en `http://localhost:3001`, porque `/api` y `/uploads` dependen del proxy de desarrollo.
 
 ## Variables de entorno clave
 
@@ -81,7 +107,7 @@ Las mas importantes para un ambiente productivo son:
 - `GET /api/publico/menu`
 - `GET /api/publico/mesa/:qrToken`
 - `POST /api/publico/mesa/:qrToken/pedido`
-- `POST /api/pagos/qr/orden`
+- `GET /api/pagos/mercadopago/transferencia-config`
 - `POST /api/pagos/webhook/mercadopago`
 - `POST /api/facturacion/comprobantes`
 - `GET /api/facturacion/comprobantes/:id`
@@ -101,5 +127,6 @@ La guia operativa esta en [DEPLOY.md](/C:/Programacion/Comanda/DEPLOY.md). El pa
 ## Notas
 
 - La facturacion electronica requiere credenciales WSAA/WSFEv1 reales del restaurante para emitir CAE.
-- El QR presencial requiere Access Token valido de Mercado Pago y `external_pos_id` configurado.
+- El checkout web de Mercado Pago requiere Access Token valido y la cuenta conectada del local.
+- El POS puede mostrar alias, titular y CVU configurados para registrar transferencias manuales.
 - La entrega operativa incluye health `/api/health`, readiness `/api/ready`, pack EC2, checklist de release y manuales bajo `docs/entrega`.

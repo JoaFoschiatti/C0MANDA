@@ -102,7 +102,7 @@ export default function MercadoPagoConfig({ onStatusChange }) {
         </div>
         <div>
           <h3 className="font-bold text-text-primary">MercadoPago</h3>
-          <p className="text-text-secondary text-sm">Una sola cuenta del local para pagos online y QR presencial</p>
+          <p className="text-text-secondary text-sm">Una sola cuenta del local para pagos online y transferencias registradas en caja</p>
         </div>
       </div>
 
@@ -134,7 +134,7 @@ export default function MercadoPagoConfig({ onStatusChange }) {
           </div>
 
           <p className="text-sm text-text-secondary">
-            Esta cuenta se usa para checkout web y para generar QR dinamico presencial.
+            Esta cuenta se usa para checkout web y para registrar cobros de Mercado Pago en caja.
           </p>
 
           <button

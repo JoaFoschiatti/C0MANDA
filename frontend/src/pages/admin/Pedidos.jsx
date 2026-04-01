@@ -3,15 +3,13 @@ import { useSearchParams } from 'react-router-dom'
 import api from '../../services/api'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext'
-import { QRCodeSVG } from 'qrcode.react'
 import {
   EyeIcon,
   PrinterIcon,
   CurrencyDollarIcon,
   DocumentTextIcon,
   PlusIcon,
-  QrCodeIcon,
-  ArrowPathIcon,
+  LinkIcon,
   TruckIcon
 } from '@heroicons/react/24/outline'
 import { Alert, Button, EmptyState, Modal, PageHeader, Spinner, Table } from '../../components/ui'
@@ -19,6 +17,7 @@ import useEventSource from '../../hooks/useEventSource'
 import NuevoPedidoModal from '../../components/pedidos/NuevoPedidoModal'
 import EmitirComprobanteModal from '../../components/facturacion/EmitirComprobanteModal'
 import useAsync from '../../hooks/useAsync'
+import { formatArsPos, formatPosInputValue } from '../../utils/currency'
 import { parseBooleanFlag, parsePositiveIntParam } from '../../utils/query-params'
 
 const estadoBadges = {
@@ -40,79 +39,31 @@ const calcularPendientePedido = (pedido) => Math.max(
   parseFloat(pedido?.total || 0) - sumPagosRegistrados(pedido?.pagos || [])
 )
 
+const CANAL_COBRO_POS = 'CAJA'
+const FLOAT_EPSILON = 0.01
+
 const buildPagoForm = (pedido, overrides = {}) => ({
-  monto: calcularPendientePedido(pedido).toFixed(2),
+  monto: formatPosInputValue(calcularPendientePedido(pedido)),
   metodo: 'EFECTIVO',
   referencia: '',
-  canalCobro: 'CAJA',
+  canalCobro: CANAL_COBRO_POS,
   propinaMonto: '',
   propinaMetodo: 'EFECTIVO',
   montoAbonado: '',
   ...overrides
 })
 
-const getLatestQrPresencialPago = (pedido, orderId = null) => {
-  const pagos = (pedido?.pagos || [])
-    .filter((pago) => pago.canalCobro === 'QR_PRESENCIAL')
-    .filter((pago) => (orderId ? String(pago.referencia) === String(orderId) : true))
-    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-
-  return pagos[0] || null
+const TRANSFERENCIA_MP_CONFIG_INICIAL = {
+  mercadopago_transfer_alias: '',
+  mercadopago_transfer_titular: '',
+  mercadopago_transfer_cvu: ''
 }
 
-const buildQrPresencialState = (pago) => {
-  if (!pago) {
-    return null
-  }
-
-  const pendiente = parseFloat(pago.monto || 0)
-  const propinaMonto = parseFloat(pago.propinaMonto || 0)
-
-  return {
-    orderId: pago.referencia || null,
-    status: pago.estado || 'PENDIENTE',
-    qrData: pago.comprobante,
-    totalAmount: pendiente + propinaMonto,
-    pendiente,
-    propinaMonto
-  }
-}
-
-const buildQrPresencialStateFromResponse = (response) => ({
-  orderId: response?.orderId || null,
-  status: response?.status || 'CREATED',
-  qrData: response?.qrData || null,
-  totalAmount: parseFloat(response?.totalAmount || 0),
-  pendiente: parseFloat(response?.pendiente || 0),
-  propinaMonto: parseFloat(response?.propinaMonto || 0)
+const buildTransferenciaMpConfig = (config) => ({
+  mercadopago_transfer_alias: config?.mercadopago_transfer_alias || config?.alias || '',
+  mercadopago_transfer_titular: config?.mercadopago_transfer_titular || config?.titular || '',
+  mercadopago_transfer_cvu: config?.mercadopago_transfer_cvu || config?.cvu || ''
 })
-
-const getQrStatusLabel = (status) => {
-  const normalizedStatus = status?.toString().toUpperCase()
-
-  switch (normalizedStatus) {
-    case 'CREATED':
-      return 'QR generado'
-    case 'PENDING':
-    case 'PENDIENTE':
-      return 'Pendiente de pago'
-    case 'APPROVED':
-    case 'APROBADO':
-      return 'Aprobado'
-    case 'REJECTED':
-    case 'RECHAZADO':
-      return 'Rechazado'
-    case 'CANCELLED':
-    case 'CANCELADO':
-      return 'Cancelado'
-    case 'CLOSED':
-    case 'PAID':
-    case 'PROCESSED':
-      return 'Cobro recibido'
-    default:
-      return status || 'Pendiente'
-  }
-}
 
 const normalizePedidosResponse = (payload) => {
   if (Array.isArray(payload)) {
@@ -188,25 +139,28 @@ export default function Pedidos() {
   const pedidoSeleccionadoRef = useRef(null)
   const loadedLimitRef = useRef(PEDIDOS_PAGE_SIZE)
   const loadingMoreRef = useRef(false)
-  const qrSyncInFlightRef = useRef(false)
   const pagoSubmitInFlightRef = useRef(false)
   const deliveryModalPedidoRef = useRef(null)
+  const montoInputRef = useRef(null)
+  const metodoPagoInputRef = useRef(null)
+  const metodoPagoPrevRef = useRef('EFECTIVO')
+  const montoAbonadoInputRef = useRef(null)
+  const referenciaInputRef = useRef(null)
+  const propinaMontoInputRef = useRef(null)
   const [pagoForm, setPagoForm] = useState({
     monto: '',
     metodo: 'EFECTIVO',
     referencia: '',
-    canalCobro: 'CAJA',
+    canalCobro: CANAL_COBRO_POS,
     propinaMonto: '',
     propinaMetodo: 'EFECTIVO',
     montoAbonado: ''
   })
-  const [qrPresencial, setQrPresencial] = useState(null)
-  const [generatingQr, setGeneratingQr] = useState(false)
+  const [transferenciaMpConfig, setTransferenciaMpConfig] = useState(TRANSFERENCIA_MP_CONFIG_INICIAL)
   const [registrandoPago, setRegistrandoPago] = useState(false)
-  const [syncingQr, setSyncingQr] = useState(false)
+  const [mostrarPropina, setMostrarPropina] = useState(false)
+  const [propinaMetodoPersonalizado, setPropinaMetodoPersonalizado] = useState(false)
   const [showNuevoPedidoModal, setShowNuevoPedidoModal] = useState(false)
-  const [showPreviewModal, setShowPreviewModal] = useState(false)
-  const [previewContent, setPreviewContent] = useState('')
   const [showAsignarDeliveryModal, setShowAsignarDeliveryModal] = useState(false)
   const [pedidoDeliveryListoId, setPedidoDeliveryListoId] = useState(null)
   const [repartidores, setRepartidores] = useState([])
@@ -281,6 +235,15 @@ export default function Pedidos() {
   const obtenerPedidoPorId = useCallback(async (id) => {
     const response = await api.get(`/pedidos/${id}`)
     return response.data
+  }, [])
+
+  const cargarTransferenciaMpConfig = useCallback(async () => {
+    const response = await api.get('/pagos/mercadopago/transferencia-config', { skipToast: true })
+    const payload = response?.data && typeof response.data === 'object' && !Array.isArray(response.data)
+      ? response.data
+      : {}
+
+    setTransferenciaMpConfig(buildTransferenciaMpConfig(payload))
   }, [])
 
   const clearFocusParams = useCallback(() => {
@@ -380,16 +343,32 @@ export default function Pedidos() {
     onOpen: handleSseOpen
   })
 
+  const focusField = useCallback((ref, selectValue = false) => {
+    if (!ref?.current) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      ref.current?.focus()
+      if (selectValue && typeof ref.current?.select === 'function') {
+        ref.current.select()
+      }
+    })
+  }, [])
+
+  const resetPagoUiState = useCallback(() => {
+    setMostrarPropina(false)
+    setPropinaMetodoPersonalizado(false)
+    metodoPagoPrevRef.current = 'EFECTIVO'
+  }, [])
+
   const cerrarModalPago = useCallback(() => {
-    qrSyncInFlightRef.current = false
     pagoSubmitInFlightRef.current = false
     setShowPagoModal(false)
-    setQrPresencial(null)
-    setGeneratingQr(false)
     setRegistrandoPago(false)
-    setSyncingQr(false)
     setPagoForm(buildPagoForm(null))
-  }, [])
+    resetPagoUiState()
+  }, [resetPagoUiState])
 
   const verDetalle = useCallback(async (id) => {
     try {
@@ -417,30 +396,21 @@ export default function Pedidos() {
 
   const abrirPago = useCallback(async (pedido) => {
     try {
-      const pedidoActualizado = await obtenerPedidoPorId(pedido.id)
-      const qrPendiente = getLatestQrPresencialPago(pedidoActualizado)
-      const qrPendienteActiva = qrPendiente?.estado === 'PENDIENTE'
-        ? buildQrPresencialState(qrPendiente)
-        : null
+      const [pedidoActualizado] = await Promise.all([
+        obtenerPedidoPorId(pedido.id),
+        cargarTransferenciaMpConfig().catch((error) => {
+          console.error('Error:', error)
+        })
+      ])
 
       setPedidoSeleccionado(pedidoActualizado)
-      setQrPresencial(qrPendienteActiva)
-      setPagoForm(buildPagoForm(pedidoActualizado, qrPendienteActiva
-        ? {
-            metodo: 'MERCADOPAGO',
-            canalCobro: 'QR_PRESENCIAL',
-            propinaMonto: qrPendienteActiva.propinaMonto > 0
-              ? qrPendienteActiva.propinaMonto.toFixed(2)
-              : '',
-            propinaMetodo: 'MERCADOPAGO'
-          }
-        : {}
-      ))
+      setPagoForm(buildPagoForm(pedidoActualizado))
+      resetPagoUiState()
       setShowPagoModal(true)
     } catch (error) {
       console.error('Error:', error)
     }
-  }, [obtenerPedidoPorId])
+  }, [cargarTransferenciaMpConfig, obtenerPedidoPorId, resetPagoUiState])
 
   useEffect(() => {
     if (!pedidoEnfocadoId) {
@@ -462,88 +432,80 @@ export default function Pedidos() {
     openFromQuery().catch(() => {})
   }, [abrirPago, abrirPagoDesdeQuery, clearFocusParams, pedidoEnfocadoId, verDetalle])
 
-  const handleCanalCobroChange = useCallback((canalCobro) => {
-    const pendiente = calcularPendientePedido(pedidoSeleccionado)
-
-    setQrPresencial(null)
-    setPagoForm((current) => ({
-      ...current,
-      monto: pendiente.toFixed(2),
-      canalCobro,
-      metodo: canalCobro === 'QR_PRESENCIAL'
-        ? 'MERCADOPAGO'
-        : current.canalCobro === 'QR_PRESENCIAL'
-          ? 'EFECTIVO'
-          : current.metodo,
-      referencia: canalCobro === 'QR_PRESENCIAL' ? '' : current.referencia,
-      montoAbonado: canalCobro === 'QR_PRESENCIAL' ? '' : current.montoAbonado,
-      propinaMetodo: canalCobro === 'QR_PRESENCIAL'
-        ? 'MERCADOPAGO'
-        : current.canalCobro === 'QR_PRESENCIAL'
-          ? 'EFECTIVO'
-          : current.propinaMetodo
-    }))
-  }, [pedidoSeleccionado])
-
-  const syncQrStatus = useCallback(async ({ silent = false } = {}) => {
-    if (!pedidoSeleccionado?.id || !qrPresencial?.orderId || qrSyncInFlightRef.current) {
-      return null
+  useEffect(() => {
+    if (!showPagoModal) {
+      metodoPagoPrevRef.current = pagoForm.metodo
+      return
     }
 
-    qrSyncInFlightRef.current = true
-    if (!silent) {
-      setSyncingQr(true)
-    }
-
-    try {
-      const pedidoActualizado = await obtenerPedidoPorId(pedidoSeleccionado.id)
-      const qrPago = getLatestQrPresencialPago(pedidoActualizado, qrPresencial.orderId)
-
-      setPedidoSeleccionado(pedidoActualizado)
-
-      if (qrPago?.estado === 'APROBADO' || ['COBRADO', 'CERRADO'].includes(pedidoActualizado.estado)) {
-        toast.success('Pago QR aprobado')
-        cerrarModalPago()
-        cargarPedidosAsync()
-          .catch(() => {})
-        return pedidoActualizado
-      }
-
-      if (qrPago && ['RECHAZADO', 'CANCELADO'].includes(qrPago.estado)) {
-        toast.error('El cobro QR fue rechazado o cancelado')
-        setQrPresencial(null)
-        setPagoForm(buildPagoForm(pedidoActualizado))
-        return pedidoActualizado
-      }
-
-      if (qrPago) {
-        setQrPresencial(buildQrPresencialState(qrPago))
-      }
-
-      return pedidoActualizado
-    } catch (error) {
-      console.error('Error:', error)
-      return null
-    } finally {
-      qrSyncInFlightRef.current = false
-      if (!silent) {
-        setSyncingQr(false)
-      }
-    }
-  }, [cerrarModalPago, cargarPedidosAsync, obtenerPedidoPorId, pedidoSeleccionado, qrPresencial])
+    focusField(montoInputRef, true)
+  }, [focusField, showPagoModal, pedidoSeleccionado?.id])
 
   useEffect(() => {
-    if (!showPagoModal || !qrPresencial?.orderId) {
-      return undefined
+    if (!showPagoModal) {
+      return
     }
 
-    const intervalId = window.setInterval(() => {
-      syncQrStatus({ silent: true })
-        .catch(() => {})
-    }, 5000)
+    if (metodoPagoPrevRef.current === pagoForm.metodo) {
+      return
+    }
 
-    return () => window.clearInterval(intervalId)
-  }, [showPagoModal, qrPresencial?.orderId, syncQrStatus])
+    focusField(pagoForm.metodo === 'EFECTIVO' ? montoAbonadoInputRef : referenciaInputRef, pagoForm.metodo === 'MERCADOPAGO')
+    metodoPagoPrevRef.current = pagoForm.metodo
+  }, [focusField, pagoForm.metodo, showPagoModal])
+
+  const handleMetodoPagoChange = useCallback((metodo) => {
+    setPagoForm((current) => ({
+      ...current,
+      canalCobro: CANAL_COBRO_POS,
+      metodo,
+      referencia: metodo === 'MERCADOPAGO' ? current.referencia : '',
+      montoAbonado: metodo === 'EFECTIVO' ? current.montoAbonado : '',
+      propinaMetodo: mostrarPropina && !propinaMetodoPersonalizado
+        ? metodo
+        : current.propinaMetodo
+    }))
+  }, [mostrarPropina, propinaMetodoPersonalizado])
+
+  const handleTogglePropina = useCallback(() => {
+    setMostrarPropina((current) => {
+      const next = !current
+
+      setPagoForm((form) => ({
+        ...form,
+        propinaMonto: next ? form.propinaMonto : '',
+        propinaMetodo: next ? form.metodo : form.metodo
+      }))
+      setPropinaMetodoPersonalizado(false)
+
+      if (next) {
+        focusField(propinaMontoInputRef)
+      }
+
+      return next
+    })
+  }, [focusField])
+
+  const handlePropinaMontoChange = useCallback((value) => {
+    setPagoForm((current) => ({
+      ...current,
+      propinaMonto: value,
+      propinaMetodo: !propinaMetodoPersonalizado ? current.metodo : current.propinaMetodo
+    }))
+  }, [propinaMetodoPersonalizado])
+
+  const handlePropinaMetodoChange = useCallback((value) => {
+    setPropinaMetodoPersonalizado(true)
+    setPagoForm((current) => ({ ...current, propinaMetodo: value }))
+  }, [])
+
+  const handleUsarMontoPendiente = useCallback(() => {
+    setPagoForm((current) => ({
+      ...current,
+      monto: calcularPendientePedido(pedidoSeleccionado).toFixed(2)
+    }))
+    focusField(montoInputRef, true)
+  }, [focusField, pedidoSeleccionado])
 
   const registrarPago = async (e) => {
     e.preventDefault()
@@ -551,33 +513,31 @@ export default function Pedidos() {
       return
     }
 
+    if (montoError) {
+      focusField(montoInputRef, true)
+      return
+    }
+
+    if (mercadoPagoNoDisponible) {
+      focusField(metodoPagoInputRef)
+      return
+    }
+
+    if (efectivoInsuficiente) {
+      focusField(montoAbonadoInputRef, true)
+      return
+    }
+
     pagoSubmitInFlightRef.current = true
     setRegistrandoPago(true)
 
     try {
-      if (pagoForm.canalCobro === 'QR_PRESENCIAL') {
-        setGeneratingQr(true)
-
-        const response = await api.post('/pagos/qr/orden', {
-          pedidoId: pedidoSeleccionado.id,
-          propinaMonto: pagoForm.propinaMonto ? parseFloat(pagoForm.propinaMonto) : 0,
-          propinaMetodo: pagoForm.propinaMonto ? 'MERCADOPAGO' : null
-        })
-
-        setQrPresencial(buildQrPresencialStateFromResponse(response.data))
-
-        const pedidoActualizado = await obtenerPedidoPorId(pedidoSeleccionado.id)
-        setPedidoSeleccionado(pedidoActualizado)
-        toast.success('QR presencial generado')
-        return
-      }
-
       const response = await api.post('/pagos', {
         pedidoId: pedidoSeleccionado.id,
         monto: parseFloat(pagoForm.monto),
         metodo: pagoForm.metodo,
         referencia: pagoForm.referencia || null,
-        canalCobro: pagoForm.canalCobro,
+        canalCobro: CANAL_COBRO_POS,
         propinaMonto: pagoForm.propinaMonto ? parseFloat(pagoForm.propinaMonto) : 0,
         propinaMetodo: pagoForm.propinaMonto ? pagoForm.propinaMetodo : null,
         montoAbonado: pagoForm.metodo === 'EFECTIVO' && pagoForm.montoAbonado
@@ -597,7 +557,6 @@ export default function Pedidos() {
       console.error('Error:', error)
     } finally {
       pagoSubmitInFlightRef.current = false
-      setGeneratingQr(false)
       setRegistrandoPago(false)
     }
   }
@@ -630,9 +589,6 @@ export default function Pedidos() {
     try {
       await api.post(`/impresion/comanda/${id}/reimprimir`, {})
       toast.success('Reimpresion encolada')
-      const preview = await api.get(`/impresion/comanda/${id}/preview?tipo=CAJA`)
-      setPreviewContent(String(preview.data || ''))
-      setShowPreviewModal(true)
     } catch (error) {
       console.error('Error:', error)
     }
@@ -711,13 +667,59 @@ export default function Pedidos() {
     }
   }
 
-  const esQrPresencial = pagoForm.canalCobro === 'QR_PRESENCIAL'
-  const qrStatusLabel = getQrStatusLabel(qrPresencial?.status)
+  const totalPedidoSeleccionado = parseFloat(pedidoSeleccionado?.total || 0)
+  const totalPagadoSeleccionado = sumPagosRegistrados(pedidoSeleccionado?.pagos || [])
+  const saldoPendienteActual = calcularPendientePedido(pedidoSeleccionado)
+  const montoPendienteSugerido = formatPosInputValue(saldoPendienteActual)
+  const montoPago = Number.parseFloat(pagoForm.monto || 0)
+  const propinaMonto = Number.parseFloat(pagoForm.propinaMonto || 0)
+  const montoAbonado = Number.parseFloat(pagoForm.montoAbonado || 0)
+  const totalARegistrar = (Number.isFinite(montoPago) ? montoPago : 0) + (Number.isFinite(propinaMonto) ? propinaMonto : 0)
+  const diferenciaEfectivo = Number.isFinite(montoAbonado) ? montoAbonado - totalARegistrar : null
+  const montoFueEditado = Math.abs((Number.isFinite(montoPago) ? montoPago : 0) - saldoPendienteActual) > FLOAT_EPSILON
+  const montoExcedePendiente = Number.isFinite(montoPago) && montoPago > saldoPendienteActual + FLOAT_EPSILON
+  const montoInvalido = pagoForm.monto !== '' && (!Number.isFinite(montoPago) || montoPago <= 0)
+  const efectivoInsuficiente = pagoForm.metodo === 'EFECTIVO' &&
+    pagoForm.montoAbonado !== '' &&
+    Number.isFinite(diferenciaEfectivo) &&
+    diferenciaEfectivo < -FLOAT_EPSILON
+  const mostrarTransferenciaMercadoPago = pagoForm.metodo === 'MERCADOPAGO' && pagoForm.canalCobro === CANAL_COBRO_POS
+  const aliasTransferenciaConfigurado = transferenciaMpConfig.mercadopago_transfer_alias.trim().length > 0
+  const mercadoPagoNoDisponible = pagoForm.metodo === 'MERCADOPAGO' && !aliasTransferenciaConfigurado
+  const montoError = montoInvalido
+    ? 'Ingresa un monto valido.'
+    : montoExcedePendiente
+      ? `El monto no puede superar el saldo pendiente (${formatArsPos(saldoPendienteActual)}).`
+      : null
+  const montoAbonadoHelper = pagoForm.metodo === 'EFECTIVO' && pagoForm.montoAbonado !== '' && Number.isFinite(diferenciaEfectivo)
+    ? diferenciaEfectivo > FLOAT_EPSILON
+      ? `Vuelto estimado: ${formatArsPos(diferenciaEfectivo)}`
+      : diferenciaEfectivo < -FLOAT_EPSILON
+        ? `Faltan: ${formatArsPos(Math.abs(diferenciaEfectivo))}`
+        : 'Pago exacto.'
+    : null
+  const referenciaLabel = mostrarTransferenciaMercadoPago
+    ? 'Referencia de transferencia (opcional)'
+    : 'Referencia'
+  const referenciaPlaceholder = mostrarTransferenciaMercadoPago
+    ? 'Ej. numero o codigo de operacion'
+    : 'Numero de referencia'
+  const resumenCobro = totalPagadoSeleccionado > FLOAT_EPSILON
+    ? [
+        { label: 'Saldo pendiente', value: formatArsPos(saldoPendienteActual), emphasize: true },
+        { label: 'Pagado', value: formatArsPos(totalPagadoSeleccionado) },
+        { label: 'Total pedido', value: formatArsPos(totalPedidoSeleccionado) }
+      ]
+    : [
+        { label: 'Saldo pendiente', value: formatArsPos(saldoPendienteActual), emphasize: true },
+        { label: 'Total pedido', value: formatArsPos(totalPedidoSeleccionado) }
+      ]
+  const pagoFormId = pedidoSeleccionado ? `registrar-pago-${pedidoSeleccionado.id}` : 'registrar-pago'
+  const submitDisabled = registrandoPago || !pagoForm.monto || Boolean(montoError) || efectivoInsuficiente || mercadoPagoNoDisponible
   const metricas = useMemo(() => {
     const pedidosList = Array.isArray(pedidos) ? pedidos : []
     const pedidosPendientes = pedidosList.filter((pedido) => !['COBRADO', 'CERRADO', 'CANCELADO'].includes(pedido.estado)).length
     const pedidosPorCerrar = pedidosList.filter((pedido) => pedido.estado === 'COBRADO').length
-    const pedidosConQrPendiente = pedidosList.filter((pedido) => getLatestQrPresencialPago(pedido)?.estado === 'PENDIENTE').length
     return [
       {
         label: 'Pedidos activos',
@@ -732,13 +734,6 @@ export default function Pedidos() {
         icon: CurrencyDollarIcon,
         accent: 'bg-success-50 text-success-700',
         hint: 'Cobros ya tomados'
-      },
-      {
-        label: 'QR pendiente',
-        value: pedidosConQrPendiente,
-        icon: QrCodeIcon,
-        accent: 'bg-warning-50 text-warning-700',
-        hint: 'Requieren seguimiento'
       }
     ]
   }, [pedidos])
@@ -757,7 +752,7 @@ export default function Pedidos() {
       <PageHeader
         title="Pedidos"
         eyebrow="Operacion"
-        description="Gestion de estados, cobros, QR presencial e impresion de caja."
+        description="Gestion de estados, cobros manuales e impresion de caja."
         actions={
           <div className="flex items-center gap-3">
             <label className="sr-only" htmlFor="pedidos-filtro-estado">Filtrar por estado</label>
@@ -788,7 +783,7 @@ export default function Pedidos() {
         }
       />
 
-      <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2">
         {metricas.map((metric) => (
           <div key={metric.label} className="stat-card flex items-center gap-3">
             <div className={`rounded-xl p-2.5 ${metric.accent}`}>
@@ -869,6 +864,7 @@ export default function Pedidos() {
                       onClick={() => verDetalle(pedido.id)}
                       type="button"
                       aria-label={`Ver detalle del pedido #${pedido.id}`}
+                      title="Ver detalle"
                       className="text-primary-500 hover:text-primary-600 transition-colors"
                     >
                       <EyeIcon className="w-5 h-5" />
@@ -877,6 +873,7 @@ export default function Pedidos() {
                       onClick={() => imprimirComanda(pedido.id)}
                       type="button"
                       aria-label={`Reimprimir comanda del pedido #${pedido.id}`}
+                      title="Reimprimir comanda"
                       className="text-text-secondary hover:text-text-primary transition-colors"
                     >
                       <PrinterIcon className="w-5 h-5" />
@@ -886,6 +883,7 @@ export default function Pedidos() {
                         onClick={() => abrirAsignarDelivery(pedido.id)}
                         type="button"
                         aria-label={`Asignar repartidor al pedido #${pedido.id}`}
+                        title="Asignar repartidor"
                         className="text-primary-500 hover:text-primary-600 transition-colors"
                       >
                         <TruckIcon className="w-5 h-5" />
@@ -896,6 +894,7 @@ export default function Pedidos() {
                         onClick={() => abrirPago(pedido)}
                         type="button"
                         aria-label={`Registrar pago del pedido #${pedido.id}`}
+                        title="Registrar pago"
                         className="text-success-500 hover:text-success-600 transition-colors"
                       >
                         <CurrencyDollarIcon className="w-5 h-5" />
@@ -906,6 +905,7 @@ export default function Pedidos() {
                         onClick={() => abrirFacturacion(pedido)}
                         type="button"
                         aria-label={`Facturar pedido #${pedido.id}`}
+                        title="Facturar"
                         className="text-primary-500 hover:text-primary-600 transition-colors"
                       >
                         <DocumentTextIcon className="w-5 h-5" />
@@ -1061,235 +1061,249 @@ export default function Pedidos() {
 
       {/* Modal Pago */}
       {showPagoModal && pedidoSeleccionado && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <div className="mb-4">
-              <h2 className="text-heading-3">Registrar Pago</h2>
-              <p className="text-sm text-text-secondary mt-1">
+        <Modal
+          open={showPagoModal}
+          onClose={cerrarModalPago}
+          title="Registrar Pago"
+          className="max-w-lg !p-0 overflow-hidden flex max-h-[90vh] flex-col"
+          bodyClassName="flex-1 min-h-0 p-0"
+          footerClassName="mt-0 px-6 pb-4 pt-4"
+          footer={(
+            <>
+              <button type="button" onClick={cerrarModalPago} className="btn btn-secondary flex-1">
+                Cancelar
+              </button>
+              <Button
+                type="submit"
+                form={pagoFormId}
+                variant="success"
+                className="flex-1"
+                loading={registrandoPago}
+                disabled={submitDisabled}
+              >
+                Registrar Pago
+              </Button>
+            </>
+          )}
+        >
+          <form id={pagoFormId} onSubmit={registrarPago} className="space-y-4 px-6 pb-5 pt-4">
+            <div className="space-y-1">
+              <p className="text-sm text-text-secondary">
                 Pedido #{pedidoSeleccionado.id}
-                {pedidoSeleccionado.mesa ? ` · Mesa ${pedidoSeleccionado.mesa.numero}` : ''}
+                {pedidoSeleccionado.mesa ? ` - Mesa ${pedidoSeleccionado.mesa.numero}` : ''}
               </p>
+              <div className={`grid grid-cols-1 gap-2 ${resumenCobro.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+                {resumenCobro.map((item) => (
+                  <div
+                    key={item.label}
+                    className={`rounded-lg border px-3 py-2 ${item.emphasize ? 'border-info-100 bg-info-50' : 'border-border-default bg-surface-hover'}`}
+                  >
+                    <p className="text-[11px] uppercase tracking-wide text-text-tertiary">{item.label}</p>
+                    <p className="mt-1 text-sm font-semibold text-text-primary">{item.value}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {qrPresencial ? (
-              <div className="space-y-4">
-                <div className="rounded-xl border border-primary-200 bg-primary-50/70 p-4 space-y-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-text-primary">QR presencial listo</p>
-                      <p className="text-sm text-text-secondary">
-                        {qrPresencial.orderId ? `Orden ${qrPresencial.orderId}` : 'Orden sin identificador'}
-                      </p>
-                    </div>
-                    <span className="badge badge-warning">{qrStatusLabel}</span>
-                  </div>
+            {!aliasTransferenciaConfigurado && (
+              <Alert variant="warning">
+                MercadoPago no esta disponible hasta configurar el alias de transferencia.
+              </Alert>
+            )}
 
-                  <div className="rounded-xl bg-white p-4 border border-border-default flex justify-center">
-                    {qrPresencial.qrData ? (
-                      <QRCodeSVG value={qrPresencial.qrData} size={220} />
-                    ) : (
-                      <div className="text-center text-sm text-text-secondary py-8 px-6">
-                        Mercado Pago no devolvio el contenido del QR. Usa &quot;Revisar estado&quot; o genera una nueva orden si el cobro fue rechazado.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="rounded-lg border border-border-default bg-white/80 p-3">
-                      <p className="text-xs uppercase tracking-wide text-text-tertiary">Saldo pedido</p>
-                      <p className="text-base font-semibold text-text-primary">
-                        ${qrPresencial.pendiente.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-border-default bg-white/80 p-3">
-                      <p className="text-xs uppercase tracking-wide text-text-tertiary">Propina en QR</p>
-                      <p className="text-base font-semibold text-text-primary">
-                        ${qrPresencial.propinaMonto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-border-default bg-white/80 p-3">
-                      <p className="text-xs uppercase tracking-wide text-text-tertiary">Total a cobrar</p>
-                      <p className="text-base font-semibold text-text-primary">
-                        ${qrPresencial.totalAmount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3 rounded-lg border border-border-default bg-white/80 p-3">
-                    <QrCodeIcon className="w-5 h-5 text-primary-500 shrink-0 mt-0.5" />
-                    <div className="text-sm text-text-secondary space-y-1">
-                      <p>El saldo queda reservado mientras la orden QR siga pendiente.</p>
-                      <p>La pantalla revisa el estado automaticamente cada 5 segundos y tambien podes forzar la consulta manual.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="modal-footer">
-                  <button type="button" onClick={cerrarModalPago} className="btn btn-secondary flex-1">
-                    Cerrar
-                  </button>
-                  <Button
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label className="label mb-0" htmlFor="pago-monto">Monto ($)</label>
+                {montoFueEditado && (
+                  <button
                     type="button"
-                    variant="success"
-                    className="flex-1"
-                    icon={ArrowPathIcon}
-                    loading={syncingQr}
-                    onClick={() => syncQrStatus()}
+                    className="text-xs font-medium text-primary-600 hover:text-primary-700"
+                    onClick={handleUsarMontoPendiente}
                   >
-                    Revisar estado
-                  </Button>
-                </div>
+                    Usar pendiente
+                  </button>
+                )}
               </div>
-            ) : (
-              <form onSubmit={registrarPago} className="space-y-4">
+              <input
+                ref={montoInputRef}
+                id="pago-monto"
+                type="number"
+                step="0.01"
+                min="0.01"
+                max={montoPendienteSugerido}
+                className={`input ${montoError ? 'input-error' : ''}`}
+                value={pagoForm.monto}
+                onChange={(e) => setPagoForm({ ...pagoForm, monto: e.target.value })}
+                required
+              />
+              <p className="input-hint">Pendiente actual: {formatArsPos(saldoPendienteActual)}</p>
+              {montoError && <p className="input-error-message">{montoError}</p>}
+            </div>
+
+            <div>
+              <label className="label" htmlFor="pago-metodo">Metodo de Pago</label>
+              <select
+                ref={metodoPagoInputRef}
+                id="pago-metodo"
+                className="input"
+                value={pagoForm.metodo}
+                onChange={(e) => handleMetodoPagoChange(e.target.value)}
+              >
+                <option value="EFECTIVO">Efectivo</option>
+                <option value="MERCADOPAGO" disabled={!aliasTransferenciaConfigurado}>MercadoPago</option>
+              </select>
+            </div>
+
+            {mostrarTransferenciaMercadoPago && (
+              <>
+                <div className="rounded-lg border border-border-default bg-surface-hover p-3">
+                  <div className="flex items-start gap-2.5">
+                    <LinkIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary-500" />
+                    <div className="min-w-0 flex-1 space-y-2.5">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-text-primary">Transferencia Mercado Pago</p>
+                        <p className="text-xs text-text-secondary">
+                          La referencia es opcional.
+                        </p>
+                      </div>
+
+                      <div className="rounded-md border border-border-default bg-surface px-3 py-2">
+                        <p className="text-[11px] uppercase tracking-wide text-text-tertiary">Alias</p>
+                        <p className="mt-1 break-all text-sm font-semibold text-text-primary">
+                          {transferenciaMpConfig.mercadopago_transfer_alias || 'Pendiente de configuracion'}
+                        </p>
+                      </div>
+
+                      {(transferenciaMpConfig.mercadopago_transfer_titular || transferenciaMpConfig.mercadopago_transfer_cvu) && (
+                        <dl className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
+                          {transferenciaMpConfig.mercadopago_transfer_titular && (
+                            <div className="min-w-0">
+                              <dt className="text-[11px] uppercase tracking-wide text-text-tertiary">Titular</dt>
+                              <dd className="mt-1 break-words text-sm font-medium text-text-primary">
+                                {transferenciaMpConfig.mercadopago_transfer_titular}
+                              </dd>
+                            </div>
+                          )}
+
+                          {transferenciaMpConfig.mercadopago_transfer_cvu && (
+                            <div className="min-w-0">
+                              <dt className="text-[11px] uppercase tracking-wide text-text-tertiary">CVU</dt>
+                              <dd className="mt-1 break-all text-sm text-text-primary">
+                                {transferenciaMpConfig.mercadopago_transfer_cvu}
+                              </dd>
+                            </div>
+                          )}
+                        </dl>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="label" htmlFor="pago-monto">
-                    {esQrPresencial ? 'Saldo pendiente ($)' : 'Monto ($)'}
-                  </label>
+                  <label className="label" htmlFor="pago-referencia">{referenciaLabel}</label>
                   <input
-                    id="pago-monto"
-                    type="number"
-                    step="0.01"
+                    ref={referenciaInputRef}
+                    id="pago-referencia"
+                    type="text"
                     className="input"
-                    value={pagoForm.monto}
-                    onChange={(e) => setPagoForm({ ...pagoForm, monto: e.target.value })}
-                    readOnly={esQrPresencial}
-                    required
-                  />
-                  {esQrPresencial && (
-                    <p className="mt-1 text-xs text-text-secondary">
-                      El backend genera la orden usando el saldo pendiente actual del pedido.
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="label" htmlFor="pago-metodo">Metodo de Pago</label>
-                  <select
-                    id="pago-metodo"
-                    className="input"
-                    value={pagoForm.metodo}
-                    onChange={(e) => setPagoForm({ ...pagoForm, metodo: e.target.value })}
-                    disabled={esQrPresencial}
-                  >
-                    <option value="EFECTIVO">Efectivo</option>
-                    <option value="MERCADOPAGO">MercadoPago</option>
-                    <option value="TARJETA">Tarjeta</option>
-                  </select>
-                  {esQrPresencial && (
-                    <p className="mt-1 text-xs text-text-secondary">
-                      El QR presencial usa Mercado Pago de forma obligatoria.
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="label" htmlFor="pago-canal">Canal de Cobro</label>
-                  <select
-                    id="pago-canal"
-                    className="input"
-                    value={pagoForm.canalCobro}
-                    onChange={(e) => handleCanalCobroChange(e.target.value)}
-                  >
-                    <option value="CAJA">Caja</option>
-                    <option value="CHECKOUT_WEB">Checkout web</option>
-                    <option value="QR_PRESENCIAL">QR presencial</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="label" htmlFor="pago-propina">Propina ($)</label>
-                  <input
-                    id="pago-propina"
-                    type="number"
-                    step="0.01"
-                    className="input"
-                    value={pagoForm.propinaMonto}
-                    onChange={(e) => setPagoForm({
-                      ...pagoForm,
-                      propinaMonto: e.target.value,
-                      propinaMetodo: esQrPresencial ? 'MERCADOPAGO' : pagoForm.propinaMetodo
-                    })}
+                    value={pagoForm.referencia}
+                    onChange={(e) => setPagoForm({ ...pagoForm, referencia: e.target.value })}
+                    placeholder={referenciaPlaceholder}
                   />
                 </div>
+              </>
+            )}
 
-                {pagoForm.propinaMonto && !esQrPresencial && (
+            <div className="rounded-lg border border-border-default bg-surface-hover p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-text-primary">Propina</p>
+                  <p className="text-xs text-text-secondary">Agregala solo si aplica.</p>
+                </div>
+                <button
+                  type="button"
+                  className="text-sm font-medium text-primary-600 hover:text-primary-700"
+                  aria-expanded={mostrarPropina}
+                  aria-controls="pago-propina-panel"
+                  onClick={handleTogglePropina}
+                >
+                  {mostrarPropina ? 'Quitar propina' : 'Agregar propina'}
+                </button>
+              </div>
+
+              {mostrarPropina && (
+                <div id="pago-propina-panel" className="mt-3 space-y-3">
+                  <div>
+                    <label className="label" htmlFor="pago-propina">Propina ($)</label>
+                    <input
+                      ref={propinaMontoInputRef}
+                      id="pago-propina"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="input"
+                      value={pagoForm.propinaMonto}
+                      onChange={(e) => handlePropinaMontoChange(e.target.value)}
+                    />
+                  </div>
+
                   <div>
                     <label className="label" htmlFor="pago-propina-metodo">Metodo de Propina</label>
                     <select
                       id="pago-propina-metodo"
                       className="input"
                       value={pagoForm.propinaMetodo}
-                      onChange={(e) => setPagoForm({ ...pagoForm, propinaMetodo: e.target.value })}
+                      onChange={(e) => handlePropinaMetodoChange(e.target.value)}
                     >
                       <option value="EFECTIVO">Efectivo</option>
                       <option value="MERCADOPAGO">MercadoPago</option>
-                      <option value="TARJETA">Tarjeta</option>
                     </select>
                   </div>
-                )}
+                </div>
+              )}
+            </div>
 
-                {pagoForm.propinaMonto && esQrPresencial && (
-                  <p className="text-xs text-text-secondary">
-                    La propina se incluye en el mismo QR presencial.
+            {pagoForm.metodo === 'EFECTIVO' && (
+              <div>
+                <label className="label" htmlFor="pago-abonado">Monto abonado ($)</label>
+                <input
+                  ref={montoAbonadoInputRef}
+                  id="pago-abonado"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className={`input ${efectivoInsuficiente ? 'input-error' : ''}`}
+                  value={pagoForm.montoAbonado}
+                  onChange={(e) => setPagoForm({ ...pagoForm, montoAbonado: e.target.value })}
+                  placeholder={`Minimo ${formatArsPos(totalARegistrar)}`}
+                />
+                {montoAbonadoHelper && (
+                  <p className={efectivoInsuficiente ? 'input-error-message' : 'input-hint'}>
+                    {montoAbonadoHelper}
                   </p>
                 )}
-
-                {pagoForm.metodo === 'EFECTIVO' && !esQrPresencial && (
-                  <div>
-                    <label className="label" htmlFor="pago-abonado">Monto abonado ($)</label>
-                    <input
-                      id="pago-abonado"
-                      type="number"
-                      step="0.01"
-                      className="input"
-                      value={pagoForm.montoAbonado}
-                      onChange={(e) => setPagoForm({ ...pagoForm, montoAbonado: e.target.value })}
-                      placeholder="Importe entregado por el cliente"
-                    />
-                  </div>
-                )}
-
-                {pagoForm.metodo !== 'EFECTIVO' && !esQrPresencial && (
-                  <div>
-                    <label className="label" htmlFor="pago-referencia">Referencia</label>
-                    <input
-                      id="pago-referencia"
-                      type="text"
-                      className="input"
-                      value={pagoForm.referencia}
-                      onChange={(e) => setPagoForm({ ...pagoForm, referencia: e.target.value })}
-                      placeholder="Numero de transaccion"
-                    />
-                  </div>
-                )}
-
-                <div className="modal-footer">
-                  <button type="button" onClick={cerrarModalPago} className="btn btn-secondary flex-1">
-                    Cancelar
-                  </button>
-                  <Button type="submit" variant="success" className="flex-1" loading={generatingQr || registrandoPago}>
-                    {esQrPresencial ? 'Generar QR presencial' : 'Registrar Pago'}
-                  </Button>
-                </div>
-              </form>
+              </div>
             )}
-          </div>
-        </div>
-      )}
 
-      <Modal open={showPreviewModal} onClose={() => setShowPreviewModal(false)} title="Vista previa de caja" size="lg">
-        <div className="rounded-xl bg-canvas-subtle border border-border-subtle p-4 overflow-x-auto">
-          <pre className="font-mono text-xs text-text-primary whitespace-pre-wrap break-words">
-            {previewContent}
-          </pre>
-        </div>
-        <Modal.Footer>
-          <Button type="button" variant="secondary" onClick={() => setShowPreviewModal(false)}>
-            Cerrar
-          </Button>
-        </Modal.Footer>
-      </Modal>
+            <div className="rounded-lg border border-border-default bg-canvas-subtle px-3 py-2">
+              <div className="flex items-center justify-between text-sm text-text-secondary">
+                <span>Cobro principal</span>
+                <span>{formatArsPos(montoPago)}</span>
+              </div>
+              {mostrarPropina && (
+                <div className="mt-2 flex items-center justify-between text-sm text-text-secondary">
+                  <span>Propina</span>
+                  <span>{formatArsPos(propinaMonto)}</span>
+                </div>
+              )}
+              <div className="mt-2 flex items-center justify-between border-t border-border-default pt-2 text-sm font-semibold text-text-primary">
+                <span>Total a registrar</span>
+                <span>{formatArsPos(totalARegistrar)}</span>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {/* Modal Asignar Delivery */}
       {showAsignarDeliveryModal && (

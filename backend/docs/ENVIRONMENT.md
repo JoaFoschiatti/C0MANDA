@@ -38,9 +38,7 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 - `PORT`: default `3001`.
 - `NODE_ENV`: `development`, `test` o `production`.
 - `PUBLIC_ORDER_TOKEN_EXPIRES_IN`: expiracion de tokens publicos de pedido.
-- `PUBLIC_MESA_SESSION_TTL_MINUTES`: TTL de la sesion efimera para QR de mesa.
 - `PUBLIC_ORDERING_PAUSED`: pausa pedidos online publicos sin apagar la API.
-- `PUBLIC_TABLE_ORDERING_PAUSED`: pausa pedidos por QR de mesa.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`: notificaciones por email.
 - `SKIP_WEBHOOK_VERIFICATION`: solo para testing local.
 - `ARCA_OPENSSL_BIN`: ruta al binario de openssl si no esta en PATH.

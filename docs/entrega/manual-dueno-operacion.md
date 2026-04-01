@@ -22,12 +22,12 @@
 4. Cobrar y luego cerrar el pedido.
 5. Liberar la mesa cuando el estado pase a `CERRADA`.
 
-### QR de mesa y QR presencial
+### QR de mesa y cobro manual
 
 1. El cliente escanea `/menu/mesa/:qrToken`.
 2. El pedido entra asociado a la mesa.
-3. Para QR presencial, generar la orden desde caja y esperar aprobacion.
-4. Si el pago queda pendiente, revisar `Tareas`.
+3. Para cobros en Mercado Pago desde caja, compartir alias/CVU/titular y registrar la referencia al confirmar la transferencia.
+4. Si falta informacion de cobro, revisar `Pedidos`.
 
 ### Reservas
 
@@ -52,7 +52,7 @@
 ### Un cobro falla o queda pendiente
 
 1. Revisar `Pedidos` y `Tareas`.
-2. Confirmar si el pago aparece en Mercado Pago.
+2. Confirmar si el pago aparece en Mercado Pago o si el cliente envio el comprobante de transferencia.
 3. No cerrar la mesa hasta confirmar el estado del pago.
 
 ### El sistema no deja operar

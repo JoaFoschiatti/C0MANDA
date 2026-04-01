@@ -1,6 +1,5 @@
 const { createHttpError } = require('../utils/http-error');
 const { createCrudService } = require('./crud-factory.service');
-const { invalidateMesaPublicSessions } = require('./public-order-security.service');
 
 // Crear servicio CRUD base usando el factory
 const baseCrud = createCrudService('mesa', {
@@ -67,17 +66,9 @@ const cambiarEstado = async (prisma, id, estado) => {
     throw createHttpError.badRequest('El estado solicitado no puede cambiarse manualmente');
   }
 
-  return prisma.$transaction(async (tx) => {
-    const mesaActualizada = await tx.mesa.update({
-      where: { id },
-      data: { estado }
-    });
-
-    if (['LIBRE', 'RESERVADA'].includes(estado)) {
-      await invalidateMesaPublicSessions(tx, { mesaId: id });
-    }
-
-    return mesaActualizada;
+  return prisma.mesa.update({
+    where: { id },
+    data: { estado }
   });
 };
 

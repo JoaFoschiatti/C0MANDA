@@ -33,6 +33,8 @@ if not exist .env (
     echo IMPORTANTE: Edita el archivo .env con tu configuracion:
     echo   - BRIDGE_TOKEN: debe coincidir con el token del backend
     echo   - PRINTER_NAME: nombre exacto de la impresora en Windows
+    echo   - La impresora puede estar conectada por USB, siempre que Windows la vea instalada
+    echo   - Si vas a usar NSSM, configura el servicio con un usuario que tenga acceso a la impresora
     echo.
 ) else (
     echo.
@@ -44,5 +46,7 @@ echo === Instalacion completa ===
 echo.
 echo Para iniciar el bridge:
 echo   node index.js
+echo.
+echo Si luego lo vas a correr como servicio, usa NSSM y deja el .env en la carpeta del bridge
 echo.
 pause

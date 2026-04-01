@@ -120,8 +120,8 @@ const mesas = [
   [6, 6, 'Exterior', 2, 200, 80],
 ];
 for (const m of mesas) {
-  sql(`INSERT INTO mesas (id, numero, zona, capacidad, "posX", "posY", rotacion, estado, activa, "qrToken", "createdAt", "updatedAt")
-VALUES (${m[0]}, ${m[1]}, ${esc(m[2])}, ${m[3]}, ${m[4]}, ${m[5]}, 0, 'LIBRE', true, gen_random_uuid(), NOW(), NOW());`);
+  sql(`INSERT INTO mesas (id, numero, zona, capacidad, "posX", "posY", rotacion, estado, activa, "createdAt", "updatedAt")
+VALUES (${m[0]}, ${m[1]}, ${esc(m[2])}, ${m[3]}, ${m[4]}, ${m[5]}, 0, 'LIBRE', true, NOW(), NOW());`);
 }
 sql("SELECT setval('mesas_id_seq', (SELECT MAX(id) FROM mesas));");
 sql('');
@@ -315,8 +315,7 @@ const productoIds = productos.map(p => p[0]);
 const productoPrecio = {};
 productos.forEach(p => { productoPrecio[p[0]] = p[3]; });
 const metodosPago = ['EFECTIVO', 'EFECTIVO', 'EFECTIVO', 'EFECTIVO', 'EFECTIVO', 'EFECTIVO',
-                     'TARJETA', 'TARJETA', 'TARJETA',
-                     'MERCADOPAGO', 'MERCADOPAGO'];
+                     'MERCADOPAGO', 'MERCADOPAGO', 'MERCADOPAGO', 'MERCADOPAGO', 'MERCADOPAGO'];
 const clientesDelivery = [
   ['Carlos Ruiz', '1155559001', 'Av. Libertador 1234'],
   ['Ana Torres', '1155559002', 'Calle Rivadavia 567'],
@@ -348,7 +347,7 @@ for (const day of workDays) {
 VALUES (${fichajeId++}, ${empId}, '${fmt(entrada)}', '${fmt(salida)}', '${dateStr}', '${fmt(entrada)}');`);
   }
 
-  let dayEfectivo = 0, dayTarjeta = 0, dayMP = 0;
+  let dayEfectivo = 0, dayMP = 0;
 
   for (let p = 0; p < numPedidos; p++) {
     const tipoRoll = rand();
@@ -414,7 +413,6 @@ VALUES (${pedidoItemId++}, ${pedidoId}, ${item.prodId}, ${item.cant}, ${item.pre
 VALUES (${pagoId++}, ${pedidoId}, ${total}, '${metodo}', 'CAJA', 'APROBADO', '${fmt(pedidoTime)}', '${fmt(pedidoTime)}');`);
 
     if (metodo === 'EFECTIVO') dayEfectivo += total;
-    else if (metodo === 'TARJETA') dayTarjeta += total;
     else dayMP += total;
 
     pedidoId++;
@@ -423,8 +421,8 @@ VALUES (${pagoId++}, ${pedidoId}, ${total}, '${metodo}', 'CAJA', 'APROBADO', '${
   // CierreCaja
   const apertura = addHours(day, 10, 0);
   const cierre = addHours(day, 23, 0);
-  sql(`INSERT INTO cierres_caja (id, "usuarioId", fecha, "horaApertura", "horaCierre", "fondoInicial", "totalEfectivo", "totalTarjeta", "totalMP", "efectivoFisico", diferencia, estado, "createdAt", "updatedAt")
-VALUES (${cierreId++}, ${cajeroId}, '${dateStr}', '${fmt(apertura)}', '${fmt(cierre)}', 5000, ${dayEfectivo}, ${dayTarjeta}, ${dayMP}, ${dayEfectivo + 5000}, 0, 'CERRADO', '${fmt(cierre)}', '${fmt(cierre)}');`);
+  sql(`INSERT INTO cierres_caja (id, "usuarioId", fecha, "horaApertura", "horaCierre", "fondoInicial", "totalEfectivo", "totalMP", "efectivoFisico", diferencia, estado, "createdAt", "updatedAt")
+VALUES (${cierreId++}, ${cajeroId}, '${dateStr}', '${fmt(apertura)}', '${fmt(cierre)}', 5000, ${dayEfectivo}, ${dayMP}, ${dayEfectivo + 5000}, 0, 'CERRADO', '${fmt(cierre)}', '${fmt(cierre)}');`);
 
   // Reservas (~2 per week, so roughly every 3 working days)
   if (randInt(1, 3) === 1) {

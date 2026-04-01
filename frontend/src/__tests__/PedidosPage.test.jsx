@@ -148,6 +148,43 @@ describe('Pedidos page', () => {
     })
   })
 
+  it('muestra titles cortos en las acciones de la grilla', async () => {
+    const pedidoPendiente = {
+      id: 11,
+      tipo: 'MESA',
+      total: '180',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { numero: 2 },
+      clienteNombre: null,
+      pagos: []
+    }
+    const pedidoCobrado = {
+      id: 12,
+      tipo: 'MESA',
+      total: '220',
+      estado: 'COBRADO',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { numero: 3 },
+      clienteNombre: null,
+      comprobanteFiscal: null,
+      pagos: []
+    }
+
+    api.get.mockResolvedValueOnce({ data: { data: [pedidoPendiente, pedidoCobrado], total: 2 } })
+
+    renderPage()
+
+    expect(await screen.findByText('#11')).toBeInTheDocument()
+
+    expect(screen.getAllByTitle('Ver detalle')).toHaveLength(2)
+    expect(screen.getAllByTitle('Reimprimir comanda')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: `Registrar pago del pedido #${pedidoPendiente.id}` })).toHaveAttribute('title', 'Registrar pago')
+    expect(screen.getByRole('button', { name: `Facturar pedido #${pedidoCobrado.id}` })).toHaveAttribute('title', 'Facturar')
+  })
+
   it('abre detalle y registra pago', async () => {
     const pedido = {
       id: 9,
@@ -246,7 +283,59 @@ describe('Pedidos page', () => {
     expect(screen.queryByRole('button', { name: 'Liberar mesa' })).toBeNull()
   })
 
-  it('genera un QR presencial para cobrar el saldo pendiente', async () => {
+  it('muestra titles descriptivos en los botones de acciones del listado', async () => {
+    const pedidos = [
+      {
+        id: 9,
+        tipo: 'MESA',
+        total: '200',
+        estado: 'PENDIENTE',
+        createdAt: new Date().toISOString(),
+        impresion: null,
+        mesa: { numero: 3 },
+        clienteNombre: null,
+        pagos: []
+      },
+      {
+        id: 15,
+        tipo: 'DELIVERY',
+        total: '500',
+        estado: 'LISTO',
+        createdAt: new Date().toISOString(),
+        impresion: null,
+        mesa: null,
+        repartidorId: null,
+        clienteNombre: 'Ana',
+        pagos: []
+      },
+      {
+        id: 88,
+        tipo: 'MESA',
+        total: '400',
+        estado: 'COBRADO',
+        createdAt: new Date().toISOString(),
+        impresion: null,
+        mesa: { numero: 5 },
+        clienteNombre: null,
+        comprobanteFiscal: null,
+        pagos: []
+      }
+    ]
+
+    api.get.mockResolvedValueOnce({ data: { data: pedidos, total: pedidos.length } })
+
+    renderPage()
+
+    expect(await screen.findByText('#9')).toBeInTheDocument()
+
+    expect(screen.getByRole('button', { name: /Ver detalle del pedido #9/i })).toHaveAttribute('title', 'Ver detalle')
+    expect(screen.getByRole('button', { name: /Reimprimir comanda del pedido #9/i })).toHaveAttribute('title', 'Reimprimir comanda')
+    expect(screen.getByRole('button', { name: /Registrar pago del pedido #9/i })).toHaveAttribute('title', 'Registrar pago')
+    expect(screen.getByRole('button', { name: /Asignar repartidor al pedido #15/i })).toHaveAttribute('title', 'Asignar repartidor')
+    expect(screen.getByRole('button', { name: /Facturar pedido #88/i })).toHaveAttribute('title', 'Facturar')
+  })
+
+  it('muestra los datos de transferencia y permite registrar un cobro manual sin referencia', async () => {
     const pedido = {
       id: 15,
       tipo: 'MESA',
@@ -276,43 +365,26 @@ describe('Pedidos page', () => {
     api.get.mockImplementation((url) => {
       if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
       if (url === `/pedidos/${pedido.id}`) return Promise.resolve({ data: pedidoDetalle })
-      return Promise.resolve({ data: [] })
-    })
-
-    api.post.mockImplementation((url) => {
-      if (url === '/pagos/qr/orden') {
-        pedidoDetalle = {
-          ...pedidoDetalle,
-          pagos: [
-            {
-              id: 99,
-              pedidoId: pedido.id,
-              monto: '500',
-              propinaMonto: '60',
-              metodo: 'MERCADOPAGO',
-              propinaMetodo: 'MERCADOPAGO',
-              canalCobro: 'QR_PRESENCIAL',
-              estado: 'PENDIENTE',
-              referencia: 'ORD-123',
-              comprobante: '0002010102125204000053030325405500.005802AR5910COMANDA6008CABA6304ABCD',
-              createdAt: new Date().toISOString()
-            }
-          ]
-        }
-
+      if (url === '/pagos/mercadopago/transferencia-config') {
         return Promise.resolve({
           data: {
-            orderId: 'ORD-123',
-            status: 'created',
-            qrData: '0002010102125204000053030325405500.005802AR5910COMANDA6008CABA6304ABCD',
-            totalAmount: 560,
-            pendiente: 500,
-            propinaMonto: 60
+            alias: 'mi-resto.mp',
+            titular: 'Mi Resto SA',
+            cvu: '0000003100000000000001'
           }
         })
       }
+      return Promise.resolve({ data: [] })
+    })
 
-      return Promise.resolve({ data: {} })
+    api.post.mockResolvedValueOnce({
+      data: {
+        pago: { id: 99 },
+        pedido: {
+          ...pedidoDetalle,
+          estado: 'COBRADO'
+        }
+      }
     })
 
     const user = userEvent.setup()
@@ -322,22 +394,344 @@ describe('Pedidos page', () => {
 
     await user.click(screen.getByRole('button', { name: `Registrar pago del pedido #${pedido.id}` }))
     await screen.findByRole('button', { name: 'Registrar Pago' })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cerrar modal' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Tarjeta' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Canal de Cobro')).not.toBeInTheDocument()
+    expect(screen.queryByText('Checkout web')).not.toBeInTheDocument()
+    expect(screen.queryByText('Transferencia Mercado Pago')).not.toBeInTheDocument()
+    expect(screen.getByText('Saldo pendiente')).toBeInTheDocument()
+    expect(screen.getByText('Total pedido')).toBeInTheDocument()
+    expect(screen.getByLabelText('Monto ($)')).toHaveDisplayValue('500')
+    expect(screen.getByText('Pendiente actual: $ 500')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Propina ($)')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Monto ($)')).toHaveFocus()
+    })
 
-    await user.selectOptions(screen.getByLabelText('Canal de Cobro'), 'QR_PRESENCIAL')
-    await user.type(screen.getByLabelText('Propina ($)'), '60')
-    await user.click(screen.getByRole('button', { name: 'Generar QR presencial' }))
+    await user.selectOptions(screen.getByLabelText('Metodo de Pago'), 'MERCADOPAGO')
+    expect(await screen.findByText('Transferencia Mercado Pago')).toBeInTheDocument()
+    expect(screen.getByText('La referencia es opcional.')).toBeInTheDocument()
+    expect(screen.getByText('mi-resto.mp')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Propina ($)')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Referencia de transferencia (opcional)')).toHaveAttribute('placeholder', 'Ej. numero o codigo de operacion')
+    await waitFor(() => {
+      expect(screen.getByLabelText('Referencia de transferencia (opcional)')).toHaveFocus()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Registrar Pago' }))
 
     await waitFor(() => {
-      expect(api.post).toHaveBeenCalledWith('/pagos/qr/orden', {
+      expect(api.post).toHaveBeenCalledWith('/pagos', {
         pedidoId: pedido.id,
-        propinaMonto: 60,
-        propinaMetodo: 'MERCADOPAGO'
+        monto: 500,
+        metodo: 'MERCADOPAGO',
+        referencia: null,
+        canalCobro: 'CAJA',
+        propinaMonto: 0,
+        propinaMetodo: null,
+        montoAbonado: null
       })
     })
 
-    expect(await screen.findByText('QR presencial listo')).toBeInTheDocument()
-    expect(screen.getByText('Orden ORD-123')).toBeInTheDocument()
-    expect(toast.success).toHaveBeenCalledWith('QR presencial generado')
+    expect(toast.success).toHaveBeenCalledWith('Pago registrado')
+  })
+
+  it('mantiene centavos reales visibles en el modal de registrar pago', async () => {
+    const pedido = {
+      id: 21,
+      tipo: 'MESA',
+      total: '9300.50',
+      estado: 'ENTREGADO',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { numero: 12 },
+      clienteNombre: null,
+      usuario: { nombre: 'Caja' },
+      pagos: []
+    }
+
+    const pedidoDetalle = {
+      ...pedido,
+      items: [],
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      if (url === `/pedidos/${pedido.id}`) return Promise.resolve({ data: pedidoDetalle })
+      if (url === '/pagos/mercadopago/transferencia-config') {
+        return Promise.resolve({ data: { alias: 'mi-resto.mp' } })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#21')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: `Registrar pago del pedido #${pedido.id}` }))
+    await screen.findByRole('button', { name: 'Registrar Pago' })
+
+    expect(screen.getByLabelText('Monto ($)')).toHaveDisplayValue('9300.50')
+    expect(screen.getByText('Pendiente actual: $ 9.300,50')).toBeInTheDocument()
+  })
+
+  it('permite cerrar el modal de pago con Escape', async () => {
+    const pedido = {
+      id: 17,
+      tipo: 'MESA',
+      total: '500',
+      estado: 'ENTREGADO',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { numero: 9 },
+      clienteNombre: null,
+      usuario: { nombre: 'Caja' },
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      if (url === `/pedidos/${pedido.id}`) {
+        return Promise.resolve({ data: { ...pedido, items: [], pagos: [] } })
+      }
+      if (url === '/pagos/mercadopago/transferencia-config') {
+        return Promise.resolve({ data: { alias: 'mi-resto.mp' } })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#17')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: `Registrar pago del pedido #${pedido.id}` }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  it('envia la referencia cuando el cajero la completa en un cobro manual de Mercado Pago', async () => {
+    const pedido = {
+      id: 16,
+      tipo: 'MESA',
+      total: '500',
+      estado: 'ENTREGADO',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { numero: 8 },
+      clienteNombre: null,
+      usuario: { nombre: 'Caja' },
+      pagos: []
+    }
+
+    const pedidoDetalle = {
+      ...pedido,
+      items: [
+        {
+          id: 1,
+          cantidad: 1,
+          subtotal: '500',
+          producto: { nombre: 'Milanesa' }
+        }
+      ],
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      if (url === `/pedidos/${pedido.id}`) return Promise.resolve({ data: pedidoDetalle })
+      if (url === '/pagos/mercadopago/transferencia-config') {
+        return Promise.resolve({
+          data: {
+            alias: 'mi-resto.mp',
+            titular: 'Mi Resto SA',
+            cvu: '0000003100000000000001'
+          }
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    api.post.mockResolvedValueOnce({
+      data: {
+        pago: { id: 100 },
+        pedido: {
+          ...pedidoDetalle,
+          estado: 'COBRADO'
+        }
+      }
+    })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#16')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: `Registrar pago del pedido #${pedido.id}` }))
+    await screen.findByRole('button', { name: 'Registrar Pago' })
+    expect(screen.queryByLabelText('Canal de Cobro')).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Metodo de Pago'), 'MERCADOPAGO')
+    await user.type(screen.getByLabelText('Referencia de transferencia (opcional)'), 'TRF-123')
+    await user.click(screen.getByRole('button', { name: 'Registrar Pago' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/pagos', {
+        pedidoId: pedido.id,
+        monto: 500,
+        metodo: 'MERCADOPAGO',
+        referencia: 'TRF-123',
+        canalCobro: 'CAJA',
+        propinaMonto: 0,
+        propinaMetodo: null,
+        montoAbonado: null
+      })
+    })
+
+    expect(toast.success).toHaveBeenCalledWith('Pago registrado')
+  })
+
+  it('muestra propina como seccion opcional, hereda el metodo y limpia estados ocultos al cambiar de metodo', async () => {
+    const pedido = {
+      id: 18,
+      tipo: 'MESA',
+      total: '500',
+      estado: 'ENTREGADO',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { numero: 10 },
+      clienteNombre: null,
+      usuario: { nombre: 'Caja' },
+      pagos: []
+    }
+
+    const pedidoDetalle = {
+      ...pedido,
+      items: [],
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      if (url === `/pedidos/${pedido.id}`) return Promise.resolve({ data: pedidoDetalle })
+      if (url === '/pagos/mercadopago/transferencia-config') {
+        return Promise.resolve({
+          data: {
+            alias: 'mi-resto.mp',
+            titular: 'Mi Resto SA',
+            cvu: '0000003100000000000001'
+          }
+        })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    api.post.mockResolvedValueOnce({
+      data: {
+        pago: { id: 101 },
+        pedido: {
+          ...pedidoDetalle,
+          estado: 'COBRADO'
+        }
+      }
+    })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#18')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: `Registrar pago del pedido #${pedido.id}` }))
+    await screen.findByRole('button', { name: 'Registrar Pago' })
+
+    expect(screen.queryByLabelText('Propina ($)')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Agregar propina' }))
+    expect(screen.getByLabelText('Propina ($)')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Metodo de Pago'), 'MERCADOPAGO')
+    await user.type(screen.getByLabelText('Referencia de transferencia (opcional)'), 'TRF-999')
+    await user.type(screen.getByLabelText('Propina ($)'), '50')
+    expect(screen.getByLabelText('Metodo de Propina')).toHaveValue('MERCADOPAGO')
+
+    await user.selectOptions(screen.getByLabelText('Metodo de Pago'), 'EFECTIVO')
+    expect(screen.queryByLabelText('Referencia de transferencia (opcional)')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Metodo de Propina')).toHaveValue('EFECTIVO')
+    expect(screen.getByLabelText('Monto abonado ($)')).toHaveAttribute('placeholder', 'Minimo $ 550')
+
+    await user.type(screen.getByLabelText('Monto abonado ($)'), '400')
+    expect(screen.getByText('Faltan: $ 150')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Registrar Pago' })).toBeDisabled()
+
+    await user.clear(screen.getByLabelText('Monto abonado ($)'))
+    await user.type(screen.getByLabelText('Monto abonado ($)'), '600')
+    expect(screen.getByText('Vuelto estimado: $ 50')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Quitar propina' }))
+    expect(screen.queryByLabelText('Propina ($)')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Registrar Pago' }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/pagos', {
+        pedidoId: pedido.id,
+        monto: 500,
+        metodo: 'EFECTIVO',
+        referencia: null,
+        canalCobro: 'CAJA',
+        propinaMonto: 0,
+        propinaMetodo: null,
+        montoAbonado: 600
+      })
+    })
+  })
+
+  it('bloquea MercadoPago de forma visible cuando falta el alias', async () => {
+    const pedido = {
+      id: 19,
+      tipo: 'MESA',
+      total: '500',
+      estado: 'ENTREGADO',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { numero: 11 },
+      clienteNombre: null,
+      usuario: { nombre: 'Caja' },
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      if (url === `/pedidos/${pedido.id}`) {
+        return Promise.resolve({ data: { ...pedido, items: [], pagos: [] } })
+      }
+      if (url === '/pagos/mercadopago/transferencia-config') {
+        return Promise.resolve({ data: { alias: '' } })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#19')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: `Registrar pago del pedido #${pedido.id}` }))
+    await screen.findByRole('button', { name: 'Registrar Pago' })
+
+    expect(screen.getByText(/MercadoPago no esta disponible/i)).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'MercadoPago' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Registrar Pago' })).not.toBeDisabled()
+
+    await user.selectOptions(screen.getByLabelText('Metodo de Pago'), 'EFECTIVO')
+    expect(screen.getByRole('button', { name: 'Registrar Pago' })).not.toBeDisabled()
   })
 
   it('abre el pago desde el deep link de pedido', async () => {
@@ -376,6 +770,42 @@ describe('Pedidos page', () => {
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(`/pedidos/${pedido.id}`)
     })
+  })
+
+  it('reimprime la comanda sin abrir preview', async () => {
+    const pedido = {
+      id: 63,
+      tipo: 'MOSTRADOR',
+      total: '140',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: null,
+      clienteNombre: 'Mostrador',
+      usuario: { nombre: 'Caja' },
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl()) return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      return Promise.resolve({ data: [] })
+    })
+    api.post.mockResolvedValueOnce({ data: { success: true } })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#63')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: `Reimprimir comanda del pedido #${pedido.id}` }))
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(`/impresion/comanda/${pedido.id}/reimprimir`, {})
+    })
+
+    expect(api.get).not.toHaveBeenCalledWith(`/impresion/comanda/${pedido.id}/preview?tipo=CAJA`)
+    expect(screen.queryByText('Vista previa de caja')).toBeNull()
+    expect(toast.success).toHaveBeenCalledWith('Reimpresion encolada')
   })
 
   it('evita doble submit en el pago manual', async () => {

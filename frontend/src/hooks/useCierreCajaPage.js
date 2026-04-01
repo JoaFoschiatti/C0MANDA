@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 
 import api from '../services/api'
+import { formatArsPos } from '../utils/currency'
 import useAsync from './useAsync'
 
 export default function useCierreCajaPage() {
@@ -116,10 +117,7 @@ export default function useCierreCajaPage() {
   )
 
   const formatCurrency = useCallback(
-    (value) =>
-      `$${parseFloat(value || 0).toLocaleString('es-AR', {
-        minimumFractionDigits: 2,
-      })}`,
+    (value) => formatArsPos(value),
     []
   )
 

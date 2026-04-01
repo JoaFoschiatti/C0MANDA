@@ -4,7 +4,6 @@ const { SUCURSAL_IDS } = require('../constants/sucursales');
 const { saveUsuarioByEmail, upsertConfig } = require('./bootstrap.service');
 
 const VISUAL_SEED_RANDOM = 20260328;
-const QR_TEMPLATE = '0002010102125204000053030325405500.005802AR5910COMANDA6008CABA6304ABCD';
 
 const MONEY = (value) => Number.parseFloat(Number(value || 0).toFixed(2));
 const STOCK = (value) => Number.parseFloat(Number(value || 0).toFixed(3));
@@ -126,6 +125,9 @@ const ensureVisualConfigs = async (prisma) => {
     upsertConfig(prisma, 'whatsapp_numero', '5491155550099'),
     upsertConfig(prisma, 'efectivo_enabled', true),
     upsertConfig(prisma, 'mercadopago_enabled', false),
+    upsertConfig(prisma, 'mercadopago_transfer_alias', 'comanda.demo.mp'),
+    upsertConfig(prisma, 'mercadopago_transfer_titular', 'Comanda Visual QA'),
+    upsertConfig(prisma, 'mercadopago_transfer_cvu', '0000003100000000000001'),
     upsertConfig(prisma, 'delivery_habilitado', true),
     upsertConfig(prisma, 'facturacion_habilitada', true),
     upsertConfig(prisma, 'facturacion_descripcion', 'PV demo visual'),
@@ -1451,7 +1453,7 @@ const buildRefs = async (prisma) => {
       select: { id: true, email: true, nombre: true, apellido: true, rol: true, activo: true }
     }),
     prisma.mesa.findMany({
-      select: { id: true, numero: true, zona: true, qrToken: true, sucursalId: true }
+      select: { id: true, numero: true, zona: true, sucursalId: true }
     }),
     prisma.modificador.findMany({
       select: { id: true, nombre: true, precio: true }
@@ -1815,32 +1817,10 @@ const buildLiveScenarios = (baseNow) => [
     estado: 'ENTREGADO',
     mesaNumero: 4,
     usuarioEmail: 'mozo2@comanda.local',
-    observaciones: 'Van a pagar con QR.',
+    observaciones: 'Prefieren pagar por transferencia a alias.',
     createdAt: addMinutes(baseNow, -80),
     updatedAt: addMinutes(baseNow, -4),
     printStatus: 'OK',
-    pagos: [
-      {
-        monto: 4900,
-        metodo: 'MERCADOPAGO',
-        canalCobro: 'QR_PRESENCIAL',
-        estado: 'PENDIENTE',
-        referencia: 'QR-MESA-4',
-        comprobante: QR_TEMPLATE,
-        propinaMonto: 600,
-        mpPreferenceId: 'pref-qr-mesa-4',
-        transaccionMercadoPago: {
-          mpPaymentId: 'seed-mp-qr-pending-1',
-          mpPreferenceId: 'pref-qr-mesa-4',
-          status: 'pending',
-          statusDetail: 'waiting_payment',
-          amount: 4900,
-          fee: 0,
-          netAmount: 0,
-          externalReference: 'pedido-qr-mesa-4'
-        }
-      }
-    ],
     items: [
       { producto: 'Tacos de Pollo x2', cantidad: 1, modificadores: ['Salsa picante'] },
       { producto: 'Agua Mineral', cantidad: 1 },
@@ -1848,13 +1828,12 @@ const buildLiveScenarios = (baseNow) => [
     ]
   },
   {
-    key: 'mesa-7-menu-publico',
+    key: 'mesa-7-manual',
     tipo: 'MESA',
     estado: 'PENDIENTE',
-    origen: 'MENU_PUBLICO',
     mesaNumero: 7,
-    clienteNombre: 'QR Mesa 7',
-    observaciones: 'Pedido generado desde QR de mesa.',
+    clienteNombre: 'Mesa 7 Manual',
+    observaciones: 'Pedido manual de salon para pruebas visuales.',
     createdAt: addMinutes(baseNow, -16),
     updatedAt: addMinutes(baseNow, -8),
     printStatus: 'PENDIENTE',
@@ -2086,7 +2065,7 @@ const buildLiveScenarios = (baseNow) => [
     createdAt: addHours(startOfDay(baseNow), 16),
     updatedAt: addHours(startOfDay(baseNow), 17),
     printStatus: 'OK',
-    pagos: [{ monto: 12000, metodo: 'TARJETA', canalCobro: 'CAJA', estado: 'APROBADO' }],
+    pagos: [{ monto: 12000, metodo: 'MERCADOPAGO', canalCobro: 'CAJA', estado: 'APROBADO' }],
     comprobante: {
       tipoComprobante: 'FACTURA_B',
       estado: 'AUTORIZADO_CON_OBSERVACIONES',
@@ -2220,7 +2199,7 @@ const buildHistoricalScenarios = (refs, baseNow) => {
     const methodRandom = createSeededRandom(VISUAL_SEED_RANDOM + index);
     const paymentMethod = scenario.tipo === 'MOSTRADOR' && index % 4 === 0
       ? 'EFECTIVO'
-      : pickOne(methodRandom, ['EFECTIVO', 'TARJETA', 'MERCADOPAGO']);
+      : pickOne(methodRandom, ['EFECTIVO', 'MERCADOPAGO']);
     const paymentCreatedAt = addMinutes(scenario.createdAt, 45);
     const pagos = [];
 
@@ -2229,7 +2208,7 @@ const buildHistoricalScenarios = (refs, baseNow) => {
       pagos.push({ monto: firstMonto, metodo: paymentMethod, canalCobro: paymentMethod === 'MERCADOPAGO' ? 'CHECKOUT_WEB' : 'CAJA', estado: 'APROBADO', createdAt: paymentCreatedAt });
       pagos.push({
         monto: MONEY(totals.total - firstMonto),
-        metodo: paymentMethod === 'EFECTIVO' ? 'TARJETA' : 'EFECTIVO',
+        metodo: paymentMethod === 'EFECTIVO' ? 'MERCADOPAGO' : 'EFECTIVO',
         canalCobro: 'CAJA',
         estado: 'APROBADO',
         createdAt: addMinutes(paymentCreatedAt, 8),
@@ -2352,10 +2331,10 @@ const seedCierresCaja = async (prisma, refs, baseNow) => {
   const cajaOwner = refs.usersByEmail.get(normalizeEmail('cajero@comanda.local'));
   const startToday = startOfDay(baseNow);
   const historical = [
-    { dayOffset: -3, apertura: 10, cierre: 23, fondoInicial: 35000, efectivo: 162500, tarjeta: 98200, mp: 78400, fisico: 197000, diferencia: -500 },
-    { dayOffset: -2, apertura: 10, cierre: 23, fondoInicial: 36000, efectivo: 154200, tarjeta: 101500, mp: 81250, fisico: 190800, diferencia: 600 },
-    { dayOffset: -1, apertura: 10, cierre: 23, fondoInicial: 36000, efectivo: 148900, tarjeta: 95400, mp: 75600, fisico: 184500, diferencia: -400 },
-    { dayOffset: -7, apertura: 10, cierre: 22, fondoInicial: 32000, efectivo: 132300, tarjeta: 84400, mp: 61200, fisico: 163900, diferencia: -400 }
+    { dayOffset: -3, apertura: 10, cierre: 23, fondoInicial: 35000, efectivo: 162500, mp: 176600, fisico: 197000, diferencia: -500 },
+    { dayOffset: -2, apertura: 10, cierre: 23, fondoInicial: 36000, efectivo: 154200, mp: 182750, fisico: 190800, diferencia: 600 },
+    { dayOffset: -1, apertura: 10, cierre: 23, fondoInicial: 36000, efectivo: 148900, mp: 171000, fisico: 184500, diferencia: -400 },
+    { dayOffset: -7, apertura: 10, cierre: 22, fondoInicial: 32000, efectivo: 132300, mp: 145600, fisico: 163900, diferencia: -400 }
   ];
 
   for (const caja of historical) {
@@ -2368,7 +2347,6 @@ const seedCierresCaja = async (prisma, refs, baseNow) => {
         horaCierre: addHours(fecha, caja.cierre),
         fondoInicial: MONEY(caja.fondoInicial),
         totalEfectivo: MONEY(caja.efectivo),
-        totalTarjeta: MONEY(caja.tarjeta),
         totalMP: MONEY(caja.mp),
         efectivoFisico: MONEY(caja.fisico),
         diferencia: MONEY(caja.diferencia),
@@ -2477,15 +2455,11 @@ const seedVisualData = async (prisma, options = {}) => {
 
   const counts = await collectVisualCounts(prisma);
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const mesa1 = refs.mesasByNumber.get(1);
-  const mesa7 = refs.mesasByNumber.get(7);
 
   return {
     credentials: VISUAL_CREDENTIALS,
     urls: {
-      menuPublico: `${frontendUrl}/menu`,
-      menuMesa1: `${frontendUrl}/menu/mesa/${mesa1.qrToken}`,
-      menuMesa7: `${frontendUrl}/menu/mesa/${mesa7.qrToken}`
+      menuPublico: `${frontendUrl}/menu`
     },
     counts
   };

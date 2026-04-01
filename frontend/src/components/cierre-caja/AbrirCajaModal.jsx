@@ -18,7 +18,7 @@ export default function AbrirCajaModal({ fondoInicial, onClose, onSubmit, setFon
                 value={fondoInicial}
                 onChange={(event) => setFondoInicial(event.target.value)}
                 className="input pl-8"
-                placeholder="0.00"
+                placeholder="0"
                 autoFocus
               />
             </div>

@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+const Module = require('node:module');
+const path = require('node:path');
 const { describe, it } = require('node:test');
 const { createBridge } = require('../bridge');
 
@@ -115,5 +117,53 @@ describe('bridge', () => {
       () => bridge.processJob({ contenido: 'test' }),
       /Unsupported adapter: raw/
     );
+  });
+
+  it('index carga .env desde __dirname antes de iniciar', async () => {
+    const originalLoad = Module._load;
+    const indexModulePath = require.resolve('../index.js');
+    const expectedEnvPath = path.join(path.dirname(indexModulePath), '.env');
+    let capturedEnvPath = null;
+    let started = false;
+
+    Module._load = (request, parent, isMain) => {
+      if (request === 'dotenv') {
+        return {
+          config: ({ path: dotenvPath }) => {
+            capturedEnvPath = dotenvPath;
+            return { parsed: {} };
+          }
+        };
+      }
+
+      if (request === './bridge') {
+        return {
+          createBridge: () => ({
+            start: () => {
+              started = true;
+            }
+          })
+        };
+      }
+
+      return originalLoad(request, parent, isMain);
+    };
+
+    delete require.cache[indexModulePath];
+
+    try {
+      const { bootstrap, loadEnv } = require('../index.js');
+
+      assert.equal(started, false);
+      loadEnv();
+      assert.equal(capturedEnvPath, expectedEnvPath);
+
+      bootstrap();
+      assert.equal(started, true);
+      assert.equal(capturedEnvPath, expectedEnvPath);
+    } finally {
+      Module._load = originalLoad;
+      delete require.cache[indexModulePath];
+    }
   });
 });

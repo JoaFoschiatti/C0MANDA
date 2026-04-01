@@ -41,6 +41,49 @@ const configWithoutPayments = {
   }
 }
 
+const configWithBanner = {
+  negocio: {
+    nombre_negocio: 'La Casa'
+  },
+  config: {
+    tienda_abierta: true,
+    delivery_habilitado: true,
+    costo_delivery: 400,
+    mercadopago_enabled: true,
+    efectivo_enabled: true,
+    banner_imagen: '/uploads/banner-test.png'
+  }
+}
+
+const configWithLogo = {
+  negocio: {
+    nombre_negocio: 'La Casa',
+    logo: '/uploads/logo-test.png'
+  },
+  config: {
+    tienda_abierta: true,
+    delivery_habilitado: true,
+    costo_delivery: 400,
+    mercadopago_enabled: true,
+    efectivo_enabled: true
+  }
+}
+
+const configWithIdentity = {
+  negocio: {
+    nombre_negocio: 'La Casa',
+    logo: '/uploads/logo-test.png'
+  },
+  config: {
+    tienda_abierta: true,
+    delivery_habilitado: true,
+    costo_delivery: 400,
+    mercadopago_enabled: true,
+    efectivo_enabled: true,
+    banner_imagen: '/uploads/banner-test.png'
+  }
+}
+
 const menuData = [
   {
     id: 1,
@@ -82,8 +125,51 @@ describe('MenuPublico page', () => {
     expect(await screen.findByText('La Casa')).toBeInTheDocument()
     expect(screen.getByText('Pizzas')).toBeInTheDocument()
     expect(screen.getByText('Muzzarella')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'La Casa' })).toHaveAttribute('src', '/comanda-logo.png')
     expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/config`, {})
     expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/menu`, {})
+  })
+
+  it('usa el logo configurado en el badge del hero', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => configWithLogo })
+      .mockResolvedValueOnce({ ok: true, json: async () => menuData })
+
+    renderMenu()
+
+    const logo = await screen.findByRole('img', { name: 'La Casa' })
+    expect(logo).toHaveAttribute('src', '/uploads/logo-test.png')
+  })
+
+  it('usa nombre, logo y banner configurados en el hero', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => configWithIdentity })
+      .mockResolvedValueOnce({ ok: true, json: async () => menuData })
+
+    const { container } = renderMenu()
+
+    expect(await screen.findByText('La Casa')).toBeInTheDocument()
+
+    const logo = screen.getByRole('img', { name: 'La Casa' })
+    expect(logo).toHaveAttribute('src', '/uploads/logo-test.png')
+
+    const hero = container.querySelector('.public-hero')
+    expect(hero).not.toBeNull()
+    expect(hero.style.backgroundImage).toContain('/uploads/banner-test.png')
+  })
+
+  it('aplica el banner configurado en el hero', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => configWithBanner })
+      .mockResolvedValueOnce({ ok: true, json: async () => menuData })
+
+    const { container } = renderMenu()
+
+    expect(await screen.findByText('La Casa')).toBeInTheDocument()
+
+    const hero = container.querySelector('.public-hero')
+    expect(hero).not.toBeNull()
+    expect(hero.style.backgroundImage).toContain('/uploads/banner-test.png')
   })
 
   it('muestra error de carga y permite reintentar', async () => {

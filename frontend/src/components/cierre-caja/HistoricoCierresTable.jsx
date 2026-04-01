@@ -29,7 +29,6 @@ export default function HistoricoCierresTable({ formatCurrency, formatDateTime, 
                 <th>Usuario</th>
                 <th className="text-right">Fondo</th>
                 <th className="text-right">Efectivo</th>
-                <th className="text-right">Tarjeta</th>
                 <th className="text-right">MP</th>
                 <th className="text-right">Diferencia</th>
                 <th className="text-center">Estado</th>
@@ -42,7 +41,6 @@ export default function HistoricoCierresTable({ formatCurrency, formatDateTime, 
                   <td className="text-text-secondary">{cierre.usuario?.nombre}</td>
                   <td className="text-right text-text-secondary">{formatCurrency(cierre.fondoInicial)}</td>
                   <td className="text-right text-success-600">{formatCurrency(cierre.totalEfectivo)}</td>
-                  <td className="text-right text-primary-600">{formatCurrency(cierre.totalTarjeta)}</td>
                   <td className="text-right text-warning-600">{formatCurrency(cierre.totalMP)}</td>
                   <td className={`text-right font-medium ${getDifferenceClassName(cierre.diferencia)}`}>
                     {cierre.diferencia !== null ? formatCurrency(cierre.diferencia) : '-'}
