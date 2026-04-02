@@ -12,6 +12,7 @@ export default function MesaOperationCard({
   className,
   overlay,
   forceOverlayVisible = false,
+  mobileFill = false,
 }) {
   const [overlayActive, setOverlayActive] = useState(false)
   const statusUi = getMesaStatusUi(mesa.estado)
@@ -22,8 +23,8 @@ export default function MesaOperationCard({
       id={`mesa-card-${mesa.id}`}
       data-estado={mesa.estado}
       className={clsx(
-        'mesa-status-card mesa-status-card--interactive relative isolate flex shrink-0 flex-col overflow-hidden p-3 text-center',
-        MESA_OPERATION_CARD_SIZE_CLASS,
+        'mesa-status-card mesa-status-card--interactive relative isolate flex shrink-0 flex-col overflow-hidden p-2.5 text-center sm:p-3',
+        mobileFill ? 'w-full h-[8.75rem] sm:w-32 sm:h-32' : MESA_OPERATION_CARD_SIZE_CLASS,
         statusUi.themeClass,
         onClick && 'cursor-pointer',
         className
@@ -68,17 +69,17 @@ export default function MesaOperationCard({
       )}
 
       <div className="pointer-events-none relative z-10 flex flex-1 flex-col items-center justify-center">
-        <div className="text-[2rem] font-bold leading-none mesa-status-accent">
+        <div className="text-[1.75rem] font-bold leading-none mesa-status-accent sm:text-[2rem]">
           {mesa.numero}
         </div>
         <div className="mt-1 text-[11px] font-medium mesa-status-muted">
           {mesa.capacidad} personas
         </div>
-        <span className="mesa-status-pill mt-2">
+        <span className="mesa-status-pill mt-1.5 sm:mt-2">
           {statusUi.label}
         </span>
         {secondaryText ? (
-          <div className="mt-auto w-full truncate pt-2 text-[11px] font-semibold mesa-status-note">
+          <div className="mt-auto w-full truncate pt-1.5 text-[11px] font-semibold mesa-status-note sm:pt-2">
             {secondaryText}
           </div>
         ) : (

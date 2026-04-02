@@ -1028,9 +1028,11 @@ module.exports = {
    * @returns {Promise<Array>} Lista de pedidos con items, mesa, usuario y pagos
    */
   listar: async (prisma, query) => {
-    const { estado, tipo, fecha, mesaId, sucursalId, incluirCerrados, limit = 50, offset = 0 } = query;
+    const { q, estado, tipo, fecha, mesaId, sucursalId, incluirCerrados, limit = 50, offset = 0 } = query;
 
     const where = {};
+    const normalizedQuery = typeof q === 'string' ? q.trim() : '';
+
     if (estado) {
       where.estado = estado;
     } else if (!incluirCerrados) {
@@ -1044,6 +1046,30 @@ module.exports = {
       const fechaFin = new Date(fecha);
       fechaFin.setDate(fechaFin.getDate() + 1);
       where.createdAt = { gte: fechaInicio, lt: fechaFin };
+    }
+    if (normalizedQuery) {
+      const searchConditions = [
+        {
+          clienteNombre: {
+            contains: normalizedQuery,
+            mode: 'insensitive'
+          }
+        }
+      ];
+
+      if (/^\d+$/.test(normalizedQuery)) {
+        const numericQuery = Number.parseInt(normalizedQuery, 10);
+        searchConditions.push({ id: numericQuery });
+        searchConditions.push({
+          mesa: {
+            is: {
+              numero: numericQuery
+            }
+          }
+        });
+      }
+
+      where.OR = searchConditions;
     }
 
     const [pedidos, total] = await Promise.all([

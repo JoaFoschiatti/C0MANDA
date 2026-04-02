@@ -7,6 +7,16 @@ import MozoMesas from '../pages/mozo/MozoMesas'
 import api from '../services/api'
 import { createEventSource } from '../services/eventos'
 
+const mockNavigate = vi.fn()
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate
+  }
+})
+
 vi.mock('../services/api', () => ({
   default: {
     get: vi.fn(),
@@ -21,9 +31,20 @@ vi.mock('../services/eventos', () => ({
   createEventSource: vi.fn()
 }))
 
+const setViewportWidth = (width) => {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: width
+  })
+
+  window.dispatchEvent(new Event('resize'))
+}
+
 describe('MozoMesas page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    setViewportWidth(1280)
     createEventSource.mockReturnValue(null)
   })
 
@@ -47,6 +68,7 @@ describe('MozoMesas page', () => {
 
     expect(await screen.findByText('Salon')).toBeInTheDocument()
     expect(screen.getByText('Pedido #99')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Nuevo pedido' })).toBeInTheDocument()
     expect(api.get).toHaveBeenCalledWith('/mesas?activa=true', { skipToast: true })
     expect(api.get).toHaveBeenCalledWith('/reservas/proximas', { skipToast: true })
   })
@@ -111,5 +133,31 @@ describe('MozoMesas page', () => {
     expect(container.querySelector('#mesa-card-3')).toHaveClass('mesa-status-theme--reservada')
     expect(container.querySelector('#mesa-card-4')).toHaveClass('mesa-status-theme--esperando')
     expect(container.querySelector('#mesa-card-5')).toHaveClass('mesa-status-theme--cerrada')
+  })
+
+  it('muestra CTA flotante en mobile y navega a nuevo pedido', async () => {
+    setViewportWidth(390)
+    api.get
+      .mockResolvedValueOnce({
+        data: [
+          { id: 1, numero: 1, capacidad: 4, estado: 'LIBRE', zona: 'Salon' }
+        ]
+      })
+      .mockResolvedValueOnce({ data: [] })
+
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <MozoMesas />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Salon')).toBeInTheDocument()
+    expect(screen.getByTestId('mozo-mesas-mobile-new-order')).toHaveClass('page-mobile-cta--compact')
+    expect(document.querySelector('#mesa-card-1')).toHaveClass('w-full', 'h-[8.75rem]')
+
+    await user.click(screen.getByTestId('mozo-mesas-mobile-new-order'))
+
+    expect(mockNavigate).toHaveBeenCalledWith('/mozo/nuevo-pedido')
   })
 })

@@ -61,12 +61,25 @@ describe('NuevoPedidoModal', () => {
 
     render(<NuevoPedidoModal isOpen onClose={onClose} onSuccess={onSuccess} />)
 
+    expect(await screen.findByRole('heading', { name: /Nuevo pedido manual/i })).toBeInTheDocument()
     expect(await screen.findByText('Bebidas')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Resumen del pedido/i })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /Buscar productos/i })).toHaveClass('input-with-icon')
+    expect(screen.getByRole('combobox', { name: /Sucursal/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Delivery$/i })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Mesa$/i }))
+    expect(screen.getByRole('combobox', { name: /Mesa/i })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Delivery$/i }))
+    expect(screen.getByPlaceholderText(/Nombre del cliente \*/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Mostrador$/i }))
     await user.click(screen.getByRole('button', { name: /Coca/i }))
 
     expect(toast.success).toHaveBeenCalledWith('Coca agregado')
 
-    await user.click(screen.getByRole('button', { name: /Crear Pedido/i }))
+    await user.click(screen.getByRole('button', { name: /Confirmar pedido/i }))
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith(
@@ -81,7 +94,7 @@ describe('NuevoPedidoModal', () => {
     })
 
     expect(toast.success).toHaveBeenCalledWith('Pedido #123 creado!')
-    expect(onSuccess).toHaveBeenCalled()
+    expect(onSuccess).toHaveBeenCalledWith({ id: 123 }, { tipo: 'MOSTRADOR' })
     expect(api.get).toHaveBeenCalledWith('/categorias/publicas', expect.objectContaining({ skipToast: true }))
     expect(api.get).toHaveBeenCalledWith('/mesas', expect.objectContaining({ skipToast: true }))
     expect(api.get).toHaveBeenCalledWith('/modificadores/producto/10', expect.objectContaining({ skipToast: true }))

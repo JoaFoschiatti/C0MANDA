@@ -50,6 +50,23 @@ const seedStockSucursal = async (ingredienteId, stockActual, options = {}) => {
   });
 };
 
+const createCategoriaYProducto = async () => {
+  const categoria = await prisma.categoria.create({
+    data: { nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
+  });
+
+  const producto = await prisma.producto.create({
+    data: {
+      nombre: `Prod-${uniqueId('prod')}`,
+      precio: 10,
+      categoriaId: categoria.id,
+      disponible: true
+    }
+  });
+
+  return { categoria, producto };
+};
+
 describe('Pedidos Endpoints', () => {
     let tokenAdmin;
   let tokenMozo;
@@ -84,18 +101,7 @@ describe('Pedidos Endpoints', () => {
       }
     });
 
-    const categoria = await prisma.categoria.create({
-      data: { nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
-    });
-
-    const producto = await prisma.producto.create({
-      data: {
-        nombre: `Prod-${uniqueId('prod')}`,
-        precio: 10,
-        categoriaId: categoria.id,
-        disponible: true
-      }
-    });
+    const { producto } = await createCategoriaYProducto();
 
     const modificador = await prisma.modificador.create({
       data: {
@@ -138,6 +144,186 @@ describe('Pedidos Endpoints', () => {
 
     const mesaActualizada = await prisma.mesa.findUnique({ where: { id: mesa.id } });
     expect(mesaActualizada.estado).toBe('OCUPADA');
+  });
+
+  it('MOZO no puede crear pedidos DELIVERY pero si MESA y MOSTRADOR', async () => {
+    const { producto } = await createCategoriaYProducto();
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 2,
+        capacidad: 4,
+        estado: 'LIBRE',
+        activa: true
+      }
+    });
+
+    const forbidden = await request(app)
+      .post('/api/pedidos')
+      .set('Authorization', authHeader(tokenMozo))
+      .send({
+        tipo: 'DELIVERY',
+        clienteNombre: 'Juan',
+        items: [
+          {
+            productoId: producto.id,
+            cantidad: 1
+          }
+        ]
+      })
+      .expect(403);
+
+    expect(forbidden.body.error.message).toBe('Los mozos no pueden crear pedidos de delivery');
+
+    const mostrador = await request(app)
+      .post('/api/pedidos')
+      .set('Authorization', authHeader(tokenMozo))
+      .send({
+        tipo: 'MOSTRADOR',
+        items: [
+          {
+            productoId: producto.id,
+            cantidad: 1
+          }
+        ]
+      })
+      .expect(201);
+
+    expect(mostrador.body.tipo).toBe('MOSTRADOR');
+
+    const mesaResponse = await request(app)
+      .post('/api/pedidos')
+      .set('Authorization', authHeader(tokenMozo))
+      .send({
+        tipo: 'MESA',
+        mesaId: mesa.id,
+        items: [
+          {
+            productoId: producto.id,
+            cantidad: 1
+          }
+        ]
+      })
+      .expect(201);
+
+    expect(mesaResponse.body.tipo).toBe('MESA');
+    expect(mesaResponse.body.mesaId).toBe(mesa.id);
+  });
+
+  it('GET /api/pedidos busca por numero de pedido, mesa o cliente con q', async () => {
+    const mesaNumero = Number(String(Date.now()).slice(-6)) + Math.floor(Math.random() * 1000);
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: mesaNumero,
+        capacidad: 4,
+        estado: 'OCUPADA',
+        activa: true
+      }
+    });
+
+    const pedidoMesa = await prisma.pedido.create({
+      data: {
+        tipo: 'MESA',
+        mesaId: mesa.id,
+        subtotal: 10,
+        total: 10
+      }
+    });
+
+    const pedidoCliente = await prisma.pedido.create({
+      data: {
+        tipo: 'DELIVERY',
+        clienteNombre: 'Juan Perez',
+        subtotal: 12,
+        total: 12
+      }
+    });
+
+    await prisma.pedido.create({
+      data: {
+        tipo: 'MOSTRADOR',
+        clienteNombre: 'Mostrador',
+        subtotal: 8,
+        total: 8
+      }
+    });
+
+    const porPedido = await request(app)
+      .get(`/api/pedidos?q=${pedidoMesa.id}`)
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    expect(porPedido.body.data.map((pedido) => pedido.id)).toEqual([pedidoMesa.id]);
+
+    const porMesa = await request(app)
+      .get(`/api/pedidos?q=${mesaNumero}`)
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    expect(porMesa.body.data.map((pedido) => pedido.id)).toEqual([pedidoMesa.id]);
+
+    const porCliente = await request(app)
+      .get('/api/pedidos?q=juan')
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    expect(porCliente.body.data.map((pedido) => pedido.id)).toEqual([pedidoCliente.id]);
+  });
+
+  it('GET /api/pedidos combina q con estado, tipo, fecha y mesaId', async () => {
+    const mesaNumero = Number(String(Date.now()).slice(-6)) + 2000 + Math.floor(Math.random() * 1000);
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: mesaNumero,
+        capacidad: 4,
+        estado: 'CERRADA',
+        activa: true
+      }
+    });
+
+    const fechaFiltro = '2026-04-01';
+    const fechaCoincidente = new Date('2026-04-01T15:00:00.000Z');
+    const fechaNoCoincidente = new Date('2026-04-02T15:00:00.000Z');
+
+    const pedidoCoincidente = await prisma.pedido.create({
+      data: {
+        tipo: 'MESA',
+        estado: 'COBRADO',
+        mesaId: mesa.id,
+        subtotal: 20,
+        total: 20,
+        createdAt: fechaCoincidente
+      }
+    });
+
+    await prisma.pedido.create({
+      data: {
+        tipo: 'MESA',
+        estado: 'PENDIENTE',
+        mesaId: mesa.id,
+        subtotal: 20,
+        total: 20,
+        createdAt: fechaCoincidente
+      }
+    });
+
+    await prisma.pedido.create({
+      data: {
+        tipo: 'MESA',
+        estado: 'COBRADO',
+        mesaId: mesa.id,
+        subtotal: 20,
+        total: 20,
+        createdAt: fechaNoCoincidente
+      }
+    });
+
+    const response = await request(app)
+      .get(`/api/pedidos?q=${mesaNumero}&estado=COBRADO&tipo=MESA&fecha=${fechaFiltro}&mesaId=${mesa.id}`)
+      .set('Authorization', authHeader(tokenAdmin))
+      .expect(200);
+
+    expect(response.body.total).toBe(1);
+    expect(response.body.data.map((pedido) => pedido.id)).toEqual([pedidoCoincidente.id]);
   });
 
   it('MOZO solo puede cambiar estado a ENTREGADO', async () => {

@@ -2,6 +2,7 @@ const { z } = require('zod');
 const { positiveIntSchema, idParamSchema } = require('./common.schemas');
 
 const listarQuerySchema = z.object({
+  q: z.string().trim().max(120).optional(),
   estado: z.enum(['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO', 'CERRADO', 'CANCELADO']).optional(),
   tipo: z.enum(['MESA', 'DELIVERY', 'MOSTRADOR']).optional(),
   fecha: z.string().min(1).optional(),

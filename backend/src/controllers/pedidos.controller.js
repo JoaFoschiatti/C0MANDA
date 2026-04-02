@@ -51,6 +51,10 @@ const crear = async (req, res) => {
   const prisma = getPrisma(req);
   const { tipo, mesaId, sucursalId, items, clienteNombre, clienteTelefono, clienteDireccion, observaciones } = req.body;
 
+  if (req.usuario.rol === 'MOZO' && tipo === 'DELIVERY') {
+    throw createHttpError.forbidden('Los mozos no pueden crear pedidos de delivery');
+  }
+
   const { pedido, mesaUpdated } = await pedidosService.crearPedido(prisma, {
     tipo,
     mesaId: mesaId ? Number(mesaId) : null,
