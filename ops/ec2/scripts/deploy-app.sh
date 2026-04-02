@@ -19,7 +19,7 @@ else
 fi
 
 cd "${APP_DIR}/backend"
-npm ci
+npm ci --omit=dev
 npx prisma generate
 node scripts/maintenance/check-user-email-collisions.js
 npx prisma migrate deploy
@@ -29,7 +29,7 @@ cd "${APP_DIR}/frontend"
 npm ci
 npm run build
 
-mkdir -p "${APP_DIR}/backend/logs" "${APP_DIR}/uploads" /var/log/comanda
+mkdir -p "${APP_DIR}/backend/logs" "${APP_DIR}/uploads" /var/log/comanda /var/www/certbot
 chown -R www-data:www-data "${APP_DIR}/backend/logs" "${APP_DIR}/uploads" /var/log/comanda
 
 systemctl daemon-reload
@@ -37,7 +37,8 @@ systemctl enable --now comanda-backend
 systemctl enable --now comanda-backup.timer
 systemctl enable --now comanda-maintenance.timer
 systemctl restart comanda-backend
-systemctl reload nginx || true
+nginx -t
+systemctl reload nginx
 
 echo "Deploy completado. Estado actual:"
 systemctl --no-pager --full status comanda-backend

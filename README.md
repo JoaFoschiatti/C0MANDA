@@ -115,7 +115,7 @@ Las mas importantes para un ambiente productivo son:
 
 ## Produccion
 
-La guia operativa esta en [DEPLOY.md](/C:/Programacion/Comanda/DEPLOY.md). El pack ejecutable esta en [ops/ec2/README.md](/C:/Programacion/Comanda/ops/ec2/README.md). El handoff de entrega esta en [docs/entrega](/C:/Programacion/Comanda/docs/entrega). El escenario objetivo es:
+La guia operativa esta en [DEPLOY.md](/C:/Programacion/Comanda/DEPLOY.md). El pack ejecutable esta en [ops/ec2/README.md](/C:/Programacion/Comanda/ops/ec2/README.md). Hay una guia dedicada para ejecutar deploys desde la propia EC2 con Codex CLI en [ops/ec2/CODEX-CLI-DEPLOY.md](/C:/Programacion/Comanda/ops/ec2/CODEX-CLI-DEPLOY.md). El handoff de entrega esta en [docs/entrega](/C:/Programacion/Comanda/docs/entrega). El escenario objetivo es:
 
 - EC2 Linux como host principal.
 - Nginx sirviendo frontend y actuando como reverse proxy del backend.

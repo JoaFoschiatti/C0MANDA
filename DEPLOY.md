@@ -1,6 +1,6 @@
 # Deploy en AWS EC2
 
-La fuente canonica de despliegue ya no es esta pagina sino el pack bajo [ops/ec2/README.md](/C:/Programacion/Comanda/ops/ec2/README.md).
+La fuente canonica de despliegue es el pack bajo [ops/ec2/README.md](/C:/Programacion/Comanda/ops/ec2/README.md). Esta pagina resume el flujo y las variables minimas.
 
 ## Flujo recomendado
 
@@ -14,9 +14,12 @@ La fuente canonica de despliegue ya no es esta pagina sino el pack bajo [ops/ec2
    - [systemd/comanda-maintenance.timer](/C:/Programacion/Comanda/ops/ec2/systemd/comanda-maintenance.timer)
    - [logrotate/comanda](/C:/Programacion/Comanda/ops/ec2/logrotate/comanda)
 3. Crear `/opt/comanda/backend/.env` desde [backend/.env.example](/C:/Programacion/Comanda/backend/.env.example).
-4. Ejecutar [deploy-app.sh](/C:/Programacion/Comanda/ops/ec2/scripts/deploy-app.sh).
-5. Ejecutar [post-deploy-smoke.sh](/C:/Programacion/Comanda/ops/ec2/scripts/post-deploy-smoke.sh).
-6. Registrar evidencia y checklist final en [docs/entrega](/C:/Programacion/Comanda/docs/entrega).
+4. Reemplazar el dominio placeholder en `nginx/comanda.conf`.
+5. La config de nginx arranca con el certificado snakeoil del sistema para permitir `nginx -t` y `certbot --nginx` desde el primer bootstrap.
+6. Emitir certificados con `certbot --nginx -d tu-dominio.com`.
+7. Ejecutar [deploy-app.sh](/C:/Programacion/Comanda/ops/ec2/scripts/deploy-app.sh).
+8. Validar `nginx -t`, `systemctl status comanda-backend` y [post-deploy-smoke.sh](/C:/Programacion/Comanda/ops/ec2/scripts/post-deploy-smoke.sh).
+9. Registrar evidencia y checklist final en [docs/entrega](/C:/Programacion/Comanda/docs/entrega).
 
 ## Variables minimas de produccion
 
@@ -26,11 +29,13 @@ PORT=3001
 DATABASE_URL=postgresql://...
 DIRECT_URL=postgresql://...
 JWT_SECRET=...
+PUBLIC_ORDER_JWT_SECRET=...
 FRONTEND_URL=https://tu-dominio.com
 BACKEND_URL=https://tu-dominio.com
 ENCRYPTION_KEY=...
 MERCADOPAGO_WEBHOOK_SECRET=...
 BRIDGE_TOKEN=...
+UPLOADS_DIR=/opt/comanda/uploads
 S3_BACKUP_URI=s3://tu-bucket-comanda/backups
 AWS_REGION=sa-east-1
 ```
@@ -44,6 +49,12 @@ ARCA_KEY_PATH=/etc/comanda/arca/key.pem
 ARCA_AMBIENTE=homologacion
 ARCA_OPENSSL_BIN=openssl
 ```
+
+## Codex CLI dentro de EC2
+
+Hay una guia dedicada para correr Codex CLI dentro del servidor y pedirle que ejecute el deploy usando solo el repo local:
+
+- [CODEX-CLI-DEPLOY.md](/C:/Programacion/Comanda/ops/ec2/CODEX-CLI-DEPLOY.md)
 
 ## Operacion y handoff
 

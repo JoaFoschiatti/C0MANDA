@@ -51,7 +51,7 @@ describe('runtime config', () => {
 
   it('ensures runtime directories are writable', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'comanda-runtime-'));
-    const runtimePaths = getRuntimePaths(tempRoot);
+    const runtimePaths = getRuntimePaths(tempRoot, {});
 
     try {
       ensureRuntimeDirectories(runtimePaths);
@@ -59,6 +59,23 @@ describe('runtime config', () => {
       expect(fs.existsSync(runtimePaths.logsDir)).toBe(true);
       expect(fs.existsSync(runtimePaths.uploadsDir)).toBe(true);
       expect(ENCRYPTION_KEY_REGEX.test('c'.repeat(64))).toBe(true);
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('supports a custom UPLOADS_DIR for production hosts', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'comanda-runtime-'));
+    const customUploadsDir = path.join(tempRoot, 'shared-uploads');
+    const runtimePaths = getRuntimePaths(tempRoot, {
+      UPLOADS_DIR: customUploadsDir
+    });
+
+    try {
+      ensureRuntimeDirectories(runtimePaths);
+
+      expect(runtimePaths.uploadsDir).toBe(customUploadsDir);
+      expect(fs.existsSync(customUploadsDir)).toBe(true);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }

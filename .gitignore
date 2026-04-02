@@ -8,4 +8,6 @@ dist/
 .playwright-mcp/
 .claude/settings.local.json
 *.png
+/e2e/artifacts/
+/PROPUESTA COMERCIAL*.pdf
 seed-data.sql
