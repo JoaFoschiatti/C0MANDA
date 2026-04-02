@@ -9,6 +9,16 @@ import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
 import { createEventSource } from '../services/eventos'
 
+const mockNavigate = vi.fn()
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate
+  }
+})
+
 vi.mock('../services/api', () => ({
   default: {
     get: vi.fn(),
@@ -40,11 +50,14 @@ vi.mock('../components/pedidos/NuevoPedidoModal', () => ({
   default: () => null
 }))
 
-const buildPedidosUrl = ({ estado = '', limit = 50, offset = 0, mesaId = null } = {}) => {
+const buildPedidosUrl = ({ q = '', estado = '', tipo = '', fecha = '', limit = 50, offset = 0, mesaId = null } = {}) => {
   const params = new URLSearchParams()
 
+  if (q) params.set('q', q)
   if (estado) params.set('estado', estado)
   if (estado === 'CERRADO' || estado === 'CANCELADO') params.set('incluirCerrados', 'true')
+  if (tipo) params.set('tipo', tipo)
+  if (fecha) params.set('fecha', fecha)
   if (mesaId) params.set('mesaId', String(mesaId))
 
   params.set('limit', String(limit))
@@ -81,9 +94,20 @@ const createDeferred = () => {
   return { promise, resolve }
 }
 
+const setViewportWidth = (width) => {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: width
+  })
+
+  window.dispatchEvent(new Event('resize'))
+}
+
 describe('Pedidos page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    setViewportWidth(1280)
     useAuth.mockReturnValue({ usuario: { rol: 'ADMIN' } })
     createEventSource.mockReturnValue(null)
   })
@@ -115,12 +139,89 @@ describe('Pedidos page', () => {
     renderPage()
 
     expect(await screen.findByText('#1')).toBeInTheDocument()
+    expect(screen.queryByTestId('pedidos-toolbar')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pedidos-list-toolbar')).toBeInTheDocument()
+    expect(screen.getByLabelText('Buscar pedidos')).toHaveAttribute('placeholder', 'Buscar por pedido, mesa o cliente')
+    expect(screen.getByLabelText('Filtrar por estado')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Filtrar por estado'), 'PENDIENTE')
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith(buildPedidosUrl({ estado: 'PENDIENTE' }))
     })
+  })
+
+  it('busca pedidos por numero, mesa o cliente con debounce', async () => {
+    const pedido = {
+      id: 30,
+      tipo: 'DELIVERY',
+      total: '150',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: null,
+      clienteNombre: 'Juan Perez',
+      pagos: []
+    }
+
+    api.get
+      .mockResolvedValueOnce({ data: { data: [pedido], total: 1 } })
+      .mockResolvedValueOnce({ data: { data: [pedido], total: 1 } })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#30')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Buscar pedidos'), '30')
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(buildPedidosUrl({ q: '30' }))
+    })
+  })
+
+  it('muestra filtros avanzados y permite limpiarlos sin perder el contexto de mesa', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/mesas/7') {
+        return Promise.resolve({ data: { id: 7, numero: 7 } })
+      }
+
+      return Promise.resolve({ data: { data: [], total: 0 } })
+    })
+
+    const user = userEvent.setup()
+    renderPage(['/pedidos?mesaId=7'])
+
+    expect(await screen.findByText('Viendo pedidos de Mesa 7.')).toBeInTheDocument()
+    expect(screen.queryByTestId('pedidos-advanced-filters')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Mas filtros' }))
+    expect(screen.getByTestId('pedidos-advanced-filters')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Buscar pedidos'), 'juan')
+    await user.selectOptions(screen.getByLabelText('Filtrar por estado'), 'COBRADO')
+    await user.selectOptions(screen.getByLabelText('Tipo'), 'DELIVERY')
+    await user.type(screen.getByLabelText('Fecha'), '2026-04-01')
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(buildPedidosUrl({
+        q: 'juan',
+        estado: 'COBRADO',
+        tipo: 'DELIVERY',
+        fecha: '2026-04-01',
+        mesaId: 7
+      }))
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Limpiar filtros' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(buildPedidosUrl({ mesaId: 7 }))
+    })
+
+    expect(screen.getByLabelText('Buscar pedidos')).toHaveValue('')
+    expect(screen.getByLabelText('Filtrar por estado')).toHaveValue('')
+    expect(screen.queryByTestId('pedidos-advanced-filters')).not.toBeInTheDocument()
   })
 
   it('aplica mesaId en la consulta y mantiene el foco del pedido', async () => {
@@ -137,15 +238,274 @@ describe('Pedidos page', () => {
       pagos: []
     }
 
-    api.get.mockResolvedValueOnce({ data: { data: [pedido], total: 1 } })
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl({ mesaId: 7 })) {
+        return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      }
+      if (url === '/mesas/7') {
+        return Promise.resolve({ data: { id: 7, numero: 7 } })
+      }
+      return Promise.resolve({ data: [] })
+    })
 
     renderPage(['/pedidos?mesaId=7'])
 
     expect(await screen.findByText('#3')).toBeInTheDocument()
+    expect(screen.queryByTestId('pedidos-toolbar')).not.toBeInTheDocument()
+    expect(screen.getByTestId('pedidos-list-toolbar')).toBeInTheDocument()
+    expect(screen.getByLabelText('Buscar pedidos')).toHaveAttribute('placeholder', 'Buscar por pedido o cliente')
+    expect(screen.getByRole('button', { name: 'Ver todos' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Volver a Mesas' })).toBeInTheDocument()
+    expect(screen.queryByText('Estas viendo los pedidos de Mesa 7.')).not.toBeInTheDocument()
 
     await waitFor(() => {
+      expect(screen.getByText('Viendo pedidos de Mesa 7.')).toBeInTheDocument()
       expect(api.get).toHaveBeenCalledWith(buildPedidosUrl({ mesaId: 7 }))
+      expect(api.get).toHaveBeenCalledWith('/mesas/7', expect.objectContaining({ skipToast: true }))
     })
+  })
+
+  it('permite quitar el filtro de mesa con "Ver todos"', async () => {
+    const pedido = {
+      id: 4,
+      tipo: 'MESA',
+      total: '220',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesaId: 7,
+      mesa: { id: 7, numero: 7 },
+      clienteNombre: 'Mesa 7',
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl({ mesaId: 7 })) {
+        return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      }
+      if (url === '/mesas/7') {
+        return Promise.resolve({ data: { id: 7, numero: 7 } })
+      }
+      if (url === buildPedidosUrl()) {
+        return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    const user = userEvent.setup()
+    renderPage(['/pedidos?mesaId=7'])
+
+    expect(await screen.findByText('Viendo pedidos de Mesa 7.')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Ver todos' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(buildPedidosUrl())
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('Viendo pedidos de Mesa 7.')).not.toBeInTheDocument()
+    })
+  })
+
+  it('usa la ruta correcta en "Volver a Mesas" para admin y cajero', async () => {
+    const pedido = {
+      id: 5,
+      tipo: 'MESA',
+      total: '250',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesaId: 7,
+      mesa: { id: 7, numero: 7 },
+      clienteNombre: 'Mesa 7',
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl({ mesaId: 7 })) {
+        return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      }
+      if (url === '/mesas/7') {
+        return Promise.resolve({ data: { id: 7, numero: 7 } })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    const user = userEvent.setup()
+    renderPage(['/pedidos?mesaId=7'])
+
+    expect(await screen.findByText('Viendo pedidos de Mesa 7.')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Volver a Mesas' }))
+
+    expect(mockNavigate).toHaveBeenCalledWith('/mesas')
+  })
+
+  it('usa la ruta correcta en "Volver a Mesas" para mozo', async () => {
+    useAuth.mockReturnValue({ usuario: { rol: 'MOZO' } })
+
+    const pedido = {
+      id: 6,
+      tipo: 'MESA',
+      total: '260',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesaId: 7,
+      mesa: { id: 7, numero: 7 },
+      clienteNombre: 'Mesa 7',
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl({ mesaId: 7 })) {
+        return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      }
+      if (url === '/mesas/7') {
+        return Promise.resolve({ data: { id: 7, numero: 7 } })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    const user = userEvent.setup()
+    renderPage(['/pedidos?mesaId=7'])
+
+    expect(await screen.findByText('Viendo pedidos de Mesa 7.')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Volver a Mesas' }))
+
+    expect(mockNavigate).toHaveBeenCalledWith('/mozo/mesas')
+  })
+
+  it('muestra cards y CTA flotante de nuevo pedido para mozo en mobile', async () => {
+    setViewportWidth(390)
+    useAuth.mockReturnValue({ usuario: { rol: 'MOZO' } })
+
+    const pedido = {
+      id: 14,
+      tipo: 'MESA',
+      total: '9300',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesa: { id: 8, numero: 8 },
+      clienteNombre: 'Mesa 8',
+      pagos: []
+    }
+
+    api.get.mockResolvedValue({ data: { data: [pedido], total: 1 } })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('#14')).toBeInTheDocument()
+    expect(screen.getByTestId('pedidos-mobile-list')).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: '#' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('pedidos-mobile-new-order')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Nuevo pedido/i })).toHaveLength(1)
+
+    await user.click(screen.getByTestId('pedidos-mobile-new-order'))
+
+    expect(mockNavigate).toHaveBeenCalledWith('/mozo/nuevo-pedido')
+  })
+
+  it('usa la mesa filtrada para el CTA flotante de nuevo pedido del mozo en mobile', async () => {
+    setViewportWidth(390)
+    useAuth.mockReturnValue({ usuario: { rol: 'MOZO' } })
+
+    const pedido = {
+      id: 15,
+      tipo: 'MESA',
+      total: '9300',
+      estado: 'PENDIENTE',
+      createdAt: new Date().toISOString(),
+      impresion: null,
+      mesaId: 7,
+      mesa: { id: 7, numero: 7 },
+      clienteNombre: 'Mesa 7',
+      pagos: []
+    }
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl({ mesaId: 7 })) {
+        return Promise.resolve({ data: { data: [pedido], total: 1 } })
+      }
+
+      if (url === '/mesas/7') {
+        return Promise.resolve({ data: { id: 7, numero: 7 } })
+      }
+
+      return Promise.resolve({ data: [] })
+    })
+
+    const user = userEvent.setup()
+    renderPage(['/pedidos?mesaId=7'])
+
+    expect(await screen.findByText('Viendo pedidos de Mesa 7.')).toBeInTheDocument()
+    expect(screen.getByTestId('pedidos-mobile-new-order')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('pedidos-mobile-new-order'))
+
+    expect(mockNavigate).toHaveBeenCalledWith('/mozo/nuevo-pedido/7')
+  })
+
+  it('mantiene el contexto de mesa en el empty state', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl({ mesaId: 7 })) {
+        return Promise.resolve({ data: { data: [], total: 0 } })
+      }
+      if (url === '/mesas/7') {
+        return Promise.resolve({ data: { id: 7, numero: 7 } })
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    renderPage(['/pedidos?mesaId=7'])
+
+    expect(await screen.findByText('Viendo pedidos de Mesa 7.')).toBeInTheDocument()
+    expect(await screen.findByText('No hay pedidos para Mesa 7')).toBeInTheDocument()
+    expect(screen.getByText('Cuando Mesa 7 tenga pedidos, los vas a ver en esta bandeja.')).toBeInTheDocument()
+  })
+
+  it('muestra un empty state de coincidencias cuando no hay resultados para los filtros', async () => {
+    api.get.mockResolvedValue({ data: { data: [], total: 0 } })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(await screen.findByText('No hay pedidos para mostrar')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Buscar pedidos'), 'ana')
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(buildPedidosUrl({ q: 'ana' }))
+    })
+
+    expect(await screen.findByText('No se encontraron pedidos')).toBeInTheDocument()
+    expect(screen.getByText('Prueba ajustando o limpiando los filtros para ver mas pedidos.')).toBeInTheDocument()
+  })
+
+  it('muestra un fallback seguro si falla la carga del contexto de mesa', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    api.get.mockImplementation((url) => {
+      if (url === buildPedidosUrl({ mesaId: 7 })) {
+        return Promise.resolve({ data: { data: [], total: 0 } })
+      }
+      if (url === '/mesas/7') {
+        return Promise.reject(new Error('boom'))
+      }
+      return Promise.resolve({ data: [] })
+    })
+
+    renderPage(['/pedidos?mesaId=7'])
+
+    expect(await screen.findByText('Mesa seleccionada.')).toBeInTheDocument()
+    expect(screen.getByText('Mesa seleccionada')).toBeInTheDocument()
+    expect(screen.getByText('No hay pedidos para esta mesa')).toBeInTheDocument()
+
+    consoleErrorSpy.mockRestore()
   })
 
   it('muestra titles cortos en las acciones de la grilla', async () => {
@@ -931,7 +1291,7 @@ describe('Pedidos page', () => {
       expect(screen.queryByText('#44')).not.toBeInTheDocument()
     })
 
-    expect(screen.getByText('No hay pedidos para mostrar')).toBeInTheDocument()
+    expect(screen.getByText('No se encontraron pedidos')).toBeInTheDocument()
   })
 
   it('evita multiples cargas concurrentes al usar "Cargar mas"', async () => {

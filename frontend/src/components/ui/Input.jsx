@@ -27,7 +27,7 @@ const Input = forwardRef(({
           className={clsx(
             'input',
             error && 'input-error',
-            Icon && 'pl-10',
+            Icon && 'input-with-icon',
             className
           )}
           {...props}

@@ -5,6 +5,7 @@ import { PlusIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
 import useAsync from '../../hooks/useAsync'
 import usePolling from '../../hooks/usePolling'
 import useEventSource from '../../hooks/useEventSource'
+import useMobileViewport from '../../hooks/useMobileViewport'
 import { PageHeader, Spinner } from '../../components/ui'
 import MesaOperationCard from '../../components/mesas/MesaOperationCard'
 import MesaStatusLegend from '../../components/mesas/MesaStatusLegend'
@@ -22,11 +23,13 @@ function getMesaSecondaryText(mesa, reservaProxima, formatHora) {
 }
 
 export default function MozoMesas() {
+  const isMobileViewport = useMobileViewport()
   const [mesas, setMesas] = useState([])
   const [reservasProximas, setReservasProximas] = useState([])
   const [loadError, setLoadError] = useState(null)
   const [reservasError, setReservasError] = useState(null)
   const navigate = useNavigate()
+  const showFloatingNewOrderButton = isMobileViewport
 
   const cargarMesas = useCallback(async () => {
     try {
@@ -128,7 +131,7 @@ export default function MozoMesas() {
   }, {})
 
   return (
-    <div>
+    <div className={showFloatingNewOrderButton ? 'pb-24 md:pb-0' : undefined}>
       {loadError && mesas.length > 0 && (
         <div className="mb-4 bg-error-50 text-error-700 px-4 py-3 rounded-xl flex items-center gap-3">
           <ExclamationCircleIcon className="w-5 h-5" />
@@ -158,13 +161,15 @@ export default function MozoMesas() {
       <PageHeader
         title="Mesas"
         actions={
-          <button
-            onClick={() => navigate('/mozo/nuevo-pedido')}
-            className="btn btn-primary flex items-center gap-2"
-          >
-            <PlusIcon className="w-5 h-5" />
-            Pedido Delivery/Mostrador
-          </button>
+          !showFloatingNewOrderButton ? (
+            <button
+              onClick={() => navigate('/mozo/nuevo-pedido')}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              <PlusIcon className="w-5 h-5" />
+              Nuevo pedido
+            </button>
+          ) : null
         }
       />
 
@@ -174,7 +179,7 @@ export default function MozoMesas() {
       {Object.entries(mesasPorZona).map(([zona, mesasZona]) => (
         <div key={zona} className="mb-8">
           <h2 className="text-heading-3 text-text-secondary mb-4">{zona}</h2>
-          <div className="flex flex-wrap gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:gap-4">
             {mesasZona.map((mesa) => {
               const reservaProxima = getReservaProxima(mesa.id)
               const secondaryText = getMesaSecondaryText(mesa, reservaProxima, formatHora)
@@ -188,12 +193,26 @@ export default function MozoMesas() {
                     ? `Reserva a las ${formatHora(reservaProxima.fechaHora)} - ${reservaProxima.clienteNombre}`
                     : null}
                   onClick={() => handleMesaClick(mesa)}
+                  mobileFill={isMobileViewport}
                 />
               )
             })}
           </div>
         </div>
       ))}
+
+      {showFloatingNewOrderButton && (
+        <button
+          type="button"
+          className="page-mobile-cta page-mobile-cta--compact"
+          onClick={() => navigate('/mozo/nuevo-pedido')}
+          aria-label="Nuevo pedido"
+          data-testid="mozo-mesas-mobile-new-order"
+        >
+          <PlusIcon className="h-5 w-5" />
+          <span>Nuevo pedido</span>
+        </button>
+      )}
     </div>
   )
 }
