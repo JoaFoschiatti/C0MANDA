@@ -12,10 +12,13 @@ const {
   actualizarBodySchema,
   actualizarBulkBodySchema
 } = require('../schemas/configuracion.schemas');
+const { getRuntimePaths } = require('../config/runtime');
+
+const runtimePaths = getRuntimePaths();
 
 // Configurar multer para subir banner
 const storage = multer.diskStorage({
-  destination: path.join(__dirname, '../../uploads'),
+  destination: runtimePaths.uploadsDir,
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const extname = path.extname(file.originalname).toLowerCase();
