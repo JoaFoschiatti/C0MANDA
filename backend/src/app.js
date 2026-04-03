@@ -4,7 +4,6 @@ const compression = require('compression');
 const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
-const path = require('path');
 
 // Importar rutas
 const authRoutes = require('./routes/auth.routes');
@@ -33,8 +32,10 @@ const { errorMiddleware } = require('./middlewares/error.middleware');
 const { createHttpError } = require('./utils/http-error');
 const { logger } = require('./utils/logger');
 const { getReadinessStatus } = require('./services/health.service');
+const { getRuntimePaths } = require('./config/runtime');
 
 const app = express();
+const runtimePaths = getRuntimePaths();
 
 // HTTPS redirect in production
 if (process.env.NODE_ENV === 'production') {
@@ -97,8 +98,8 @@ app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.use(cookieParser());
 
-// Servir archivos estáticos (imágenes de productos)
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Servir archivos estaticos (imagenes y branding)
+app.use('/uploads', express.static(runtimePaths.uploadsDir));
 app.use(compression({
   filter: (req, res) => {
     if (req.path.startsWith('/api/eventos')) {

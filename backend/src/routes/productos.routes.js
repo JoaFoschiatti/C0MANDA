@@ -16,11 +16,14 @@ const {
   actualizarVarianteBodySchema,
   agruparVariantesBodySchema
 } = require('../schemas/productos.schemas');
+const { getRuntimePaths } = require('../config/runtime');
+
+const runtimePaths = getRuntimePaths();
 
 // Configuración de multer para subida de imágenes
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../../uploads'));
+    cb(null, runtimePaths.uploadsDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);

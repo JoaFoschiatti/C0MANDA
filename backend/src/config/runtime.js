@@ -23,10 +23,20 @@ const DEMO_MODE_OPTIONAL_VARS = [
 
 const getBackendRoot = (rootDir = path.resolve(__dirname, '../..')) => rootDir;
 
-const getRuntimePaths = (rootDir = getBackendRoot()) => ({
+const resolveRuntimeDir = (rootDir, configuredPath, fallbackSegments) => {
+  if (!configuredPath) {
+    return path.join(rootDir, ...fallbackSegments);
+  }
+
+  return path.isAbsolute(configuredPath)
+    ? configuredPath
+    : path.resolve(rootDir, configuredPath);
+};
+
+const getRuntimePaths = (rootDir = getBackendRoot(), env = process.env) => ({
   backendRoot: rootDir,
-  logsDir: path.join(rootDir, 'logs'),
-  uploadsDir: path.join(rootDir, 'uploads')
+  logsDir: resolveRuntimeDir(rootDir, env.LOGS_DIR, ['logs']),
+  uploadsDir: resolveRuntimeDir(rootDir, env.UPLOADS_DIR, ['uploads'])
 });
 
 const validateUrls = (value, key, errors) => {

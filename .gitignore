@@ -6,6 +6,9 @@ dist/
 *.log
 .DS_Store
 .playwright-mcp/
-.claude/settings.local.json
+.claude/
+.codex/
 *.png
+/e2e/artifacts/
+/PROPUESTA COMERCIAL*.pdf
 seed-data.sql

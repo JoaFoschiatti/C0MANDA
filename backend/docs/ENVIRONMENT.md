@@ -10,6 +10,7 @@ Guia resumida para la instalacion unica en EC2.
 - `PUBLIC_ORDER_JWT_SECRET`: secreto dedicado a tokens publicos de pedido.
 - `ENCRYPTION_KEY`: clave AES-256 en hex para credenciales cifradas.
 - `FRONTEND_URL`: URL publica del frontend.
+- `BACKEND_URL`: URL publica del backend.
 - `.env.test` opcional: si existe, los tests backend lo cargan por encima de `.env`.
 
 ## Mercado Pago
@@ -37,6 +38,7 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 
 - `PORT`: default `3001`.
 - `NODE_ENV`: `development`, `test` o `production`.
+- `UPLOADS_DIR`: directorio absoluto o relativo para archivos servidos en `/uploads`. En EC2 se recomienda `/opt/comanda/uploads`.
 - `PUBLIC_ORDER_TOKEN_EXPIRES_IN`: expiracion de tokens publicos de pedido.
 - `PUBLIC_ORDERING_PAUSED`: pausa pedidos online publicos sin apagar la API.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`: notificaciones por email.
@@ -46,8 +48,10 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 ## Produccion en EC2
 
 - Servir frontend detras de Nginx.
-- Ejecutar backend Node con `systemd` o PM2.
+- Ejecutar backend Node con `systemd`.
 - Guardar secretos en AWS Secrets Manager o variables del sistema.
+- Terminar TLS en `nginx` con Certbot/Let's Encrypt.
+- Usar `UPLOADS_DIR=/opt/comanda/uploads` para desacoplar archivos subidos del arbol del backend.
 - No usar valores de desarrollo en produccion.
 
 ## Validaciones minimas
