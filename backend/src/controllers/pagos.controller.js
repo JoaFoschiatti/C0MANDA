@@ -86,11 +86,15 @@ const finalizeApprovedPedido = async (tx, pedidoId) => {
       mesaUpdated,
       totalPagado: cobro.totalPagado,
       fullyPaid,
-      requiresReview: true
+      requiresReview: true,
+      transitionApplied: false
     };
   }
 
-  if (shouldCloseMesaOnPaid(pedido, cobro)) {
+  const shouldCloseMesa = shouldCloseMesaOnPaid(pedido, cobro);
+  const mesaNeedsUpdate = shouldCloseMesa && pedido.mesa?.estado !== 'CERRADA';
+
+  if (mesaNeedsUpdate) {
     await tx.mesa.update({
       where: { id: pedido.mesaId },
       data: { estado: 'CERRADA' }
@@ -99,6 +103,20 @@ const finalizeApprovedPedido = async (tx, pedidoId) => {
   }
 
   const pedidoData = buildPedidoPaidUpdateData(pedido, cobro);
+  const pedidoNeedsUpdate = Object.entries(pedidoData)
+    .some(([field, value]) => pedido[field] !== value);
+
+  if (!pedidoNeedsUpdate && !mesaNeedsUpdate) {
+    return {
+      pedido,
+      mesaUpdated,
+      totalPagado: cobro.totalPagado,
+      fullyPaid,
+      requiresReview: false,
+      transitionApplied: false
+    };
+  }
+
   const pedidoActualizado = await tx.pedido.update({
     where: { id: pedidoId },
     data: pedidoData,
@@ -113,7 +131,8 @@ const finalizeApprovedPedido = async (tx, pedidoId) => {
     mesaUpdated,
     totalPagado: cobro.totalPagado,
     fullyPaid,
-    requiresReview: false
+    requiresReview: false,
+    transitionApplied: true
   };
 };
 
@@ -335,6 +354,7 @@ const webhookMercadoPago = async (req, res) => {
       }
 
       let pagoId;
+      const wasApprovedBefore = pagoExistente?.estado === 'APROBADO';
       if (pagoExistente) {
         const pagoActualizado = await prisma.pago.update({
           where: { id: pagoExistente.id },
@@ -375,14 +395,16 @@ const webhookMercadoPago = async (req, res) => {
 
       if (estadoPago === 'APROBADO') {
         const finalized = await prisma.$transaction(async (tx) => finalizeApprovedPedido(tx, pedidoId));
+        const shouldEmitApprovedSideEffects = !wasApprovedBefore
+          && Boolean(finalized?.transitionApplied)
+          && !finalized?.requiresReview;
 
-        eventBus.publish('pago.updated', {
-          pedidoId,
-          estadoPago,
-          totalPagado: finalized?.totalPagado ?? parseFloat(paymentInfo.transaction_amount)
-        });
-
-        if (finalized?.pedido && !finalized.requiresReview) {
+        if (shouldEmitApprovedSideEffects) {
+          eventBus.publish('pago.updated', {
+            pedidoId,
+            estadoPago,
+            totalPagado: finalized?.totalPagado ?? parseFloat(paymentInfo.transaction_amount)
+          });
           publishMesaUpdated(finalized.mesaUpdated);
           publishPedidoUpdated(finalized.pedido);
 
@@ -420,10 +442,39 @@ const listarPagosPedido = async (req, res) => {
   res.json(result);
 };
 
+const registrarReembolso = async (req, res) => {
+  const prisma = getPrisma(req);
+  const { pagoId, monto, motivo } = req.body;
+
+  const { reembolso, pedidoId, nuevoEstadoPago } = await pagosService.registrarReembolso(prisma, {
+    pagoId,
+    monto,
+    motivo,
+    usuarioId: req.usuario.id
+  });
+
+  eventBus.publish('pago.updated', {
+    pedidoId,
+    estadoPago: nuevoEstadoPago
+  });
+
+  res.status(201).json(reembolso);
+};
+
+const listarReembolsos = async (req, res) => {
+  const prisma = getPrisma(req);
+  const { pedidoId } = req.params;
+
+  const reembolsos = await pagosService.listarReembolsos(prisma, parseInt(pedidoId, 10));
+  res.json(reembolsos);
+};
+
 module.exports = {
   registrarPago,
   obtenerConfiguracionTransferenciaMercadoPago,
   crearPreferenciaMercadoPago,
   webhookMercadoPago,
-  listarPagosPedido
+  listarPagosPedido,
+  registrarReembolso,
+  listarReembolsos
 };

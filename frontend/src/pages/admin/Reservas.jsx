@@ -1,6 +1,8 @@
+import { useCallback } from 'react'
 import { CalendarDaysIcon, PlusIcon } from '@heroicons/react/24/outline'
 
 import ReservaCard from '../../components/reservas/ReservaCard'
+import ReservaDetalleModal from '../../components/reservas/ReservaDetalleModal'
 import ReservasFilterBar from '../../components/reservas/ReservasFilterBar'
 import ReservaModal from '../../components/reservas/ReservaModal'
 import { Button, PageHeader, Spinner } from '../../components/ui'
@@ -8,9 +10,11 @@ import useReservasPage from '../../hooks/useReservasPage'
 
 export default function Reservas() {
   const {
+    abrirDetalleReserva,
     abrirEditarReserva,
     abrirNuevaReserva,
     cambiarEstado,
+    cerrarDetalle,
     cerrarModal,
     fechaFiltro,
     formData,
@@ -18,6 +22,7 @@ export default function Reservas() {
     guardarReserva,
     loading,
     mesas,
+    reservaDetalle,
     reservas,
     reservasCount,
     reservaEdit,
@@ -25,6 +30,11 @@ export default function Reservas() {
     setFormData,
     showModal,
   } = useReservasPage()
+
+  const handleEditarDesdeDetalle = useCallback((reserva) => {
+    cerrarDetalle()
+    abrirEditarReserva(reserva)
+  }, [cerrarDetalle, abrirEditarReserva])
 
   return (
     <div>
@@ -55,15 +65,16 @@ export default function Reservas() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {reservas.map((reserva) => (
-            <ReservaCard
-              key={reserva.id}
-              formatHora={formatHora}
-              onCancelar={(id) => cambiarEstado(id, 'CANCELADA')}
-              onEditar={abrirEditarReserva}
-              onMarcarNoLlego={(id) => cambiarEstado(id, 'NO_LLEGO')}
-              onMarcarPresente={(id) => cambiarEstado(id, 'CLIENTE_PRESENTE')}
-              reserva={reserva}
-            />
+            <div key={reserva.id} role="button" tabIndex={0} className="cursor-pointer" onClick={() => abrirDetalleReserva(reserva)} onKeyDown={(e) => e.key === 'Enter' && abrirDetalleReserva(reserva)}>
+              <ReservaCard
+                formatHora={formatHora}
+                onCancelar={(id) => cambiarEstado(id, 'CANCELADA')}
+                onEditar={abrirEditarReserva}
+                onMarcarNoLlego={(id) => cambiarEstado(id, 'NO_LLEGO')}
+                onMarcarPresente={(id) => cambiarEstado(id, 'CLIENTE_PRESENTE')}
+                reserva={reserva}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -78,6 +89,17 @@ export default function Reservas() {
           setFormData={setFormData}
         />
       )}
+
+      <ReservaDetalleModal
+        reserva={reservaDetalle}
+        open={Boolean(reservaDetalle)}
+        onClose={cerrarDetalle}
+        formatHora={formatHora}
+        onMarcarPresente={(id) => { cerrarDetalle(); cambiarEstado(id, 'CLIENTE_PRESENTE') }}
+        onMarcarNoLlego={(id) => { cerrarDetalle(); cambiarEstado(id, 'NO_LLEGO') }}
+        onEditar={handleEditarDesdeDetalle}
+        onCancelar={(id) => { cerrarDetalle(); cambiarEstado(id, 'CANCELADA') }}
+      />
     </div>
   )
 }

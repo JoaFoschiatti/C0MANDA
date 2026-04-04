@@ -27,8 +27,8 @@ const actualizar = async (req, res) => {
 
 const eliminar = async (req, res) => {
   const prisma = getPrisma(req);
-  const resultado = await categoriasService.eliminar(prisma, req.params.id);
-  res.json(resultado);
+  await categoriasService.eliminar(prisma, req.params.id);
+  res.status(204).end();
 };
 
 module.exports = {

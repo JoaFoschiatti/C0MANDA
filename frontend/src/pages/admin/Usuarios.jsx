@@ -12,6 +12,7 @@ export default function Usuarios() {
     editando,
     usuarios,
     form,
+    handleResetMfa,
     handleToggleActivo,
     handleEdit,
     handleSubmit,
@@ -39,7 +40,12 @@ export default function Usuarios() {
         )}
       />
 
-      <UsuariosTable usuarios={usuarios} onEdit={handleEdit} onToggleActivo={handleToggleActivo} />
+      <UsuariosTable
+        usuarios={usuarios}
+        onEdit={handleEdit}
+        onResetMfa={handleResetMfa}
+        onToggleActivo={handleToggleActivo}
+      />
 
       {showModal && (
         <UsuarioModal

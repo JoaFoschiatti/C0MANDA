@@ -9,6 +9,18 @@ const localStorageMock = {
 }
 global.localStorage = localStorageMock
 
+if (!Element.prototype.getAnimations) {
+  Element.prototype.getAnimations = () => []
+}
+
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}
+
 // Mock window.location
 delete window.location
 window.location = { href: '', assign: vi.fn() }

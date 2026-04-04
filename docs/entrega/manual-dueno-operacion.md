@@ -16,18 +16,16 @@
 
 ### Mesas y pedidos
 
-1. Usar `Mesas` para abrir una mesa o identificar una mesa QR activa.
-2. Crear pedidos desde el panel admin o desde el QR de mesa.
+1. Usar `Mesas` para abrir una mesa.
+2. Crear pedidos desde el panel admin.
 3. Cuando el cliente pide la cuenta, usar la accion `Cuenta`.
 4. Cobrar y luego cerrar el pedido.
 5. Liberar la mesa cuando el estado pase a `CERRADA`.
 
-### QR de mesa y cobro manual
+### Cobro manual
 
-1. El cliente escanea `/menu/mesa/:qrToken`.
-2. El pedido entra asociado a la mesa.
-3. Para cobros en Mercado Pago desde caja, compartir alias/CVU/titular y registrar la referencia al confirmar la transferencia.
-4. Si falta informacion de cobro, revisar `Pedidos`.
+1. Para cobros en Mercado Pago desde caja, compartir alias/CVU/titular y registrar la referencia al confirmar la transferencia.
+2. Si falta informacion de cobro, revisar `Pedidos`.
 
 ### Reservas
 

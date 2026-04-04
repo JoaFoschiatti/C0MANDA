@@ -1,9 +1,19 @@
 const mercadoPagoConfigService = require('../services/mercadopago-config.service');
-const { verifyState } = mercadoPagoConfigService;
+const { getPrisma } = require('../utils/get-prisma');
+const {
+  clearBindingCookie,
+  consumeOAuthState,
+  createOAuthState,
+  MERCADOPAGO_OAUTH_BINDING_COOKIE,
+  setBindingCookie
+} = require('../services/mercadopago-oauth-state.service');
 const { logger } = require('../utils/logger');
 
-const iniciarOAuth = async (_req, res) => {
-  const authUrl = mercadoPagoConfigService.buildOAuthAuthorizationUrl();
+const iniciarOAuth = async (req, res) => {
+  const prisma = getPrisma(req);
+  const oauthState = await createOAuthState(prisma, req.usuario);
+  setBindingCookie(res, oauthState.browserBindingToken);
+  const authUrl = mercadoPagoConfigService.buildOAuthAuthorizationUrl(oauthState.state);
   res.json({ authUrl });
 };
 
@@ -11,17 +21,25 @@ const callbackOAuth = async (req, res) => {
   try {
     const { code, state, error: oauthError } = req.query;
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const prisma = getPrisma(req);
 
     if (oauthError) {
       logger.error('Error en OAuth de MercadoPago:', oauthError);
+      clearBindingCookie(res);
       return res.redirect(`${frontendUrl}/configuracion?mp=error&reason=${oauthError}`);
     }
 
     if (!code || !state) {
+      clearBindingCookie(res);
       return res.redirect(`${frontendUrl}/configuracion?mp=error&reason=missing_params`);
     }
 
-    if (!verifyState(state)) {
+    const browserBindingToken = req.cookies?.[MERCADOPAGO_OAUTH_BINDING_COOKIE] || null;
+
+    try {
+      await consumeOAuthState(prisma, String(state), browserBindingToken);
+    } catch {
+      clearBindingCookie(res);
       return res.redirect(`${frontendUrl}/configuracion?mp=error&reason=invalid_state`);
     }
 
@@ -56,10 +74,12 @@ const callbackOAuth = async (req, res) => {
     }
 
     await mercadoPagoConfigService.guardarOAuthConfig(tokenData, userEmail);
+    clearBindingCookie(res);
     return res.redirect(`${frontendUrl}/configuracion?mp=connected`);
   } catch (error) {
     logger.error('Error en callback de OAuth:', error);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    clearBindingCookie(res);
     return res.redirect(`${frontendUrl}/configuracion?mp=error&reason=server_error`);
   }
 };

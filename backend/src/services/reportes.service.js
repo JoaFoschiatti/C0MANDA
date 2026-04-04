@@ -16,6 +16,7 @@
 
 const { createHttpError } = require('../utils/http-error');
 const { decimalToNumber } = require('../utils/decimal');
+const { addDays } = require('../utils/date-helpers');
 const { buildExpiredLotsWhere } = require('./lotes-stock.service');
 const { buildIngredienteStockSnapshot } = require('./ingrediente-stock.service');
 const { isPagoApproved } = require('./payment-state.service');
@@ -54,12 +55,6 @@ const ACTIVE_PEDIDO_STATES = ['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO
 const HISTORICAL_VENTA_PEDIDO_WHERE = {
   estadoPago: 'APROBADO',
   estado: { in: ['COBRADO', 'CERRADO'] }
-};
-
-const addDays = (value, days) => {
-  const nextDate = new Date(value);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
 };
 
 const formatTaskDate = (value) => (
@@ -563,13 +558,7 @@ const dashboard = async (prisma) => {
  * //   pedidos: [...]
  * // }
  */
-const ventasReporte = async (prisma, query) => {
-  const { fechaDesde, fechaHasta } = query;
-
-  if (!fechaDesde || !fechaHasta) {
-    throw createHttpError.badRequest('Fechas requeridas');
-  }
-
+const buildVentasData = async (prisma, fechaDesde, fechaHasta) => {
   const range = buildDateRange(fechaDesde, fechaHasta);
 
   const pedidos = await prisma.pedido.findMany({
@@ -591,12 +580,8 @@ const ventasReporte = async (prisma, query) => {
   const ventasPorMetodo = {};
   for (const pedido of pedidos) {
     for (const pago of pedido.pagos) {
-      if (!isPagoApproved(pago)) {
-        continue;
-      }
-      if (!ventasPorMetodo[pago.metodo]) {
-        ventasPorMetodo[pago.metodo] = 0;
-      }
+      if (!isPagoApproved(pago)) continue;
+      if (!ventasPorMetodo[pago.metodo]) ventasPorMetodo[pago.metodo] = 0;
       ventasPorMetodo[pago.metodo] += decimalToNumber(pago.monto);
     }
   }
@@ -609,7 +594,6 @@ const ventasReporte = async (prisma, query) => {
   }, {});
 
   return {
-    periodo: { desde: fechaDesde, hasta: fechaHasta },
     totalVentas,
     totalPedidos,
     ticketPromedio: totalPedidos > 0 ? totalVentas / totalPedidos : 0,
@@ -617,6 +601,40 @@ const ventasReporte = async (prisma, query) => {
     ventasPorTipo,
     pedidos
   };
+};
+
+const calcVariacion = (actual, anterior) =>
+  anterior === 0 ? null : Number(((actual - anterior) / anterior * 100).toFixed(1));
+
+const ventasReporte = async (prisma, query) => {
+  const { fechaDesde, fechaHasta, fechaDesdeComp, fechaHastaComp } = query;
+
+  if (!fechaDesde || !fechaHasta) {
+    throw createHttpError.badRequest('Fechas requeridas');
+  }
+
+  const actual = await buildVentasData(prisma, fechaDesde, fechaHasta);
+  const result = {
+    periodo: { desde: fechaDesde, hasta: fechaHasta },
+    ...actual
+  };
+
+  if (fechaDesdeComp && fechaHastaComp) {
+    const comparacion = await buildVentasData(prisma, fechaDesdeComp, fechaHastaComp);
+    result.comparacion = {
+      periodo: { desde: fechaDesdeComp, hasta: fechaHastaComp },
+      totalVentas: comparacion.totalVentas,
+      totalPedidos: comparacion.totalPedidos,
+      ticketPromedio: comparacion.ticketPromedio
+    };
+    result.variacion = {
+      totalVentas: calcVariacion(actual.totalVentas, comparacion.totalVentas),
+      totalPedidos: calcVariacion(actual.totalPedidos, comparacion.totalPedidos),
+      ticketPromedio: calcVariacion(actual.ticketPromedio, comparacion.ticketPromedio)
+    };
+  }
+
+  return result;
 };
 
 /**
@@ -1105,6 +1123,51 @@ const consumoInsumos = async (prisma, query) => {
   return { resumen, ingredientes: resultado };
 };
 
+const ventasPorHora = async (prisma, query) => {
+  const { fechaDesde, fechaHasta } = query;
+
+  if (!fechaDesde || !fechaHasta) {
+    throw createHttpError.badRequest('Fechas requeridas');
+  }
+
+  const range = buildDateRange(fechaDesde, fechaHasta);
+
+  const pedidos = await prisma.pedido.findMany({
+    where: {
+      createdAt: range,
+      ...HISTORICAL_VENTA_PEDIDO_WHERE
+    },
+    select: { id: true, total: true, createdAt: true }
+  });
+
+  const horas = Array.from({ length: 24 }, (_, i) => ({
+    hora: `${String(i).padStart(2, '0')}:00`,
+    cantidadPedidos: 0,
+    totalVentas: 0
+  }));
+
+  for (const pedido of pedidos) {
+    const hora = new Date(pedido.createdAt).getHours();
+    horas[hora].cantidadPedidos += 1;
+    horas[hora].totalVentas += decimalToNumber(pedido.total);
+  }
+
+  const horasConDatos = horas.map((h) => ({
+    ...h,
+    ticketPromedio: h.cantidadPedidos > 0 ? h.totalVentas / h.cantidadPedidos : 0
+  }));
+
+  const horaPico = horasConDatos.reduce((max, h) => h.cantidadPedidos > max.cantidadPedidos ? h : max, horas[0]);
+  const horaMaxVentas = horasConDatos.reduce((max, h) => h.totalVentas > max.totalVentas ? h : max, horas[0]);
+
+  return {
+    periodo: { desde: fechaDesde, hasta: fechaHasta },
+    horas: horasConDatos,
+    horaPico: horaPico.hora,
+    horaMaxVentas: horaMaxVentas.hora
+  };
+};
+
 module.exports = {
   dashboard,
   tareasCentro,
@@ -1113,5 +1176,6 @@ module.exports = {
   ventasPorMozo,
   inventarioReporte,
   ventasPorProductoBase,
-  consumoInsumos
+  consumoInsumos,
+  ventasPorHora
 };

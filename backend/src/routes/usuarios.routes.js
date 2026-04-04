@@ -18,6 +18,7 @@ router.get('/', validate({ query: listarQuerySchema }), asyncHandler(usuariosCon
 router.get('/:id', validate({ params: idParamSchema }), asyncHandler(usuariosController.obtener));
 router.post('/', validate({ body: crearUsuarioBodySchema }), asyncHandler(usuariosController.crear));
 router.put('/:id', validate({ params: idParamSchema, body: actualizarUsuarioBodySchema }), asyncHandler(usuariosController.actualizar));
+router.post('/:id/mfa/reset', validate({ params: idParamSchema }), asyncHandler(usuariosController.resetMfa));
 router.delete('/:id', validate({ params: idParamSchema }), asyncHandler(usuariosController.eliminar));
 
 module.exports = router;

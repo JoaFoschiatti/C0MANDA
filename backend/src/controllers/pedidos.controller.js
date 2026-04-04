@@ -26,6 +26,20 @@ const emitMesaUpdated = (mesaId, estado) => {
   });
 };
 
+const enqueueKitchenRounds = async (prisma, pedidoId, roundIds = []) => {
+  if (!roundIds.length) {
+    return null;
+  }
+
+  const impresion = await printService.enqueuePrintJobs(prisma, pedidoId, {
+    tipos: ['COCINA'],
+    roundIds
+  });
+
+  await pedidosService.markRoundsSentToKitchen(prisma, roundIds);
+  return impresion;
+};
+
 const allowedStatesByRole = {
   ADMIN: ['EN_PREPARACION', 'LISTO', 'ENTREGADO'],
   CAJERO: ['EN_PREPARACION', 'LISTO', 'ENTREGADO'],
@@ -86,7 +100,7 @@ const cambiarEstado = async (req, res) => {
     throw createHttpError.forbidden('No tienes permiso para cambiar a este estado');
   }
 
-  const { pedidoAntes, pedidoActualizado, shouldPrint, mesaUpdates, productosAgotados } =
+  const { pedidoAntes, pedidoActualizado, roundIdsToPrint, mesaUpdates, productosAgotados } =
     await pedidosService.cambiarEstadoPedido(prisma, { pedidoId: id, estado, usuarioId: req.usuario.id });
 
   for (const update of mesaUpdates) {
@@ -103,9 +117,9 @@ const cambiarEstado = async (req, res) => {
   }
 
   let impresion = null;
-  if (shouldPrint) {
+  if (roundIdsToPrint.length > 0) {
     try {
-      impresion = await printService.enqueuePrintJobs(prisma, pedidoAntes.id);
+      impresion = await enqueueKitchenRounds(prisma, pedidoAntes.id, roundIdsToPrint);
       eventBus.publish('impresion.updated', {
         pedidoId: pedidoAntes.id,
         ok: 0,
@@ -125,13 +139,32 @@ const agregarItems = async (req, res) => {
   const { id } = req.params;
   const { items } = req.body;
 
-  const pedidoActualizado = await pedidosService.agregarItemsPedido(prisma, {
+  const { pedido, ronda, mesaUpdated, roundIdsToPrint } = await pedidosService.agregarItemsPedido(prisma, {
     pedidoId: id,
-    items
+    items,
+    usuarioId: req.usuario.id
   });
 
-  emitPedidoUpdated(pedidoActualizado);
-  res.json(pedidoActualizado);
+  if (mesaUpdated) {
+    emitMesaUpdated(mesaUpdated.mesaId, mesaUpdated.estado);
+  }
+
+  let impresion = null;
+  if (roundIdsToPrint.length > 0) {
+    try {
+      impresion = await enqueueKitchenRounds(prisma, pedido.id, roundIdsToPrint);
+      eventBus.publish('impresion.updated', {
+        pedidoId: pedido.id,
+        ok: 0,
+        total: impresion.total
+      });
+    } catch (printError) {
+      logger.error('Error al encolar impresion incremental:', printError);
+    }
+  }
+
+  emitPedidoUpdated(pedido);
+  res.json({ pedido, ronda, impresion });
 };
 
 const cancelar = async (req, res) => {
@@ -184,19 +217,28 @@ const pedidosCocina = async (req, res) => {
       createdAt: true,
       observaciones: true,
       mesa: { select: { numero: true } },
-      items: {
+      rondas: {
         select: {
           id: true,
-          cantidad: true,
-          observaciones: true,
-          producto: { select: { nombre: true } },
-          modificadores: {
+          numero: true,
+          enviadaCocinaAt: true,
+          createdAt: true,
+          items: {
             select: {
               id: true,
-              modificador: { select: { nombre: true, tipo: true } }
+              cantidad: true,
+              observaciones: true,
+              producto: { select: { nombre: true } },
+              modificadores: {
+                select: {
+                  id: true,
+                  modificador: { select: { nombre: true, tipo: true } }
+                }
+              }
             }
           }
-        }
+        },
+        orderBy: { numero: 'asc' }
       }
     },
     orderBy: { createdAt: 'asc' }
@@ -285,6 +327,61 @@ const asignarDelivery = async (req, res) => {
   res.json(pedido);
 };
 
+const cambiarMesa = async (req, res) => {
+  const prisma = getPrisma(req);
+  const { id } = req.params;
+  const { nuevoMesaId } = req.body;
+
+  const { pedido, mesaUpdates } = await pedidosService.cambiarMesa(prisma, {
+    pedidoId: id,
+    nuevoMesaId,
+    usuarioId: req.usuario.id
+  });
+
+  for (const update of mesaUpdates) {
+    emitMesaUpdated(update.mesaId, update.estado);
+  }
+
+  emitPedidoUpdated(pedido);
+  res.json(pedido);
+};
+
+const anularItem = async (req, res) => {
+  const prisma = getPrisma(req);
+  const { id, itemId } = req.params;
+  const { motivo } = req.body;
+
+  const { pedido, mesaUpdated } = await pedidosService.anularItem(prisma, {
+    pedidoId: id,
+    itemId,
+    motivo,
+    usuarioId: req.usuario.id
+  });
+
+  if (mesaUpdated) {
+    emitMesaUpdated(mesaUpdated.mesaId, mesaUpdated.estado);
+  }
+
+  emitPedidoUpdated(pedido);
+  res.json(pedido);
+};
+
+const aplicarDescuento = async (req, res) => {
+  const prisma = getPrisma(req);
+  const { id } = req.params;
+  const { descuento, motivo } = req.body;
+
+  const pedido = await pedidosService.aplicarDescuento(prisma, {
+    pedidoId: id,
+    descuento,
+    motivo,
+    usuarioId: req.usuario.id
+  });
+
+  emitPedidoUpdated(pedido);
+  res.json(pedido);
+};
+
 module.exports = {
   listar,
   obtener,
@@ -296,5 +393,8 @@ module.exports = {
   pedidosCocina,
   pedidosDelivery,
   listarRepartidores,
-  asignarDelivery
+  asignarDelivery,
+  cambiarMesa,
+  anularItem,
+  aplicarDescuento
 };

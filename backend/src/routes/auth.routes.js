@@ -9,7 +9,9 @@ const { normalizeEmail } = require('../utils/email');
 const {
   loginBodySchema,
   registrarBodySchema,
-  cambiarPasswordBodySchema
+  cambiarPasswordBodySchema,
+  mfaCodeBodySchema,
+  mfaRecoveryBodySchema
 } = require('../schemas/auth.schemas');
 
 const router = express.Router();
@@ -28,8 +30,23 @@ const loginLimiter = rateLimit({
   }
 });
 
+const mfaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: 'draft-6',
+  legacyHeaders: false,
+  keyGenerator: ipKeyGenerator,
+  message: {
+    error: { message: 'Demasiados intentos de verificacion. Intente nuevamente en unos minutos.' }
+  }
+});
+
 router.post('/login', loginLimiter, validate({ body: loginBodySchema }), asyncHandler(authController.login));
 router.post('/logout', asyncHandler(authController.logout));
+router.get('/mfa/setup', asyncHandler(authController.getMfaSetup));
+router.post('/mfa/setup/confirm', validate({ body: mfaCodeBodySchema }), asyncHandler(authController.confirmMfaSetup));
+router.post('/mfa/verify', mfaLimiter, validate({ body: mfaCodeBodySchema }), asyncHandler(authController.verifyMfa));
+router.post('/mfa/recovery', mfaLimiter, validate({ body: mfaRecoveryBodySchema }), asyncHandler(authController.recoverWithMfa));
 
 router.post('/registrar', verificarToken, esAdmin, validate({ body: registrarBodySchema }), asyncHandler(authController.registrar));
 router.get('/perfil', verificarToken, asyncHandler(authController.perfil));

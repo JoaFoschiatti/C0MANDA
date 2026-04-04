@@ -71,7 +71,7 @@ const tables = [
   'pedido_auditorias', 'movimientos_stock', 'lotes_stock', 'pagos',
   'pedido_items', 'pedidos', 'producto_modificadores', 'modificadores',
   'producto_ingredientes', 'ingredientes', 'productos', 'categorias',
-  'reservas', 'cierres_caja', 'fichajes', 'liquidaciones',
+  'reservas', 'cierres_caja', 'fichajes',
   'refresh_tokens', 'configuraciones', 'mercadopago_configs',
   'mesas', 'usuarios', 'negocios'
 ];
@@ -448,40 +448,6 @@ sql(`SELECT setval('reservas_id_seq', ${reservaId - 1});`);
 sql(`SELECT setval('pedido_auditorias_id_seq', ${auditoriaId - 1});`);
 sql('');
 
-// ── Liquidaciones (monthly) ──
-sql('-- Liquidaciones');
-let liqId = 1;
-const months = [];
-const m = new Date(ONE_YEAR_AGO);
-m.setDate(1);
-while (m < TODAY) {
-  const desde = new Date(m);
-  const hasta = new Date(m.getFullYear(), m.getMonth() + 1, 0);
-  if (hasta > TODAY) break; // don't generate current incomplete month
-  months.push([new Date(desde), new Date(hasta)]);
-  m.setMonth(m.getMonth() + 1);
-}
-
-for (const [desde, hasta] of months) {
-  // Count work days in this month
-  let workDaysInMonth = 0;
-  const d = new Date(desde);
-  while (d <= hasta) {
-    if (isWorkDay(d)) workDaysInMonth++;
-    d.setDate(d.getDate() + 1);
-  }
-  const horasTotal = workDaysInMonth * 8;
-
-  for (const empId of employeesWithShifts) {
-    const tarifa = empId === 4 ? 1800 : empId === 5 ? 1700 : 1500;
-    const subtotal = horasTotal * tarifa;
-    sql(`INSERT INTO liquidaciones (id, "usuarioId", "periodoDesde", "periodoHasta", "horasTotales", "tarifaHora", subtotal, descuentos, adicionales, "totalPagar", pagado, "createdAt")
-VALUES (${liqId++}, ${empId}, '${fmtDate(desde)}', '${fmtDate(hasta)}', ${horasTotal}, ${tarifa}, ${subtotal}, 0, 0, ${subtotal}, true, '${fmt(hasta)}');`);
-  }
-}
-sql(`SELECT setval('liquidaciones_id_seq', ${liqId - 1});`);
-sql('');
-
 sql('COMMIT;');
 
 // ── Write output ──
@@ -496,5 +462,4 @@ console.error(`  Pagos: ${pagoId - 1}`);
 console.error(`  Fichajes: ${fichajeId - 1}`);
 console.error(`  Cierres: ${cierreId - 1}`);
 console.error(`  Reservas: ${reservaId - 1}`);
-console.error(`  Liquidaciones: ${liqId - 1}`);
 console.error(`  Work days: ${workDays.length}`);

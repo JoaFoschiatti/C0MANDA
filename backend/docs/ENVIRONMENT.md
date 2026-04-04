@@ -32,6 +32,7 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 ## Backups operativos
 
 - `S3_BACKUP_URI`: bucket o prefijo destino para backups diarios.
+- `S3_UPLOADS_BACKUP_URI`: prefijo S3 opcional para sincronizar `UPLOADS_DIR` junto al backup diario.
 - `AWS_REGION`: region AWS del host EC2.
 
 ## Opcionales
@@ -69,4 +70,5 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 ## Entorno de tests
 
 - Copiar `.env.test.example` a `.env.test` para aislar Jest en un schema dedicado, por ejemplo `?schema=test`.
+- Alternativamente, definir `DATABASE_URL` y `DIRECT_URL` en el entorno o en CI. Si se usa archivo alternativo, exportar `TEST_ENV_FILE=./ruta/al/env`.
 - `npm run db:reset:test` resetea ese schema con la baseline actual sin tocar `public`.

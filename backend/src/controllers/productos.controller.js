@@ -39,8 +39,8 @@ const cambiarDisponibilidad = async (req, res) => {
 
 const eliminar = async (req, res) => {
   const prisma = getPrisma(req);
-  const resultado = await productosService.eliminar(prisma, req.params.id);
-  res.json(resultado);
+  await productosService.eliminar(prisma, req.params.id);
+  res.status(204).end();
 };
 
 const crearVariante = async (req, res) => {

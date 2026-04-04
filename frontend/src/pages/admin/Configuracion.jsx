@@ -6,39 +6,46 @@ import {
   BuildingStorefrontIcon,
   LinkIcon,
   DocumentTextIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline'
 
 import MercadoPagoConfig from '../../components/configuracion/MercadoPagoConfig'
 import ConfigSection from '../../components/configuracion/ConfigSection'
-import ConfigMessageBanner from '../../components/configuracion/ConfigMessageBanner'
-import { PageHeader, Spinner, ColorPicker } from '../../components/ui'
+import { Button, PageHeader, Spinner, ColorPicker, Toggle } from '../../components/ui'
 import useConfiguracionPage from '../../hooks/useConfiguracionPage'
 import { resolvePublicAssetUrl } from '../../utils/public-assets'
+
+const CUIT_RE = /^\d{11}$/
+const CVU_RE = /^\d{22}$/
 
 export default function Configuracion() {
   const {
     backendUrl,
     config,
     frontendUrl,
-    guardarIdentidad,
-    guardarConfiguracion,
+    guardarTodo,
     handleBannerRemove,
     handleBannerUpload,
     handleConfigChange,
     handleLogoRemove,
     handleLogoUpload,
     handleNegocioChange,
+    isDirty,
     loading,
-    message,
+    loadError,
     negocio,
     saving,
-    savingNegocio,
     toggleTiendaAbierta,
+    guardarHorario,
     uploadingBanner,
     uploadingLogo,
+    cargarDatosAsync,
   } = useConfiguracionPage()
   const logoPreviewUrl = resolvePublicAssetUrl(negocio.logo, backendUrl)
   const bannerPreviewUrl = resolvePublicAssetUrl(config.banner_imagen, backendUrl)
+
+  const cuitInvalid = config.facturacion_cuit_emisor.trim() !== '' && !CUIT_RE.test(config.facturacion_cuit_emisor.replace(/\D/g, ''))
+  const cvuInvalid = config.mercadopago_transfer_cvu.trim() !== '' && !CVU_RE.test(config.mercadopago_transfer_cvu.replace(/\D/g, ''))
 
   if (loading) {
     return (
@@ -48,15 +55,26 @@ export default function Configuracion() {
     )
   }
 
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <ExclamationTriangleIcon className="w-10 h-10 text-error-500 mb-3" />
+        <h2 className="text-lg font-semibold text-text-primary">No pudimos cargar la configuracion</h2>
+        <p className="text-sm text-text-secondary mb-4">{loadError}</p>
+        <Button onClick={() => cargarDatosAsync().catch(() => {})}>Reintentar</Button>
+      </div>
+    )
+  }
+
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto pb-24">
       <PageHeader
         title="Configuracion del Negocio"
         eyebrow="Setup"
         description="Marca, operaciones, pagos y parametros fiscales del restaurante."
-        actions={<ConfigMessageBanner message={message} />}
       />
 
+      {/* ── Identidad ── */}
       <ConfigSection icon={BuildingStorefrontIcon} title="Identidad del Negocio">
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -126,7 +144,21 @@ export default function Configuracion() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label" htmlFor="config-whatsapp">
+              WhatsApp
+            </label>
+            <input
+              id="config-whatsapp"
+              type="text"
+              value={config.whatsapp_numero}
+              onChange={(event) => handleConfigChange('whatsapp_numero', event.target.value)}
+              className="input"
+              placeholder="5411XXXXXXXX"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <ColorPicker
               id="negocio-color-primario"
               label="Color Primario"
@@ -167,6 +199,7 @@ export default function Configuracion() {
                     className="h-16 w-16 rounded-2xl border border-border-default bg-white object-contain p-2"
                   />
                   <button
+                    type="button"
                     onClick={handleLogoRemove}
                     className="text-error-500 hover:text-error-600 text-sm transition-colors"
                   >
@@ -203,6 +236,7 @@ export default function Configuracion() {
                     className="h-16 w-32 object-cover rounded-xl border border-border-default"
                   />
                   <button
+                    type="button"
                     onClick={handleBannerRemove}
                     className="text-error-500 hover:text-error-600 text-sm transition-colors"
                   >
@@ -230,24 +264,14 @@ export default function Configuracion() {
               Usa este link como version canonica para compartir la carta publica del local.
             </p>
           </div>
-
-          <div className="flex justify-end">
-            <button
-              onClick={guardarIdentidad}
-              disabled={savingNegocio}
-              className={`btn btn-primary px-6 ${
-                savingNegocio ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {savingNegocio ? 'Guardando...' : 'Guardar identidad'}
-            </button>
-          </div>
         </div>
       </ConfigSection>
 
+      {/* ── Estado del Local ── */}
       <ConfigSection icon={ClockIcon} title="Estado del Local">
         <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
           <button
+            type="button"
             onClick={toggleTiendaAbierta}
             className={`flex-1 py-4 rounded-xl font-bold text-lg transition-all ${
               config.tienda_abierta
@@ -269,6 +293,7 @@ export default function Configuracion() {
               type="time"
               value={config.horario_apertura}
               onChange={(event) => handleConfigChange('horario_apertura', event.target.value)}
+              onBlur={(event) => guardarHorario('horario_apertura', event.target.value)}
               className="input"
             />
           </div>
@@ -281,25 +306,22 @@ export default function Configuracion() {
               type="time"
               value={config.horario_cierre}
               onChange={(event) => handleConfigChange('horario_cierre', event.target.value)}
+              onBlur={(event) => guardarHorario('horario_cierre', event.target.value)}
               className="input"
             />
           </div>
         </div>
+        <p className="text-xs text-text-tertiary mt-2">Los horarios se guardan automaticamente al cambiar.</p>
       </ConfigSection>
 
+      {/* ── Delivery ── */}
       <ConfigSection icon={TruckIcon} title="Delivery">
         <div className="space-y-4">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={config.delivery_habilitado}
-              onChange={(event) =>
-                handleConfigChange('delivery_habilitado', event.target.checked)
-              }
-              className="w-5 h-5 rounded text-primary-500 focus:ring-primary-500"
-            />
-            <span className="font-medium text-text-primary">Delivery habilitado</span>
-          </label>
+          <Toggle
+            checked={config.delivery_habilitado}
+            onChange={(checked) => handleConfigChange('delivery_habilitado', checked)}
+            label="Delivery habilitado"
+          />
 
           <div>
             <label className="label" htmlFor="config-costo-delivery">
@@ -332,23 +354,10 @@ export default function Configuracion() {
               className="input"
             />
           </div>
-
-          <div>
-            <label className="label" htmlFor="config-whatsapp">
-              WhatsApp
-            </label>
-            <input
-              id="config-whatsapp"
-              type="text"
-              value={config.whatsapp_numero}
-              onChange={(event) => handleConfigChange('whatsapp_numero', event.target.value)}
-              className="input"
-              placeholder="5411XXXXXXXX"
-            />
-          </div>
         </div>
       </ConfigSection>
 
+      {/* ── Metodos de Pago ── */}
       <div className="mb-6">
         <h2 className="text-heading-3 mb-4 flex items-center gap-2">
           <CreditCardIcon className="w-5 h-5" />
@@ -356,13 +365,77 @@ export default function Configuracion() {
         </h2>
 
         <div className="grid gap-6 md:grid-cols-2">
-          <MercadoPagoConfig
-            onStatusChange={(connected) =>
-              handleConfigChange('mercadopago_enabled', connected)
-            }
-          />
+          <div className="space-y-6">
+            <MercadoPagoConfig
+              onStatusChange={(connected) =>
+                handleConfigChange('mercadopago_enabled', connected)
+              }
+            />
 
-          <ConfigSection className="card" title={null}>
+            {/* Transferencia MP — nested under MercadoPago */}
+            <div className="card">
+              <h3 className="font-bold text-text-primary mb-1 flex items-center gap-2">
+                <LinkIcon className="w-5 h-5" />
+                Transferencia Mercado Pago
+              </h3>
+              <p className="text-xs text-text-tertiary mb-4">
+                Estos datos se muestran al cajero cuando registra un cobro manual por transferencia.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="label" htmlFor="config-mp-transfer-alias">
+                    Alias *
+                  </label>
+                  <input
+                    id="config-mp-transfer-alias"
+                    type="text"
+                    value={config.mercadopago_transfer_alias}
+                    onChange={(event) =>
+                      handleConfigChange('mercadopago_transfer_alias', event.target.value)
+                    }
+                    className="input"
+                    placeholder="mi-resto.mp"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="config-mp-transfer-titular">
+                    Titular
+                  </label>
+                  <input
+                    id="config-mp-transfer-titular"
+                    type="text"
+                    value={config.mercadopago_transfer_titular}
+                    onChange={(event) =>
+                      handleConfigChange('mercadopago_transfer_titular', event.target.value)
+                    }
+                    className="input"
+                    placeholder="Nombre del titular"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="config-mp-transfer-cvu">
+                    CVU
+                  </label>
+                  <input
+                    id="config-mp-transfer-cvu"
+                    type="text"
+                    value={config.mercadopago_transfer_cvu}
+                    onChange={(event) =>
+                      handleConfigChange('mercadopago_transfer_cvu', event.target.value)
+                    }
+                    className="input"
+                    placeholder="0000003100000000000000"
+                  />
+                  {cvuInvalid && (
+                    <p className="text-xs text-error-500 mt-1">El CVU debe tener 22 digitos</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <ConfigSection className="card h-fit" title={null}>
             <div className="flex items-center gap-3 pb-4 mb-4 border-b border-border-subtle">
               <div className="p-2 bg-success-100 rounded-xl">
                 <BanknotesIcon className="w-6 h-6 text-success-600" />
@@ -373,200 +446,140 @@ export default function Configuracion() {
               </div>
             </div>
 
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={config.efectivo_enabled}
-                onChange={(event) =>
-                  handleConfigChange('efectivo_enabled', event.target.checked)
-                }
-                className="w-5 h-5 rounded text-success-500 focus:ring-success-500"
-              />
-              <span className="font-medium text-text-primary">
-                Aceptar pagos en efectivo
-              </span>
-            </label>
+            <Toggle
+              checked={config.efectivo_enabled}
+              onChange={(checked) => handleConfigChange('efectivo_enabled', checked)}
+              label="Aceptar pagos en efectivo"
+            />
           </ConfigSection>
         </div>
-
-        <ConfigSection className="card mt-6" title={null}>
-          <h3 className="font-bold text-text-primary mb-4 flex items-center gap-2">
-            <LinkIcon className="w-5 h-5" />
-            Transferencia Mercado Pago
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="label" htmlFor="config-mp-transfer-alias">
-                Alias *
-              </label>
-              <input
-                id="config-mp-transfer-alias"
-                type="text"
-                value={config.mercadopago_transfer_alias}
-                onChange={(event) =>
-                  handleConfigChange('mercadopago_transfer_alias', event.target.value)
-                }
-                className="input"
-                placeholder="mi-resto.mp"
-              />
-              <p className="input-hint">
-                Este alias se muestra en el POS cuando el cajero registra un cobro manual por transferencia.
-              </p>
-            </div>
-            <div>
-              <label className="label" htmlFor="config-mp-transfer-titular">
-                Titular
-              </label>
-              <input
-                id="config-mp-transfer-titular"
-                type="text"
-                value={config.mercadopago_transfer_titular}
-                onChange={(event) =>
-                  handleConfigChange('mercadopago_transfer_titular', event.target.value)
-                }
-                className="input"
-                placeholder="Nombre del titular"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="label" htmlFor="config-mp-transfer-cvu">
-                CVU
-              </label>
-              <input
-                id="config-mp-transfer-cvu"
-                type="text"
-                value={config.mercadopago_transfer_cvu}
-                onChange={(event) =>
-                  handleConfigChange('mercadopago_transfer_cvu', event.target.value)
-                }
-                className="input"
-                placeholder="0000003100000000000000"
-              />
-            </div>
-          </div>
-        </ConfigSection>
       </div>
 
+      {/* ── Facturacion ── */}
       <ConfigSection icon={DocumentTextIcon} title="Facturacion Electronica">
         <div className="space-y-4">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={config.facturacion_habilitada}
-              onChange={(event) =>
-                handleConfigChange('facturacion_habilitada', event.target.checked)
-              }
-              className="w-5 h-5 rounded text-primary-500 focus:ring-primary-500"
-            />
-            <span className="font-medium text-text-primary">
-              Habilitar facturacion electronica
-            </span>
-          </label>
+          <Toggle
+            checked={config.facturacion_habilitada}
+            onChange={(checked) => handleConfigChange('facturacion_habilitada', checked)}
+            label="Habilitar facturacion electronica"
+          />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="label" htmlFor="facturacion-punto-venta">
-                Punto de Venta
-              </label>
-              <input
-                id="facturacion-punto-venta"
-                type="number"
-                min="1"
-                value={config.facturacion_punto_venta}
-                onChange={(event) =>
-                  handleConfigChange('facturacion_punto_venta', Number(event.target.value) || 1)
-                }
-                className="input"
-              />
+          <div className={config.facturacion_habilitada ? '' : 'opacity-40 pointer-events-none'}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="label" htmlFor="facturacion-punto-venta">
+                  Punto de Venta
+                </label>
+                <input
+                  id="facturacion-punto-venta"
+                  type="number"
+                  min="1"
+                  value={config.facturacion_punto_venta}
+                  onChange={(event) =>
+                    handleConfigChange('facturacion_punto_venta', Number(event.target.value) || 1)
+                  }
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="facturacion-ambiente">
+                  Ambiente
+                </label>
+                <select
+                  id="facturacion-ambiente"
+                  className="input"
+                  value={config.facturacion_ambiente}
+                  onChange={(event) =>
+                    handleConfigChange('facturacion_ambiente', event.target.value)
+                  }
+                >
+                  <option value="homologacion">Homologacion</option>
+                  <option value="produccion">Produccion</option>
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="facturacion-cuit">
+                  CUIT Emisor
+                </label>
+                <input
+                  id="facturacion-cuit"
+                  type="text"
+                  value={config.facturacion_cuit_emisor}
+                  onChange={(event) =>
+                    handleConfigChange('facturacion_cuit_emisor', event.target.value)
+                  }
+                  className="input"
+                  placeholder="30XXXXXXXXX"
+                />
+                {cuitInvalid && (
+                  <p className="text-xs text-error-500 mt-1">El CUIT debe tener 11 digitos</p>
+                )}
+              </div>
             </div>
-            <div>
-              <label className="label" htmlFor="facturacion-ambiente">
-                Ambiente
+
+            <div className="mt-4">
+              <label className="label" htmlFor="facturacion-alicuota">
+                Alicuota IVA (%)
               </label>
               <select
-                id="facturacion-ambiente"
+                id="facturacion-alicuota"
                 className="input"
-                value={config.facturacion_ambiente}
+                value={config.facturacion_alicuota_iva}
                 onChange={(event) =>
-                  handleConfigChange('facturacion_ambiente', event.target.value)
+                  handleConfigChange(
+                    'facturacion_alicuota_iva',
+                    Number(event.target.value) || 21
+                  )
                 }
               >
-                <option value="homologacion">Homologacion</option>
-                <option value="produccion">Produccion</option>
+                <option value="0">0</option>
+                <option value="2.5">2.5</option>
+                <option value="5">5</option>
+                <option value="10.5">10.5</option>
+                <option value="21">21</option>
+                <option value="27">27</option>
               </select>
             </div>
-            <div>
-              <label className="label" htmlFor="facturacion-cuit">
-                CUIT Emisor
+
+            <div className="mt-4">
+              <label className="label" htmlFor="facturacion-descripcion">
+                Descripcion del punto de venta
               </label>
               <input
-                id="facturacion-cuit"
+                id="facturacion-descripcion"
                 type="text"
-                value={config.facturacion_cuit_emisor}
+                value={config.facturacion_descripcion}
                 onChange={(event) =>
-                  handleConfigChange('facturacion_cuit_emisor', event.target.value)
+                  handleConfigChange('facturacion_descripcion', event.target.value)
                 }
                 className="input"
-                placeholder="30XXXXXXXXX"
+                placeholder="Caja principal"
               />
             </div>
-          </div>
 
-          <div>
-            <label className="label" htmlFor="facturacion-alicuota">
-              Alicuota IVA (%)
-            </label>
-            <select
-              id="facturacion-alicuota"
-              className="input"
-              value={config.facturacion_alicuota_iva}
-              onChange={(event) =>
-                handleConfigChange(
-                  'facturacion_alicuota_iva',
-                  Number(event.target.value) || 21
-                )
-              }
-            >
-              <option value="0">0</option>
-              <option value="2.5">2.5</option>
-              <option value="5">5</option>
-              <option value="10.5">10.5</option>
-              <option value="21">21</option>
-              <option value="27">27</option>
-            </select>
+            <p className="text-sm text-text-secondary mt-4">
+              La emision real requiere credenciales WSAA/WSFEv1 configuradas en el servidor.
+            </p>
           </div>
-
-          <div>
-            <label className="label" htmlFor="facturacion-descripcion">
-              Descripcion del punto de venta
-            </label>
-            <input
-              id="facturacion-descripcion"
-              type="text"
-              value={config.facturacion_descripcion}
-              onChange={(event) =>
-                handleConfigChange('facturacion_descripcion', event.target.value)
-              }
-              className="input"
-              placeholder="Caja principal"
-            />
-          </div>
-
-          <p className="text-sm text-text-secondary">
-            La emision real requiere credenciales WSAA/WSFEv1 configuradas en el servidor.
-          </p>
         </div>
       </ConfigSection>
 
-      <div className="flex justify-end">
-        <button
-          onClick={guardarConfiguracion}
-          disabled={saving}
-          className={`btn btn-primary px-8 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          {saving ? 'Guardando...' : 'Guardar configuracion operativa'}
-        </button>
+      {/* ── Sticky save bar ── */}
+      <div className="fixed bottom-0 left-0 right-0 lg:left-64 z-30 bg-canvas-default px-4 py-3">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <span className="text-sm text-text-secondary">
+            {isDirty() ? 'Hay cambios sin guardar' : ''}
+          </span>
+          <Button
+            variant="primary"
+            loading={saving}
+            disabled={!isDirty()}
+            onClick={guardarTodo}
+            className="px-8"
+          >
+            Guardar configuracion
+          </Button>
+        </div>
       </div>
     </div>
   )

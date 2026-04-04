@@ -21,14 +21,6 @@ const pedidoIdParamSchema = z.object({
   id: positiveIntSchema
 }).strip();
 
-const publicOrderAccessQuerySchema = z.object({
-  token: z.string({ required_error: 'Token requerido' }).trim().min(1, 'Token requerido')
-}).strip();
-
-const publicOrderPaymentBodySchema = z.object({
-  token: z.string({ required_error: 'Token requerido' }).trim().min(1, 'Token requerido')
-}).strip();
-
 const createPublicOrderBodySchema = z.object({
   items: z.array(publicOrderItemSchema).min(1, 'El pedido debe tener al menos un producto'),
   clienteNombre: z.string({ required_error: 'Nombre requerido' }).trim().min(1).max(150),
@@ -55,7 +47,5 @@ const createPublicOrderBodySchema = z.object({
 
 module.exports = {
   pedidoIdParamSchema,
-  publicOrderAccessQuerySchema,
-  publicOrderPaymentBodySchema,
   createPublicOrderBodySchema
 };

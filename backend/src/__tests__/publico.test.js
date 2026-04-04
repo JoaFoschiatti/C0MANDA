@@ -178,7 +178,10 @@ describe('Publico Endpoints', () => {
 
     expect(response.body.message).toBe('Pedido creado correctamente');
     expect(response.body.initPoint).toBeNull();
-    expect(response.body.accessToken).toEqual(expect.any(String));
+    expect(response.body.accessToken).toBeUndefined();
+    expect(response.headers['set-cookie']).toEqual(
+      expect.arrayContaining([expect.stringContaining('public_order_access=')])
+    );
     expect(response.body.pedido.origen).toBe('MENU_PUBLICO');
     expect(response.body.pedido.operacionConfirmada).toBe(false);
     expect(response.body.pedido.items).toHaveLength(2);

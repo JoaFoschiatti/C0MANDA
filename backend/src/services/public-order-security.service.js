@@ -64,31 +64,37 @@ const buildPedidoPaidUpdateData = (pedido, cobro) => {
     return { estadoPago: 'PENDIENTE' };
   }
 
+  const basePaidState = {
+    estadoPago: 'APROBADO'
+  };
+
   if (!isDeferredSettlementPedido(pedido)) {
-    return {
-      estadoPago: 'APROBADO',
-      estado: 'COBRADO'
-    };
+    if (pedido.estado === 'ENTREGADO') {
+      return {
+        ...basePaidState,
+        estado: 'COBRADO'
+      };
+    }
+
+    return basePaidState;
   }
 
   if (pedido.estado === 'ENTREGADO') {
     return {
-      estadoPago: 'APROBADO',
+      ...basePaidState,
       estado: 'COBRADO',
       operacionConfirmada: true
     };
   }
 
   return {
-    estadoPago: 'APROBADO',
+    ...basePaidState,
     operacionConfirmada: true
   };
 };
 
-const shouldCloseMesaOnPaid = (pedido, cobro) => (
-  cobro.fullyPaid &&
-  !isDeferredSettlementPedido(pedido) &&
-  Boolean(pedido?.mesaId)
+const shouldCloseMesaOnPaid = (_pedido, _cobro) => (
+  false
 );
 
 module.exports = {

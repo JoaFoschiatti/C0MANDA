@@ -263,7 +263,7 @@ describe('Mesas page', () => {
     expect(await screen.findByRole('button', { name: /Liberar mesa 5/i })).toHaveAttribute('title', 'Liberar mesa')
     await user.unhover(mesaCerrada)
 
-    await user.click(screen.getByRole('button', { name: /Mesa 5 - Cerrada/i }))
+    await user.click(screen.getByRole('button', { name: /Mesa 5.*Cerrada/i }))
     expect(mockNavigate).toHaveBeenCalledWith('/pedidos?mesaId=5')
 
     expect(container.querySelector('#mesa-card-1')).toHaveClass('mesa-status-theme--libre')

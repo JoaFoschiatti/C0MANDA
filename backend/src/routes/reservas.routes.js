@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const reservasController = require('../controllers/reservas.controller');
-const { verificarToken, esAdmin } = require('../middlewares/auth.middleware');
+const { verificarToken, esAdmin, verificarRol } = require('../middlewares/auth.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const { asyncHandler } = require('../utils/async-handler');
 const {
@@ -30,8 +30,8 @@ router.post('/', esAdmin, validate({ body: crearReservaBodySchema }), asyncHandl
 // PUT /api/reservas/:id - Actualizar reserva (solo admin)
 router.put('/:id', esAdmin, validate({ params: idParamSchema, body: actualizarReservaBodySchema }), asyncHandler(reservasController.actualizar));
 
-// PATCH /api/reservas/:id/estado - Cambiar estado de reserva (solo admin)
-router.patch('/:id/estado', esAdmin, validate({ params: idParamSchema, body: cambiarEstadoBodySchema }), asyncHandler(reservasController.cambiarEstado));
+// PATCH /api/reservas/:id/estado - Cambiar estado de reserva (admin, cajero, mozo)
+router.patch('/:id/estado', verificarRol('ADMIN', 'CAJERO', 'MOZO'), validate({ params: idParamSchema, body: cambiarEstadoBodySchema }), asyncHandler(reservasController.cambiarEstado));
 
 // DELETE /api/reservas/:id - Eliminar reserva (solo admin)
 router.delete('/:id', esAdmin, validate({ params: idParamSchema }), asyncHandler(reservasController.eliminar));

@@ -103,7 +103,10 @@ api.interceptors.response.use(
     const message = error.response?.data?.error?.message || 'Error de conexion'
     const skipToast = Boolean(error.config?.skipToast)
 
-    if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login')) {
+    const authUrl = error.config?.url || ''
+    const isAuthChallengeRequest = authUrl.includes('/auth/login') || authUrl.includes('/auth/mfa/')
+
+    if (error.response?.status === 401 && !isAuthChallengeRequest) {
       localStorage.removeItem('usuario')
       localStorage.removeItem('negocio')
       window.location.assign('/login')
@@ -111,7 +114,7 @@ api.interceptors.response.use(
     }
 
     if (!skipToast) {
-      toast.error(message)
+      toast.error(message, { id: `api-err-${message}` })
     }
 
     return Promise.reject(error)

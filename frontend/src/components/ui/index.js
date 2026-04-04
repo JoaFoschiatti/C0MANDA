@@ -17,4 +17,6 @@ export { default as PageHeader } from './PageHeader';
 export { default as Tooltip } from './Tooltip';
 export { default as ColorPicker } from './ColorPicker';
 export { default as OfflineBanner } from './OfflineBanner';
+export { default as PageLoader } from './PageLoader';
 export { default as SyncStatusIndicator } from './SyncStatusIndicator';
+export { default as Toggle } from './Toggle';

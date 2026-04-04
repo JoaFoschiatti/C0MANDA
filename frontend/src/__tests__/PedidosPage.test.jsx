@@ -444,10 +444,11 @@ describe('Pedidos page', () => {
 
     expect(await screen.findByText('Viendo pedidos de Mesa 7.')).toBeInTheDocument()
     expect(screen.getByTestId('pedidos-mobile-new-order')).toBeInTheDocument()
+    expect(screen.getByText('Agregar consumo a Mesa 7')).toBeInTheDocument()
 
     await user.click(screen.getByTestId('pedidos-mobile-new-order'))
 
-    expect(mockNavigate).toHaveBeenCalledWith('/mozo/nuevo-pedido/7')
+    expect(mockNavigate).not.toHaveBeenCalled()
   })
 
   it('mantiene el contexto de mesa en el empty state', async () => {
@@ -540,7 +541,7 @@ describe('Pedidos page', () => {
     expect(await screen.findByText('#11')).toBeInTheDocument()
 
     expect(screen.getAllByTitle('Ver detalle')).toHaveLength(2)
-    expect(screen.getAllByTitle('Reimprimir comanda')).toHaveLength(2)
+    expect(screen.getAllByTitle('Imprimir')).toHaveLength(2)
     expect(screen.getByRole('button', { name: `Registrar pago del pedido #${pedidoPendiente.id}` })).toHaveAttribute('title', 'Registrar pago')
     expect(screen.getByRole('button', { name: `Facturar pedido #${pedidoCobrado.id}` })).toHaveAttribute('title', 'Facturar')
   })
@@ -689,7 +690,7 @@ describe('Pedidos page', () => {
     expect(await screen.findByText('#9')).toBeInTheDocument()
 
     expect(screen.getByRole('button', { name: /Ver detalle del pedido #9/i })).toHaveAttribute('title', 'Ver detalle')
-    expect(screen.getByRole('button', { name: /Reimprimir comanda del pedido #9/i })).toHaveAttribute('title', 'Reimprimir comanda')
+    expect(screen.getByRole('button', { name: /Imprimir pedido #9/i })).toHaveAttribute('title', 'Imprimir')
     expect(screen.getByRole('button', { name: /Registrar pago del pedido #9/i })).toHaveAttribute('title', 'Registrar pago')
     expect(screen.getByRole('button', { name: /Asignar repartidor al pedido #15/i })).toHaveAttribute('title', 'Asignar repartidor')
     expect(screen.getByRole('button', { name: /Facturar pedido #88/i })).toHaveAttribute('title', 'Facturar')
@@ -1157,15 +1158,14 @@ describe('Pedidos page', () => {
 
     expect(await screen.findByText('#63')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: `Reimprimir comanda del pedido #${pedido.id}` }))
+    await user.click(screen.getByRole('button', { name: `Imprimir pedido #${pedido.id}` }))
+    await user.click(await screen.findByText('Comanda cocina'))
 
     await waitFor(() => {
-      expect(api.post).toHaveBeenCalledWith(`/impresion/comanda/${pedido.id}/reimprimir`, {})
+      expect(api.post).toHaveBeenCalledWith(`/impresion/comanda/${pedido.id}/reimprimir`, { tipo: 'COCINA' })
     })
 
-    expect(api.get).not.toHaveBeenCalledWith(`/impresion/comanda/${pedido.id}/preview?tipo=CAJA`)
-    expect(screen.queryByText('Vista previa de caja')).toBeNull()
-    expect(toast.success).toHaveBeenCalledWith('Reimpresion encolada')
+    expect(toast.success).toHaveBeenCalledWith('Comanda cocina encolada')
   })
 
   it('evita doble submit en el pago manual', async () => {

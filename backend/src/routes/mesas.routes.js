@@ -22,7 +22,7 @@ router.get('/:id', validate({ params: idParamSchema }), asyncHandler(mesasContro
 router.post('/', esAdmin, validate({ body: crearMesaBodySchema }), asyncHandler(mesasController.crear));
 router.put('/:id', esAdmin, validate({ params: idParamSchema, body: actualizarMesaBodySchema }), asyncHandler(mesasController.actualizar));
 router.patch('/:id/estado', esMozo, validate({ params: idParamSchema, body: cambiarEstadoBodySchema }), asyncHandler(mesasController.cambiarEstado));
-router.post('/:id/precuenta', verificarRol('ADMIN', 'MOZO'), validate({ params: idParamSchema }), asyncHandler(mesasController.precuenta));
+router.post('/:id/precuenta', verificarRol('ADMIN', 'MOZO', 'CAJERO'), validate({ params: idParamSchema }), asyncHandler(mesasController.precuenta));
 router.post('/:id/liberar', verificarRol('ADMIN', 'CAJERO'), validate({ params: idParamSchema }), asyncHandler(mesasController.liberar));
 router.delete('/:id', esAdmin, validate({ params: idParamSchema }), asyncHandler(mesasController.eliminar));
 

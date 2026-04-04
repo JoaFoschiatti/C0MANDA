@@ -12,3 +12,5 @@
 - [ ] Servicios `systemd` instalados
 - [ ] Timers de backup y mantenimiento instalados
 - [ ] Logs y uploads con permisos de `www-data`
+- [ ] `S3_UPLOADS_BACKUP_URI` configurado o politica explicita para respaldar `uploads`
+- [ ] Ejecutar `ops/ec2/scripts/preflight-production.sh`

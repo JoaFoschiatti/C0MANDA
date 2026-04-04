@@ -158,12 +158,86 @@ model Usuario {
   updatedAt       DateTime          @updatedAt
   pedidos         Pedido[]          @relation("PedidoCreador")
   pedidosDelivery Pedido[]          @relation("PedidoRepartidor")
+  pedidoRondas    PedidoRonda[]
   cierres         CierreCaja[]
   auditorias      PedidoAuditoria[]
   refreshTokens   RefreshToken[]
   fichajes        Fichaje[]
+  mfaCredential   UsuarioMfa?
+  oauthStates     MercadoPagoOAuthState[]
+  reembolsos      Reembolso[]            @relation("ReembolsoUsuario")
 
   @@map("usuarios")
+}
+
+model UsuarioMfa {
+  id                  String                   @id @default(uuid())
+  usuarioId           Int                      @unique
+  secretEncrypted     String?
+  pendingSecret       String?
+  pendingSecretExpiry DateTime?
+  enabledAt           DateTime?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  usuario             Usuario                  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  recoveryCodes       UsuarioMfaRecoveryCode[]
+  trustedDevices      UsuarioTrustedDevice[]
+
+  @@map("usuario_mfa")
+}
+
+model UsuarioMfaRecoveryCode {
+  id           String     @id @default(uuid())
+  usuarioMfaId String
+  codeHash     String
+  usedAt       DateTime?
+  createdAt    DateTime   @default(now())
+  usuarioMfa   UsuarioMfa @relation(fields: [usuarioMfaId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioMfaId, usedAt])
+  @@map("usuario_mfa_recovery_codes")
+}
+
+model UsuarioTrustedDevice {
+  id            String     @id @default(uuid())
+  usuarioMfaId  String
+  selector      String     @unique
+  validatorHash String
+  userAgent     String?
+  expiresAt     DateTime
+  lastUsedAt    DateTime?
+  createdAt     DateTime   @default(now())
+  usuarioMfa    UsuarioMfa @relation(fields: [usuarioMfaId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioMfaId, expiresAt])
+  @@map("usuario_trusted_devices")
+}
+
+model MercadoPagoOAuthState {
+  id                String   @id
+  usuarioId         Int
+  sessionVersion    Int
+  browserBindingHash String
+  expiresAt         DateTime
+  usedAt            DateTime?
+  createdAt         DateTime @default(now())
+  usuario           Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, expiresAt])
+  @@index([expiresAt])
+  @@map("mercadopago_oauth_states")
+}
+
+model BridgeRequestNonce {
+  id        String   @id @default(uuid())
+  bridgeId  String
+  nonce     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([bridgeId, nonce])
+  @@index([expiresAt])
+  @@map("bridge_request_nonces")
 }
 
 model RefreshToken {
@@ -410,12 +484,14 @@ model Pedido {
   mesa              Mesa?              @relation(fields: [mesaId], references: [id])
   usuario           Usuario?           @relation("PedidoCreador", fields: [usuarioId], references: [id])
   repartidor        Usuario?           @relation("PedidoRepartidor", fields: [repartidorId], references: [id])
+  rondas            PedidoRonda[]
   items             PedidoItem[]
   pagos             Pago[]
   auditorias        PedidoAuditoria[]
   comprobanteFiscal ComprobanteFiscal?
   movimientos       MovimientoStock[]
   printJobs         PrintJob[]
+  reembolsos        Reembolso[]
 
   @@index([estado])
   @@index([estado, createdAt], map: "pedidos_estado_created_at_idx")
@@ -435,6 +511,7 @@ model Pedido {
 model PedidoItem {
   id             Int                     @id @default(autoincrement())
   pedidoId       Int
+  rondaId        Int
   productoId     Int
   cantidad       Int
   precioUnitario Decimal                 @db.Decimal(10, 2)
@@ -442,12 +519,32 @@ model PedidoItem {
   observaciones  String?
   createdAt      DateTime                @default(now())
   pedido         Pedido                  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  ronda          PedidoRonda             @relation(fields: [rondaId], references: [id], onDelete: Cascade)
   producto       Producto                @relation(fields: [productoId], references: [id])
   modificadores  PedidoItemModificador[]
 
   @@index([pedidoId])
+  @@index([rondaId])
   @@index([productoId])
   @@map("pedido_items")
+}
+
+model PedidoRonda {
+  id               Int         @id @default(autoincrement())
+  pedidoId         Int
+  usuarioId        Int?
+  numero           Int
+  enviadaCocinaAt  DateTime?
+  stockAplicadoAt  DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  pedido           Pedido      @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  usuario          Usuario?    @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  items            PedidoItem[]
+
+  @@unique([pedidoId, numero])
+  @@index([pedidoId, createdAt])
+  @@map("pedido_rondas")
 }
 
 model PedidoItemModificador {
@@ -483,6 +580,7 @@ model Pago {
   updatedAt                DateTime                 @updatedAt
   pedido                   Pedido                   @relation(fields: [pedidoId], references: [id])
   transaccionesMercadoPago TransaccionMercadoPago[]
+  reembolsos               Reembolso[]
 
   @@index([pedidoId])
   @@index([estado])
@@ -705,4 +803,32 @@ model OperationalEvent {
   @@index([createdAt])
   @@index([sourceInstance, id])
   @@map("operational_events")
+}
+
+enum EstadoReembolso {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+model Reembolso {
+  id         Int              @id @default(autoincrement())
+  pagoId     Int
+  pedidoId   Int
+  monto      Decimal          @db.Decimal(10, 2)
+  motivo     String
+  metodo     MetodoPago
+  estado     EstadoReembolso  @default(PENDIENTE)
+  mpRefundId String?
+  usuarioId  Int
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  pago       Pago             @relation(fields: [pagoId], references: [id])
+  pedido     Pedido           @relation(fields: [pedidoId], references: [id])
+  usuario    Usuario          @relation("ReembolsoUsuario", fields: [usuarioId], references: [id])
+
+  @@index([pagoId])
+  @@index([pedidoId])
+  @@index([usuarioId])
+  @@map("reembolsos")
 }

@@ -102,7 +102,7 @@ export default function PublicCheckoutModal({
             placeholder="11XXXXXXXX"
           />
           <Input
-            label="Email"
+            label="Email (opcional)"
             type="email"
             value={clienteData.email}
             onChange={(event) => onClienteDataChange('email', event.target.value)}

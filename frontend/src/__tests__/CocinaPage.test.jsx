@@ -45,14 +45,14 @@ describe('Cocina page', () => {
           tipo: 'MESA',
           mesa: { numero: 5 },
           createdAt: new Date().toISOString(),
-          items: []
+          rondas: []
         },
         {
           id: 2,
           estado: 'EN_PREPARACION',
           tipo: 'DELIVERY',
           createdAt: new Date().toISOString(),
-          items: []
+          rondas: []
         }
       ]
     })
@@ -76,7 +76,7 @@ describe('Cocina page', () => {
             estado: 'PENDIENTE',
             tipo: 'MOSTRADOR',
             createdAt: new Date().toISOString(),
-            items: []
+            rondas: []
           }
         ]
       })

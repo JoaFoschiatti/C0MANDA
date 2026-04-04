@@ -7,7 +7,7 @@ const baseCrud = createCrudService('mesa', {
   defaultOrderBy: { numero: 'asc' },
   defaultInclude: {
     pedidos: {
-      where: { estado: { notIn: ['COBRADO', 'CERRADO', 'CANCELADO'] } },
+      where: { estado: { notIn: ['CERRADO', 'CANCELADO'] } },
       take: 1
     }
   },
@@ -28,7 +28,7 @@ const obtener = async (prisma, id) => {
     where: { id },
     include: {
       pedidos: {
-        where: { estado: { notIn: ['COBRADO', 'CERRADO', 'CANCELADO'] } },
+        where: { estado: { notIn: ['CERRADO', 'CANCELADO'] } },
         include: { items: { include: { producto: true } } }
       }
     }

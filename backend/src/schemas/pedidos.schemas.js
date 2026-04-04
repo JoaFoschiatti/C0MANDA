@@ -36,7 +36,7 @@ const cambiarEstadoBodySchema = z.object({
 }).strip();
 
 const agregarItemsBodySchema = z.object({
-  items: z.array(pedidoItemInputSchema.omit({ modificadores: true })).min(1)
+  items: z.array(pedidoItemInputSchema).min(1)
 }).strip();
 
 const cancelarBodySchema = z.object({
@@ -47,6 +47,24 @@ const asignarDeliveryBodySchema = z.object({
   repartidorId: positiveIntSchema
 }).strip();
 
+const aplicarDescuentoBodySchema = z.object({
+  descuento: z.coerce.number().min(0),
+  motivo: z.string().min(3).max(500).optional()
+}).strip();
+
+const anularItemParamsSchema = z.object({
+  id: positiveIntSchema,
+  itemId: positiveIntSchema
+});
+
+const anularItemBodySchema = z.object({
+  motivo: z.string().min(3).max(500).optional()
+}).strip();
+
+const cambiarMesaBodySchema = z.object({
+  nuevoMesaId: positiveIntSchema
+}).strip();
+
 module.exports = {
   idParamSchema,
   listarQuerySchema,
@@ -54,5 +72,9 @@ module.exports = {
   cambiarEstadoBodySchema,
   agregarItemsBodySchema,
   cancelarBodySchema,
-  asignarDeliveryBodySchema
+  asignarDeliveryBodySchema,
+  aplicarDescuentoBodySchema,
+  anularItemParamsSchema,
+  anularItemBodySchema,
+  cambiarMesaBodySchema
 };

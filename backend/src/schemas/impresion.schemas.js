@@ -23,13 +23,21 @@ const tipoComandaSchema = z.preprocess((val) => {
   return String(val).toUpperCase();
 }, z.enum(['COCINA', 'CAJA', 'CLIENTE']).optional());
 
+const rondaIdSchema = z.preprocess((val) => {
+  if (val === undefined || val === null || val === '') return undefined;
+  return val;
+}, z.coerce.number().int().positive().optional());
+
 const imprimirComandaBodySchema = z.object({
-  anchoMm: anchoMmSchema
+  anchoMm: anchoMmSchema,
+  tipo: tipoComandaSchema,
+  rondaId: rondaIdSchema
 }).strip();
 
 const previewComandaQuerySchema = z.object({
   tipo: tipoComandaSchema.default('CLIENTE'),
-  anchoMm: anchoMmSchema
+  anchoMm: anchoMmSchema,
+  rondaId: rondaIdSchema
 }).strip();
 
 const bridgeClaimBodySchema = z.object({

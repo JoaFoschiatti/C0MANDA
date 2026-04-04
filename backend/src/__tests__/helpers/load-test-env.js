@@ -5,6 +5,7 @@ const dotenv = require('dotenv');
 const projectRoot = path.resolve(__dirname, '../../..');
 const baseEnvPath = path.join(projectRoot, '.env');
 const testEnvPath = path.join(projectRoot, '.env.test');
+const defaultTestEnvExamplePath = path.join(projectRoot, '.env.test.example');
 
 const getSchemaFromUrl = (rawUrl) => {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
@@ -44,17 +45,28 @@ const forceIpv4Localhost = (rawUrl) => {
 const loadTestEnv = () => {
   dotenv.config({ path: baseEnvPath, quiet: true });
 
-  if (!fs.existsSync(testEnvPath)) {
-    throw new Error(`Falta ${testEnvPath}. Los tests requieren un entorno aislado explicito.`);
+  const explicitTestEnvPath = process.env.TEST_ENV_FILE
+    ? path.resolve(projectRoot, process.env.TEST_ENV_FILE)
+    : testEnvPath;
+
+  if (fs.existsSync(explicitTestEnvPath)) {
+    dotenv.config({
+      path: explicitTestEnvPath,
+      override: true,
+      quiet: true
+    });
   }
 
-  dotenv.config({
-    path: testEnvPath,
-    override: true,
-    quiet: true
-  });
-
   process.env.NODE_ENV = 'test';
+
+  if (!process.env.DATABASE_URL || !process.env.DIRECT_URL) {
+    const hintPath = fs.existsSync(defaultTestEnvExamplePath)
+      ? ` o copiar ${defaultTestEnvExamplePath} a ${testEnvPath}`
+      : '';
+    throw new Error(
+      `Faltan DATABASE_URL y DIRECT_URL de test. Define ambas variables en el entorno${hintPath}.`
+    );
+  }
 
   if (process.env.DATABASE_URL) {
     process.env.DATABASE_URL = forceIpv4Localhost(process.env.DATABASE_URL);
@@ -71,5 +83,6 @@ module.exports = {
   assertIsolatedTestDatabase,
   loadTestEnv,
   forceIpv4Localhost,
-  testEnvPath
+  testEnvPath,
+  defaultTestEnvExamplePath
 };

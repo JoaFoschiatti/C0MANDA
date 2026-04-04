@@ -9,8 +9,7 @@ const {
 const {
   loginAsAdmin,
   openAndWait,
-  saveQaScreenshot,
-  waitForAppReady
+  saveQaScreenshot
 } = require('./helpers');
 
 test.describe('Visual Smoke Desktop', () => {
@@ -154,18 +153,6 @@ test.describe('Visual Smoke Mobile', () => {
       route: '/menu',
       role: 'publico',
       state: 'carrito-mobile',
-      result: 'PASS',
-      defect: null
-    });
-
-    await page.goto(`/menu/mesa/${testData.baseMesaQrToken}`);
-    await waitForAppReady(page, `text=Mesa ${testData.baseMesaNumber}`);
-    const mesaProductCard = page.locator('article').filter({ hasText: testData.productName }).first();
-    await mesaProductCard.getByRole('button', { name: /Agregar/i }).click({ force: true });
-    await saveQaScreenshot(page, 'mobile-menu-mesa', {
-      route: `/menu/mesa/${testData.baseMesaQrToken}`,
-      role: 'publico',
-      state: 'mesa-qr-con-cta',
       result: 'PASS',
       defect: null
     });

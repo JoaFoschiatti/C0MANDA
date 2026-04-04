@@ -1,5 +1,7 @@
 const request = require('supertest');
 const app = require('../app');
+const { decodeBase32 } = require('../utils/base32');
+const { MFA_PREAUTH_COOKIE, TRUSTED_DEVICE_COOKIE } = require('../services/mfa.service');
 const {
   uniqueId,
   createUsuario,
@@ -8,6 +10,31 @@ const {
   cleanupOperationalData,
   ensureNegocio
 } = require('./helpers/test-helpers');
+
+const TOTP_STEP_MS = 30 * 1000;
+
+const computeTotp = (secret, timestamp = Date.now()) => {
+  const crypto = require('crypto');
+  const key = decodeBase32(secret);
+  const counter = Math.floor(timestamp / TOTP_STEP_MS);
+  const counterBuffer = Buffer.alloc(8);
+  counterBuffer.writeBigUInt64BE(BigInt(counter));
+
+  const hmac = crypto.createHmac('sha1', key).update(counterBuffer).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code = (
+    ((hmac[offset] & 0x7f) << 24)
+    | (hmac[offset + 1] << 16)
+    | (hmac[offset + 2] << 8)
+    | hmac[offset + 3]
+  ) % 1000000;
+
+  return String(code).padStart(6, '0');
+};
+
+const findCookie = (response, name) => response.headers['set-cookie']?.find((cookie) => (
+  cookie.startsWith(`${name}=`)
+))?.split(';')[0];
 
 describe('Auth Endpoints', () => {
   let originalTrustProxy;
@@ -88,6 +115,112 @@ describe('Auth Endpoints', () => {
         .expect(200);
 
       expect(response.body.usuario.email).toBe(loginEmail);
+    });
+
+    it('should require MFA setup for ADMIN without MFA configured', async () => {
+      const admin = await createUsuario({
+        email: `${uniqueId('admin-mfa')}@example.com`,
+        passwordPlano: loginPassword,
+        rol: 'ADMIN'
+      });
+
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: admin.email,
+          password: loginPassword
+        })
+        .expect(202);
+
+      expect(response.body).toMatchObject({
+        next: 'MFA_SETUP_REQUIRED',
+        usuario: {
+          id: admin.id,
+          email: admin.email,
+          rol: 'ADMIN'
+        }
+      });
+      expect(findCookie(response, MFA_PREAUTH_COOKIE)).toBeDefined();
+    });
+
+    it('should confirm MFA setup and trust the device for ADMIN users', async () => {
+      const agent = request.agent(app);
+      const admin = await createUsuario({
+        email: `${uniqueId('admin-mfa-setup')}@example.com`,
+        passwordPlano: loginPassword,
+        rol: 'ADMIN'
+      });
+
+      const loginResponse = await agent
+        .post('/api/auth/login')
+        .send({
+          email: admin.email,
+          password: loginPassword
+        })
+        .expect(202);
+
+      expect(findCookie(loginResponse, MFA_PREAUTH_COOKIE)).toBeDefined();
+
+      const setupResponse = await agent
+        .get('/api/auth/mfa/setup')
+        .expect(200);
+
+      const confirmResponse = await agent
+        .post('/api/auth/mfa/setup/confirm')
+        .send({
+          code: computeTotp(setupResponse.body.secret),
+          trustDevice: true
+        })
+        .expect(200);
+
+      expect(confirmResponse.body.recoveryCodes).toHaveLength(8);
+      expect(findCookie(confirmResponse, TRUSTED_DEVICE_COOKIE)).toBeDefined();
+      expect(confirmResponse.body.usuario.email).toBe(admin.email);
+    });
+
+    it('should skip the MFA challenge on a remembered device', async () => {
+      const agent = request.agent(app);
+      const admin = await createUsuario({
+        email: `${uniqueId('admin-mfa-trusted')}@example.com`,
+        passwordPlano: loginPassword,
+        rol: 'ADMIN'
+      });
+
+      const loginResponse = await agent
+        .post('/api/auth/login')
+        .send({
+          email: admin.email,
+          password: loginPassword
+        })
+        .expect(202);
+
+      expect(findCookie(loginResponse, MFA_PREAUTH_COOKIE)).toBeDefined();
+
+      const setupResponse = await agent
+        .get('/api/auth/mfa/setup')
+        .expect(200);
+
+      const confirmResponse = await agent
+        .post('/api/auth/mfa/setup/confirm')
+        .send({
+          code: computeTotp(setupResponse.body.secret),
+          trustDevice: true
+        })
+        .expect(200);
+
+      const trustedDeviceCookie = findCookie(confirmResponse, TRUSTED_DEVICE_COOKIE);
+
+      const rememberedLogin = await request(app)
+        .post('/api/auth/login')
+        .set('Cookie', trustedDeviceCookie)
+        .send({
+          email: admin.email,
+          password: loginPassword
+        })
+        .expect(200);
+
+      expect(rememberedLogin.body.usuario.email).toBe(admin.email);
+      expect(rememberedLogin.body.next).toBeUndefined();
     });
 
     it('should not share the rate limit bucket across different emails on the same IP', async () => {

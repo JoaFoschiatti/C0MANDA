@@ -132,7 +132,6 @@ async function globalSetup() {
       productName: FIXTURES.baseProductName,
       baseMesaId: mesa.id,
       baseMesaNumber: FIXTURES.baseMesaNumber,
-      baseMesaQrToken: mesa.qrToken,
       extraMesaNumber: FIXTURES.extraMesaNumber,
       reservationClientName: FIXTURES.reservationClientName,
       orderClientName: FIXTURES.orderClientName,

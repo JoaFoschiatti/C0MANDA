@@ -1,6 +1,8 @@
 const { createHttpError } = require('../utils/http-error');
 const printService = require('./print.service');
 
+const PRINT_HISTORY_LIMIT = 5;
+
 const parseLimit = (value, defaultValue = 3) => {
   const parsed = parseInt(value, 10);
   if (Number.isNaN(parsed)) return defaultValue;
@@ -21,7 +23,12 @@ const getBackoffMs = () => {
 
 const imprimirComanda = async (prisma, pedidoId, options = {}) => {
   const anchoMm = options.anchoMm === undefined ? undefined : parseWidth(options.anchoMm);
-  return printService.enqueuePrintJobs(prisma, pedidoId, { anchoMm });
+  return printService.enqueuePrintJobs(prisma, pedidoId, {
+    anchoMm,
+    tipos: options.tipos,
+    roundIds: options.roundIds,
+    rondaId: options.rondaId
+  });
 };
 
 const previewComanda = async (prisma, pedidoId, query = {}) => {
@@ -33,7 +40,52 @@ const previewComanda = async (prisma, pedidoId, query = {}) => {
     include: {
       mesa: true,
       usuario: { select: { nombre: true } },
-      items: { include: { producto: { select: { nombre: true } } } }
+      items: {
+        include: {
+          producto: { select: { nombre: true } },
+          ronda: {
+            select: {
+              id: true,
+              numero: true,
+              createdAt: true
+            }
+          },
+          modificadores: {
+            include: {
+              modificador: {
+                select: {
+                  nombre: true,
+                  tipo: true,
+                  precio: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: { createdAt: 'asc' }
+      },
+      rondas: {
+        include: {
+          items: {
+            include: {
+              producto: { select: { nombre: true } },
+              modificadores: {
+                include: {
+                  modificador: {
+                    select: {
+                      nombre: true,
+                      tipo: true,
+                      precio: true
+                    }
+                  }
+                }
+              }
+            },
+            orderBy: { createdAt: 'asc' }
+          }
+        },
+        orderBy: { numero: 'asc' }
+      }
     }
   });
 
@@ -41,7 +93,9 @@ const previewComanda = async (prisma, pedidoId, query = {}) => {
     throw createHttpError.notFound('Pedido no encontrado');
   }
 
-  return printService.buildComandaText(pedido, tipo, anchoMm);
+  return printService.buildComandaText(pedido, tipo, anchoMm, {
+    rondaId: query.rondaId
+  });
 };
 
 const estadoImpresora = async (prisma) => {
@@ -52,7 +106,7 @@ const estadoImpresora = async (prisma) => {
   const errores = await prisma.printJob.findMany({
     where: { status: 'ERROR' },
     orderBy: { updatedAt: 'desc' },
-    take: 5
+    take: PRINT_HISTORY_LIMIT
   });
 
   return {

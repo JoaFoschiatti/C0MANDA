@@ -61,11 +61,12 @@ describe('Reportes page', () => {
           ingredientes: []
         }
       })
+      .mockResolvedValueOnce({ data: { horas: [], horaPico: '00:00', horaMaxVentas: '00:00' } })
 
     render(<Reportes />)
 
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledTimes(4)
+      expect(api.get).toHaveBeenCalledTimes(5)
     })
 
     expect(screen.getByLabelText('Desde')).toHaveValue(fechaDesde)
@@ -85,6 +86,10 @@ describe('Reportes page', () => {
     )
     expect(api.get).toHaveBeenCalledWith(
       `/reportes/consumo-insumos?fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}`,
+      expect.objectContaining({ skipToast: true })
+    )
+    expect(api.get).toHaveBeenCalledWith(
+      `/reportes/ventas-por-hora?fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}`,
       expect.objectContaining({ skipToast: true })
     )
   })

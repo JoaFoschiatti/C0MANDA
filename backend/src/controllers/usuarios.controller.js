@@ -1,4 +1,5 @@
 const { getPrisma } = require('../utils/get-prisma');
+const { createHttpError } = require('../utils/http-error');
 const usuariosService = require('../services/usuarios.service');
 
 const listar = async (req, res) => {
@@ -24,7 +25,7 @@ const actualizar = async (req, res) => {
 
   // No permitir auto-desactivacion
   if (req.body.activo === false && req.params.id === req.usuario?.id) {
-    return res.status(400).json({ error: 'No puedes desactivarte a ti mismo' });
+    throw createHttpError.badRequest('No puedes desactivarte a ti mismo');
   }
 
   const usuario = await usuariosService.actualizar(prisma, req.params.id, req.body);
@@ -33,7 +34,13 @@ const actualizar = async (req, res) => {
 
 const eliminar = async (req, res) => {
   const prisma = getPrisma(req);
-  const resultado = await usuariosService.eliminar(prisma, req.params.id);
+  await usuariosService.eliminar(prisma, req.params.id);
+  res.status(204).end();
+};
+
+const resetMfa = async (req, res) => {
+  const prisma = getPrisma(req);
+  const resultado = await usuariosService.resetMfa(prisma, req.params.id);
   res.json(resultado);
 };
 
@@ -42,5 +49,6 @@ module.exports = {
   obtener,
   crear,
   actualizar,
-  eliminar
+  eliminar,
+  resetMfa
 };

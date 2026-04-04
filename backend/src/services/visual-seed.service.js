@@ -1,36 +1,18 @@
 const bcrypt = require('bcryptjs');
 const { normalizeEmail } = require('../utils/email');
 const { SUCURSAL_IDS } = require('../constants/sucursales');
-const { saveUsuarioByEmail, upsertConfig } = require('./bootstrap.service');
+const {
+  saveUsuarioByEmail,
+  seedBaseDemoUsers,
+  upsertConfig
+} = require('./bootstrap.service');
 
 const VISUAL_SEED_RANDOM = 20260328;
 
 const MONEY = (value) => Number.parseFloat(Number(value || 0).toFixed(2));
 const STOCK = (value) => Number.parseFloat(Number(value || 0).toFixed(3));
 
-const addDays = (value, days) => {
-  const next = new Date(value);
-  next.setDate(next.getDate() + days);
-  return next;
-};
-
-const addHours = (value, hours) => {
-  const next = new Date(value);
-  next.setHours(next.getHours() + hours);
-  return next;
-};
-
-const addMinutes = (value, minutes) => {
-  const next = new Date(value);
-  next.setMinutes(next.getMinutes() + minutes);
-  return next;
-};
-
-const startOfDay = (value) => {
-  const next = new Date(value);
-  next.setHours(0, 0, 0, 0);
-  return next;
-};
+const { addDays, addHours, addMinutes, startOfDay } = require('../utils/date-helpers');
 
 const createSeededRandom = (seed = VISUAL_SEED_RANDOM) => {
   let state = seed % 2147483647;
@@ -77,6 +59,73 @@ const VISUAL_CREDENTIALS = [
   { rol: 'DELIVERY', email: 'delivery@comanda.local', password: 'delivery123' }
 ];
 
+const VISUAL_EXTRA_USERS = [
+  {
+    email: 'mozo3@comanda.local',
+    password: 'mozo123',
+    nombre: 'Sofia',
+    apellido: 'Ruiz',
+    telefono: '1155553457',
+    rol: 'MOZO',
+    tarifaHora: 1550,
+    activo: true
+  },
+  {
+    email: 'mozo4@comanda.local',
+    password: 'mozo123',
+    nombre: 'Lucas',
+    apellido: 'Diaz',
+    telefono: '1155553458',
+    rol: 'MOZO',
+    tarifaHora: 1550,
+    activo: false
+  },
+  {
+    email: 'cocinero2@comanda.local',
+    password: 'cocinero123',
+    nombre: 'Agustin',
+    apellido: 'Rios',
+    telefono: '1155554457',
+    rol: 'COCINERO',
+    tarifaHora: 1850,
+    activo: true
+  },
+  {
+    email: 'cajero2@comanda.local',
+    password: 'cajero123',
+    nombre: 'Julieta',
+    apellido: 'Luna',
+    telefono: '1155555457',
+    rol: 'CAJERO',
+    tarifaHora: 1750,
+    activo: true
+  },
+  {
+    email: 'delivery2@comanda.local',
+    password: 'delivery123',
+    nombre: 'Mateo',
+    apellido: 'Rider',
+    telefono: '1155556457',
+    rol: 'DELIVERY',
+    activo: true
+  }
+];
+
+const buildRoleEmailSets = ({ includeExtraUsers = true } = {}) => ({
+  tertiaryMozo: includeExtraUsers ? 'mozo3@comanda.local' : 'mozo2@comanda.local',
+  secondaryCajero: includeExtraUsers ? 'cajero2@comanda.local' : 'cajero@comanda.local',
+  secondaryDelivery: includeExtraUsers ? 'delivery2@comanda.local' : 'delivery@comanda.local',
+  historicalMozos: includeExtraUsers
+    ? ['mozo@comanda.local', 'mozo2@comanda.local', 'mozo3@comanda.local']
+    : ['mozo@comanda.local', 'mozo2@comanda.local'],
+  historicalCajeros: includeExtraUsers
+    ? ['cajero@comanda.local', 'cajero2@comanda.local']
+    : ['cajero@comanda.local'],
+  historicalRepartidores: includeExtraUsers
+    ? ['delivery@comanda.local', 'delivery2@comanda.local']
+    : ['delivery@comanda.local']
+});
+
 const resetVisualSeedState = async (prisma) => {
   await prisma.$transaction(async (tx) => {
     await tx.operationalEvent.deleteMany();
@@ -107,44 +156,58 @@ const resetVisualSeedState = async (prisma) => {
   });
 };
 
-const ensureVisualConfigs = async (prisma) => {
+const ensureVisualConfigs = async (prisma, options = {}) => {
+  const {
+    negocioNombre = 'Comanda Visual QA',
+    negocioTelefono = '11-5555-0099',
+    negocioDireccion = 'Av. Demo 123, CABA',
+    colorPrimario = '#D97706',
+    colorSecundario = '#0F766E',
+    taglineNegocio = 'Escenario de demo visual con datos reales de operacion',
+    mercadopagoTransferAlias = 'comanda.demo.mp',
+    mercadopagoTransferTitular = negocioNombre,
+    mercadopagoTransferCvu = '0000003100000000000001',
+    facturacionDescripcion = 'PV demo visual',
+    puntoVentaDescripcion = 'Punto de venta demo visual'
+  } = options;
+
   await prisma.negocio.update({
     where: { id: 1 },
     data: {
-      nombre: 'Comanda Visual QA',
-      telefono: '11-5555-0099',
-      direccion: 'Av. Demo 123, CABA',
-      colorPrimario: '#D97706',
-      colorSecundario: '#0F766E'
+      nombre: negocioNombre,
+      telefono: negocioTelefono,
+      direccion: negocioDireccion,
+      colorPrimario,
+      colorSecundario
     }
   });
 
   await Promise.all([
-    upsertConfig(prisma, 'nombre_negocio', 'Comanda Visual QA'),
-    upsertConfig(prisma, 'tagline_negocio', 'Escenario de demo visual con datos reales de operacion'),
+    upsertConfig(prisma, 'nombre_negocio', negocioNombre),
+    upsertConfig(prisma, 'tagline_negocio', taglineNegocio),
     upsertConfig(prisma, 'whatsapp_numero', '5491155550099'),
     upsertConfig(prisma, 'efectivo_enabled', true),
     upsertConfig(prisma, 'mercadopago_enabled', false),
-    upsertConfig(prisma, 'mercadopago_transfer_alias', 'comanda.demo.mp'),
-    upsertConfig(prisma, 'mercadopago_transfer_titular', 'Comanda Visual QA'),
-    upsertConfig(prisma, 'mercadopago_transfer_cvu', '0000003100000000000001'),
+    upsertConfig(prisma, 'mercadopago_transfer_alias', mercadopagoTransferAlias),
+    upsertConfig(prisma, 'mercadopago_transfer_titular', mercadopagoTransferTitular),
+    upsertConfig(prisma, 'mercadopago_transfer_cvu', mercadopagoTransferCvu),
     upsertConfig(prisma, 'delivery_habilitado', true),
     upsertConfig(prisma, 'facturacion_habilitada', true),
-    upsertConfig(prisma, 'facturacion_descripcion', 'PV demo visual'),
+    upsertConfig(prisma, 'facturacion_descripcion', facturacionDescripcion),
     upsertConfig(prisma, 'facturacion_cuit_emisor', '30712345678')
   ]);
 
   await prisma.puntoVentaFiscal.upsert({
     where: { puntoVenta: 1 },
     update: {
-      descripcion: 'Punto de venta demo visual',
+      descripcion: puntoVentaDescripcion,
       ambiente: 'homologacion',
       cuitEmisor: '30712345678',
       activo: true
     },
     create: {
       puntoVenta: 1,
-      descripcion: 'Punto de venta demo visual',
+      descripcion: puntoVentaDescripcion,
       ambiente: 'homologacion',
       cuitEmisor: '30712345678',
       activo: true
@@ -152,60 +215,16 @@ const ensureVisualConfigs = async (prisma) => {
   });
 };
 
-const ensureVisualUsers = async (prisma) => {
-  const visualUsers = [
-    {
-      email: 'mozo3@comanda.local',
-      password: 'mozo123',
-      nombre: 'Sofia',
-      apellido: 'Ruiz',
-      telefono: '1155553457',
-      rol: 'MOZO',
-      tarifaHora: 1550,
-      activo: true
-    },
-    {
-      email: 'mozo4@comanda.local',
-      password: 'mozo123',
-      nombre: 'Lucas',
-      apellido: 'Diaz',
-      telefono: '1155553458',
-      rol: 'MOZO',
-      tarifaHora: 1550,
-      activo: false
-    },
-    {
-      email: 'cocinero2@comanda.local',
-      password: 'cocinero123',
-      nombre: 'Agustin',
-      apellido: 'Rios',
-      telefono: '1155554457',
-      rol: 'COCINERO',
-      tarifaHora: 1850,
-      activo: true
-    },
-    {
-      email: 'cajero2@comanda.local',
-      password: 'cajero123',
-      nombre: 'Julieta',
-      apellido: 'Luna',
-      telefono: '1155555457',
-      rol: 'CAJERO',
-      tarifaHora: 1750,
-      activo: true
-    },
-    {
-      email: 'delivery2@comanda.local',
-      password: 'delivery123',
-      nombre: 'Mateo',
-      apellido: 'Rider',
-      telefono: '1155556457',
-      rol: 'DELIVERY',
-      activo: true
-    }
-  ];
+const ensureVisualUsers = async (prisma, options = {}) => {
+  const { includeExtraUsers = true } = options;
 
-  for (const user of visualUsers) {
+  await seedBaseDemoUsers(prisma);
+
+  if (!includeExtraUsers) {
+    return;
+  }
+
+  for (const user of VISUAL_EXTRA_USERS) {
     await saveUsuarioByEmail(prisma, {
       email: normalizeEmail(user.email),
       password: await bcrypt.hash(user.password, 10),
@@ -1763,7 +1782,7 @@ const createPedidoScenario = async (prisma, refs, scenario) => {
   });
 };
 
-const buildLiveScenarios = (baseNow) => [
+const buildLiveScenarios = (baseNow, roleEmails = buildRoleEmailSets()) => [
   {
     key: 'mesa-1-pendiente',
     tipo: 'MESA',
@@ -1800,7 +1819,7 @@ const buildLiveScenarios = (baseNow) => [
     tipo: 'MESA',
     estado: 'LISTO',
     mesaNumero: 3,
-    usuarioEmail: 'mozo3@comanda.local',
+    usuarioEmail: roleEmails.tertiaryMozo,
     observaciones: 'Mesa de cumpleaños.',
     createdAt: addMinutes(baseNow, -60),
     updatedAt: addMinutes(baseNow, -9),
@@ -1869,7 +1888,7 @@ const buildLiveScenarios = (baseNow) => [
     tipo: 'DELIVERY',
     estado: 'EN_PREPARACION',
     tipoEntrega: 'DELIVERY',
-    usuarioEmail: 'cajero2@comanda.local',
+    usuarioEmail: roleEmails.secondaryCajero,
     repartidorEmail: 'delivery@comanda.local',
     clienteNombre: 'Ezequiel Nunez',
     clienteTelefono: '1160011002',
@@ -1910,8 +1929,8 @@ const buildLiveScenarios = (baseNow) => [
     tipo: 'DELIVERY',
     estado: 'LISTO',
     tipoEntrega: 'DELIVERY',
-    usuarioEmail: 'cajero2@comanda.local',
-    repartidorEmail: 'delivery2@comanda.local',
+    usuarioEmail: roleEmails.secondaryCajero,
+    repartidorEmail: roleEmails.secondaryDelivery,
     clienteNombre: 'Marina Aguilar',
     clienteTelefono: '1160011004',
     clienteDireccion: 'Malabia 1440',
@@ -1963,7 +1982,7 @@ const buildLiveScenarios = (baseNow) => [
     key: 'mostrador-preparacion',
     tipo: 'MOSTRADOR',
     estado: 'EN_PREPARACION',
-    usuarioEmail: 'cajero2@comanda.local',
+    usuarioEmail: roleEmails.secondaryCajero,
     clienteNombre: 'Take Away 2',
     tipoEntrega: 'RETIRO',
     createdAt: addMinutes(baseNow, -18),
@@ -2061,7 +2080,7 @@ const buildLiveScenarios = (baseNow) => [
     tipo: 'MESA',
     estado: 'COBRADO',
     mesaNumero: 8,
-    usuarioEmail: 'mozo3@comanda.local',
+    usuarioEmail: roleEmails.tertiaryMozo,
     createdAt: addHours(startOfDay(baseNow), 16),
     updatedAt: addHours(startOfDay(baseNow), 17),
     printStatus: 'OK',
@@ -2093,7 +2112,7 @@ const buildLiveScenarios = (baseNow) => [
     estado: 'CANCELADO',
     origen: 'MENU_PUBLICO',
     tipoEntrega: 'DELIVERY',
-    usuarioEmail: 'cajero2@comanda.local',
+    usuarioEmail: roleEmails.secondaryCajero,
     clienteNombre: 'Pedido Rechazado',
     clienteTelefono: '1160011007',
     clienteDireccion: 'Gurruchaga 1400',
@@ -2132,11 +2151,11 @@ const buildLiveScenarios = (baseNow) => [
 const HISTORICAL_NAMES = ['Camila Torres', 'Martin Suarez', 'Rocio Molina', 'Tomas Luna', 'Paula Gomez', 'Santiago Vera', 'Luciana Castro', 'Bruno Arias', 'Nadia Roldan', 'Federico Paz'];
 const HISTORICAL_ADDRESSES = ['Araoz 1120', 'Guemes 4200', 'Cordoba 3901', 'Jufre 1777', 'Scalabrini Ortiz 2020', 'Lavalleja 101'];
 
-const buildHistoricalScenarios = (refs, baseNow) => {
+const buildHistoricalScenarios = (refs, baseNow, roleEmails = buildRoleEmailSets()) => {
   const random = createSeededRandom(VISUAL_SEED_RANDOM);
-  const mozos = ['mozo@comanda.local', 'mozo2@comanda.local', 'mozo3@comanda.local'];
-  const cajeros = ['cajero@comanda.local', 'cajero2@comanda.local'];
-  const repartidores = ['delivery@comanda.local', 'delivery2@comanda.local'];
+  const mozos = roleEmails.historicalMozos;
+  const cajeros = roleEmails.historicalCajeros;
+  const repartidores = roleEmails.historicalRepartidores;
   const mesaNumbers = [1, 2, 3, 7, 8, 9, 10, 11, 12];
   const productPool = {
     MESA: ['Hamburguesa Clasica', 'Hamburguesa con Queso', 'Bacon Smash', 'Pizza Margarita', 'Pizza Pepperoni', 'Pizza Fugazzeta', 'Papas Cheddar', 'Brownie con Helado', 'Limonada Menta Jengibre'],
@@ -2426,10 +2445,16 @@ const collectVisualCounts = async (prisma) => {
 };
 
 const seedVisualData = async (prisma, options = {}) => {
-  const baseNow = options.baseNow || new Date();
+  const {
+    baseNow = new Date(),
+    includeExtraUsers = true,
+    credentials = VISUAL_CREDENTIALS,
+    ...configOptions
+  } = options;
+  const roleEmails = buildRoleEmailSets({ includeExtraUsers });
 
-  await ensureVisualConfigs(prisma);
-  await ensureVisualUsers(prisma);
+  await ensureVisualConfigs(prisma, configOptions);
+  await ensureVisualUsers(prisma, { includeExtraUsers });
   await ensureVisualMesas(prisma);
 
   const categoriaIds = await ensureVisualCategorias(prisma);
@@ -2443,8 +2468,8 @@ const seedVisualData = async (prisma, options = {}) => {
   await seedCierresCaja(prisma, refs, baseNow);
   await seedReservas(prisma, refs, baseNow);
 
-  const liveScenarios = buildLiveScenarios(baseNow);
-  const historicalScenarios = buildHistoricalScenarios(refs, baseNow);
+  const liveScenarios = buildLiveScenarios(baseNow, roleEmails);
+  const historicalScenarios = buildHistoricalScenarios(refs, baseNow, roleEmails);
 
   for (const scenario of [...liveScenarios, ...historicalScenarios]) {
     await createPedidoScenario(prisma, refs, scenario);
@@ -2457,7 +2482,7 @@ const seedVisualData = async (prisma, options = {}) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
   return {
-    credentials: VISUAL_CREDENTIALS,
+    credentials,
     urls: {
       menuPublico: `${frontendUrl}/menu`
     },

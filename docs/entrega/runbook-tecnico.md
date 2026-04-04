@@ -5,8 +5,9 @@
 1. Preparar el host con `ops/ec2/scripts/bootstrap-host.sh`.
 2. Instalar configuraciones de `nginx`, `systemd` y `logrotate`.
 3. Crear `/opt/comanda/backend/.env`.
-4. Ejecutar `ops/ec2/scripts/deploy-app.sh`.
-5. Verificar `systemctl status comanda-backend`.
+4. Ejecutar `bash ops/ec2/scripts/preflight-production.sh`.
+5. Ejecutar `ops/ec2/scripts/deploy-app.sh`.
+6. Verificar `systemctl status comanda-backend`.
 
 ## Redeploy
 
@@ -52,6 +53,12 @@ sudo -u www-data /opt/comanda/ops/ec2/scripts/backup-db.sh
 
 ```bash
 sudo /opt/comanda/ops/ec2/scripts/restore-db.sh s3://bucket/comanda.dump postgresql://...
+```
+
+### Restore de uploads
+
+```bash
+sudo AWS_REGION=sa-east-1 bash /opt/comanda/ops/ec2/scripts/restore-uploads.sh s3://bucket/uploads/2026-04-02-120000 /opt/comanda/uploads
 ```
 
 Despues del restore:

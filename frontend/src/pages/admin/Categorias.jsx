@@ -4,12 +4,20 @@ import toast from 'react-hot-toast'
 import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline'
 import { PageHeader, Button, Spinner } from '../../components/ui'
 import useAsync from '../../hooks/useAsync'
+import useFormModal from '../../hooks/useFormModal'
+
+const initialForm = { nombre: '', descripcion: '', orden: 0 }
+
+const mapCategoriaToForm = (cat) => ({
+  nombre: cat.nombre,
+  descripcion: cat.descripcion || '',
+  orden: cat.orden,
+})
 
 export default function Categorias() {
   const [categorias, setCategorias] = useState([])
-  const [showModal, setShowModal] = useState(false)
-  const [editando, setEditando] = useState(null)
-  const [form, setForm] = useState({ nombre: '', descripcion: '', orden: 0 })
+  const { open: showModal, editando, form, setForm, abrir, cerrar } =
+    useFormModal(initialForm, { mapToForm: mapCategoriaToForm })
 
   const cargarCategorias = useCallback(async () => {
     const response = await api.get('/categorias')
@@ -37,22 +45,11 @@ export default function Categorias() {
         await api.post('/categorias', form)
         toast.success('Categoría creada')
       }
-      setShowModal(false)
-      resetForm()
+      cerrar()
       cargarCategoriasAsync()
     } catch (error) {
       console.error('Error:', error)
     }
-  }
-
-  const handleEdit = (categoria) => {
-    setEditando(categoria)
-    setForm({
-      nombre: categoria.nombre,
-      descripcion: categoria.descripcion || '',
-      orden: categoria.orden
-    })
-    setShowModal(true)
   }
 
   const handleDelete = async (id) => {
@@ -64,11 +61,6 @@ export default function Categorias() {
     } catch (error) {
       console.error('Error:', error)
     }
-  }
-
-  const resetForm = () => {
-    setForm({ nombre: '', descripcion: '', orden: 0 })
-    setEditando(null)
   }
 
   if (loading && categorias.length === 0) {
@@ -84,7 +76,7 @@ export default function Categorias() {
       <PageHeader
         title="Categorías"
         actions={
-          <Button onClick={() => { resetForm(); setShowModal(true) }} icon={PlusIcon}>
+          <Button onClick={() => abrir()} icon={PlusIcon}>
             Nueva Categoría
           </Button>
         }
@@ -117,7 +109,7 @@ export default function Categorias() {
                 <td className="text-right space-x-2">
                   <button
                     aria-label={`Editar categoría: ${categoria.nombre}`}
-                    onClick={() => handleEdit(categoria)}
+                    onClick={() => abrir(categoria)}
                     title="Editar"
                     className="text-primary-500 hover:text-primary-600 transition-colors"
                   >
@@ -178,7 +170,7 @@ export default function Categorias() {
 	                />
               </div>
               <div className="modal-footer">
-                <button type="button" onClick={() => setShowModal(false)} className="btn btn-secondary flex-1">
+                <button type="button" onClick={cerrar} className="btn btn-secondary flex-1">
                   Cancelar
                 </button>
                 <button type="submit" className="btn btn-primary flex-1">

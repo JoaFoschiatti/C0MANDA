@@ -1,5 +1,6 @@
 const { createHttpError } = require('../utils/http-error');
 const { decimalToNumber } = require('../utils/decimal');
+const { addDays } = require('../utils/date-helpers');
 const {
   ajustarStockPorLotes,
   buildAutoLoteCode,
@@ -21,12 +22,6 @@ const { SUCURSAL_IDS } = require('../constants/sucursales');
 
 const ALERT_WINDOW_DAYS = 7;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
-
-const addDays = (value, days) => {
-  const nextDate = new Date(value);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
-};
 
 const resolveSucursalId = (value) => {
   if (value == null || value === '') {

@@ -3,18 +3,23 @@ const rateLimit = require('express-rate-limit');
 const emailService = require('../services/email.service');
 const eventBus = require('../services/event-bus');
 const { prisma, getNegocio } = require('../db/prisma');
+const { createHttpError } = require('../utils/http-error');
 const { validate } = require('../middlewares/validate.middleware');
 const { asyncHandler } = require('../utils/async-handler');
 const publicoService = require('../services/publico.service');
 const { logger } = require('../utils/logger');
+const {
+  clearPublicOrderCookie,
+  matchesPublicOrderToken,
+  readPublicOrderTokenFromRequest,
+  setPublicOrderCookie
+} = require('../utils/public-order-access');
 const {
   getRequestIp,
   logPublicAbuseSignal
 } = require('../services/public-order-security.service');
 const {
   pedidoIdParamSchema,
-  publicOrderAccessQuerySchema,
-  publicOrderPaymentBodySchema,
   createPublicOrderBodySchema
 } = require('../schemas/publico.schemas');
 
@@ -161,6 +166,15 @@ const getMenuHandler = asyncHandler(async (_req, res) => {
   res.json(categorias);
 });
 
+const requirePublicOrderAccess = (req, res, pedidoId) => {
+  const accessToken = readPublicOrderTokenFromRequest(req);
+
+  if (!matchesPublicOrderToken(accessToken, pedidoId)) {
+    clearPublicOrderCookie(res);
+    throw createHttpError.notFound('Pedido no encontrado');
+  }
+};
+
 const createOrderHandler = asyncHandler(async (req, res) => {
   const negocio = await getNegocio();
   const requestMeta = buildPublicRequestMeta(req);
@@ -181,35 +195,39 @@ const createOrderHandler = asyncHandler(async (req, res) => {
     }
   }
 
+  setPublicOrderCookie(res, result.pedido.id);
+
   res.status(201).json({
     pedido: result.pedido,
     costoEnvio: result.costoEnvio,
     total: result.total,
     initPoint: result.initPoint,
-    accessToken: result.accessToken,
     message: 'Pedido creado correctamente'
   });
 });
 
 const startPaymentHandler = asyncHandler(async (req, res) => {
   const pedidoId = parseInt(req.params.id, 10);
+  requirePublicOrderAccess(req, res, pedidoId);
   const negocio = await getNegocio();
   const result = await publicoService.startMercadoPagoPaymentForOrder(prisma, {
     negocio,
     pedidoId,
-    accessToken: req.body.token
+    skipAccessValidation: true
   });
 
+  setPublicOrderCookie(res, pedidoId);
   res.json(result);
 });
 
 const getOrderStatusHandler = asyncHandler(async (req, res) => {
   const pedidoId = parseInt(req.params.id, 10);
+  requirePublicOrderAccess(req, res, pedidoId);
   const result = await publicoService.getPublicOrderStatus(prisma, {
-    pedidoId,
-    accessToken: req.query.token
+    pedidoId
   });
   result.events.forEach((event) => eventBus.publish(event.topic, event.payload));
+  setPublicOrderCookie(res, pedidoId);
   res.json(result.pedido);
 });
 
@@ -229,9 +247,9 @@ router.post(
   '/pedido/:id/pagar',
   publicOrderingPaused,
   paymentRetryLimiter,
-  validate({ params: pedidoIdParamSchema, body: publicOrderPaymentBodySchema }),
+  validate({ params: pedidoIdParamSchema }),
   startPaymentHandler
 );
-router.get('/pedido/:id', validate({ params: pedidoIdParamSchema, query: publicOrderAccessQuerySchema }), getOrderStatusHandler);
+router.get('/pedido/:id', validate({ params: pedidoIdParamSchema }), getOrderStatusHandler);
 
 module.exports = router;

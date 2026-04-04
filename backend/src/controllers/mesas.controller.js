@@ -1,7 +1,9 @@
 const { getPrisma } = require('../utils/get-prisma');
 const mesasService = require('../services/mesas.service');
 const pedidosService = require('../services/pedidos.service');
+const printService = require('../services/print.service');
 const eventBus = require('../services/event-bus');
+const { logger } = require('../utils/logger');
 
 const listar = async (req, res) => {
   const prisma = getPrisma(req);
@@ -35,8 +37,8 @@ const cambiarEstado = async (req, res) => {
 
 const eliminar = async (req, res) => {
   const prisma = getPrisma(req);
-  const resultado = await mesasService.eliminar(prisma, req.params.id);
-  res.json(resultado);
+  await mesasService.eliminar(prisma, req.params.id);
+  res.status(204).end();
 };
 
 const precuenta = async (req, res) => {
@@ -45,6 +47,21 @@ const precuenta = async (req, res) => {
     mesaId: Number(req.params.id),
     usuarioId: req.usuario.id
   });
+
+  let impresion = null;
+  try {
+    impresion = await printService.enqueuePrintJobs(prisma, result.pedido.id, {
+      tipos: ['CAJA', 'CLIENTE']
+    });
+    eventBus.publish('impresion.updated', {
+      pedidoId: result.pedido.id,
+      ok: 0,
+      total: impresion.total
+    });
+  } catch (printError) {
+    logger.error('Error al imprimir precuenta:', printError);
+  }
+
   eventBus.publish('mesa.updated', {
     mesaId: result.mesa.id,
     estado: result.mesa.estado,
@@ -58,7 +75,7 @@ const precuenta = async (req, res) => {
     mesaId: result.pedido.mesaId || null,
     updatedAt: new Date().toISOString()
   });
-  res.json(result);
+  res.json({ ...result, impresion });
 };
 
 const liberar = async (req, res) => {

@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
 import api from '../services/api'
@@ -36,12 +37,15 @@ const toLocalDatetimeString = (isoDate) => {
 }
 
 export default function useReservasPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [reservas, setReservas] = useState([])
   const [mesas, setMesas] = useState([])
   const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0])
   const [showModal, setShowModal] = useState(false)
   const [reservaEdit, setReservaEdit] = useState(null)
   const [formData, setFormData] = useState(createInitialFormData)
+  const [reservaDetalle, setReservaDetalle] = useState(null)
+  const pendingReservaId = useRef(searchParams.get('reservaId'))
 
   const cargarMesas = useCallback(async () => {
     const response = await api.get('/mesas')
@@ -71,6 +75,45 @@ export default function useReservasPage() {
       },
     }
   )
+
+  // Auto-open detail modal when navigating with ?reservaId=X
+  useEffect(() => {
+    const id = pendingReservaId.current
+    if (!id || reservas.length === 0) return
+
+    const found = reservas.find((r) => String(r.id) === id)
+    if (found) {
+      setReservaDetalle(found)
+      pendingReservaId.current = null
+      setSearchParams((prev) => { prev.delete('reservaId'); return prev }, { replace: true })
+      return
+    }
+
+    // Reservation not in current date filter — fetch individually
+    let cancelled = false
+    api.get(`/reservas/${id}`, { skipToast: true })
+      .then((res) => {
+        if (!cancelled) {
+          setReservaDetalle(res.data)
+          pendingReservaId.current = null
+          setSearchParams((prev) => { prev.delete('reservaId'); return prev }, { replace: true })
+        }
+      })
+      .catch(() => {
+        pendingReservaId.current = null
+        setSearchParams((prev) => { prev.delete('reservaId'); return prev }, { replace: true })
+      })
+
+    return () => { cancelled = true }
+  }, [reservas, setSearchParams])
+
+  const abrirDetalleReserva = useCallback((reserva) => {
+    setReservaDetalle(reserva)
+  }, [])
+
+  const cerrarDetalle = useCallback(() => {
+    setReservaDetalle(null)
+  }, [])
 
   const abrirNuevaReserva = useCallback(() => {
     setReservaEdit(null)
@@ -181,9 +224,11 @@ export default function useReservasPage() {
   const reservasCount = useMemo(() => reservas.length, [reservas])
 
   return {
+    abrirDetalleReserva,
     abrirEditarReserva,
     abrirNuevaReserva,
     cambiarEstado,
+    cerrarDetalle,
     cerrarModal,
     eliminarReserva,
     fechaFiltro,
@@ -192,6 +237,7 @@ export default function useReservasPage() {
     guardarReserva,
     loading,
     mesas,
+    reservaDetalle,
     reservas,
     reservasCount,
     reservaEdit,

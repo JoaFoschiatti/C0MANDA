@@ -1,12 +1,15 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const DEFAULT_API_BASE_URL = 'http://localhost:3001/api';
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const MIN_POLL_INTERVAL_MS = 500;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
+const DEFAULT_PRINT_TIMEOUT_MS = 30000;
+const MAX_BACKOFF_MS = 60000;
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -31,7 +34,7 @@ const getConfig = (env = process.env) => {
 
   return {
     apiBaseUrl: env.BRIDGE_API_URL || DEFAULT_API_BASE_URL,
-    bridgeToken,
+    bridgeSecret: bridgeToken,
     bridgeId: env.BRIDGE_ID || os.hostname(),
     printerName,
     adapter: (env.PRINT_ADAPTER || 'spooler').toLowerCase(),
@@ -63,10 +66,49 @@ const requestJson = async (url, options, context, timeoutMs, fetchImpl) => {
   }
 };
 
+const hashBody = (body) => crypto
+  .createHash('sha256')
+  .update(body == null ? '' : String(body))
+  .digest('hex');
+
+const buildSignaturePayload = ({ method, pathname, timestamp, nonce, body }) => [
+  String(method || '').toUpperCase(),
+  String(pathname || ''),
+  String(timestamp || ''),
+  String(nonce || ''),
+  hashBody(body)
+].join('\n');
+
 const createBridge = (env = process.env, deps = {}) => {
   const config = getConfig(env);
   const fetchImpl = deps.fetch || fetch;
   const spawnImpl = deps.spawn || spawn;
+
+  const buildSignedHeaders = (method, url, bodyString = '') => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const pathname = new URL(url).pathname;
+    const signature = crypto
+      .createHmac('sha256', config.bridgeSecret)
+      .update(buildSignaturePayload({
+        method,
+        pathname,
+        timestamp,
+        nonce,
+        body: bodyString
+      }))
+      .digest('hex');
+
+    return {
+      'Content-Type': 'application/json',
+      'x-bridge-id': config.bridgeId,
+      'x-bridge-ts': timestamp,
+      'x-bridge-nonce': nonce,
+      'x-bridge-signature': signature
+    };
+  };
+
+  const printTimeoutMs = parseIntSafe(env.PRINT_TIMEOUT_MS, DEFAULT_PRINT_TIMEOUT_MS);
 
   const printWithSpooler = async (content) => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'comanda-print-'));
@@ -82,14 +124,33 @@ const createBridge = (env = process.env, deps = {}) => {
       const command = `Get-Content -Path '${escapedFile}' | Out-Printer -Name '${escapedPrinter}'`;
 
       await new Promise((resolve, reject) => {
+        let settled = false;
         const child = spawnImpl(psPath, ['-NoProfile', '-Command', command], {
           stdio: 'inherit'
         });
 
-        child.on('error', reject);
+        const timer = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            child.kill();
+            reject(new Error(`Print timeout after ${printTimeoutMs}ms`));
+          }
+        }, printTimeoutMs);
+
+        child.on('error', (err) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            reject(err);
+          }
+        });
         child.on('exit', (code) => {
-          if (code === 0) return resolve();
-          return reject(new Error(`PowerShell exit code ${code}`));
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            if (code === 0) return resolve();
+            return reject(new Error(`PowerShell exit code ${code}`));
+          }
         });
       });
     } finally {
@@ -98,18 +159,17 @@ const createBridge = (env = process.env, deps = {}) => {
   };
 
   const claimJobs = async () => {
+    const requestBody = JSON.stringify({
+      bridgeId: config.bridgeId,
+      limit: 3,
+      printerName: config.printerName,
+      adapter: config.adapter
+    });
+
     const response = await requestJson(`${config.apiBaseUrl}/impresion/jobs/claim`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-bridge-token': config.bridgeToken
-      },
-      body: JSON.stringify({
-        bridgeId: config.bridgeId,
-        limit: 3,
-        printerName: config.printerName,
-        adapter: config.adapter
-      })
+      headers: buildSignedHeaders('POST', `${config.apiBaseUrl}/impresion/jobs/claim`, requestBody),
+      body: requestBody
     }, 'Claim failed', config.requestTimeoutMs, fetchImpl);
 
     const data = await response.json().catch(() => {
@@ -119,24 +179,24 @@ const createBridge = (env = process.env, deps = {}) => {
   };
 
   const ackJob = async (jobId) => {
-    await requestJson(`${config.apiBaseUrl}/impresion/jobs/${jobId}/ack`, {
+    const url = `${config.apiBaseUrl}/impresion/jobs/${jobId}/ack`;
+    const requestBody = JSON.stringify({ bridgeId: config.bridgeId });
+
+    await requestJson(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-bridge-token': config.bridgeToken
-      },
-      body: JSON.stringify({ bridgeId: config.bridgeId })
+      headers: buildSignedHeaders('POST', url, requestBody),
+      body: requestBody
     }, 'Ack failed', config.requestTimeoutMs, fetchImpl);
   };
 
   const failJob = async (jobId, error) => {
-    await requestJson(`${config.apiBaseUrl}/impresion/jobs/${jobId}/fail`, {
+    const url = `${config.apiBaseUrl}/impresion/jobs/${jobId}/fail`;
+    const requestBody = JSON.stringify({ bridgeId: config.bridgeId, error });
+
+    await requestJson(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-bridge-token': config.bridgeToken
-      },
-      body: JSON.stringify({ bridgeId: config.bridgeId, error })
+      headers: buildSignedHeaders('POST', url, requestBody),
+      body: requestBody
     }, 'Fail failed', config.requestTimeoutMs, fetchImpl);
   };
 
@@ -149,9 +209,12 @@ const createBridge = (env = process.env, deps = {}) => {
   };
 
   const loop = async () => {
+    let consecutiveErrors = 0;
+
     while (true) {
       try {
         const jobs = await claimJobs();
+        consecutiveErrors = 0;
 
         if (jobs.length === 0) {
           await sleep(config.pollIntervalMs);
@@ -171,9 +234,11 @@ const createBridge = (env = process.env, deps = {}) => {
           }
         }
       } catch (error) {
+        consecutiveErrors += 1;
+        const backoff = Math.min(config.pollIntervalMs * Math.pow(2, consecutiveErrors - 1), MAX_BACKOFF_MS);
         // eslint-disable-next-line no-console
-        console.error('Bridge loop error:', error.message || error);
-        await sleep(config.pollIntervalMs);
+        console.error(`Bridge loop error (attempt ${consecutiveErrors}, retry in ${backoff}ms):`, error.message || error);
+        await sleep(backoff);
       }
     }
   };
@@ -195,6 +260,7 @@ const createBridge = (env = process.env, deps = {}) => {
     claimJobs,
     ackJob,
     failJob,
+    buildSignaturePayload,
     processJob,
     printWithSpooler,
     requestJson: (url, options, context) =>

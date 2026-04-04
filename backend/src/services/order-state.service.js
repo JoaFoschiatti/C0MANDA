@@ -2,7 +2,7 @@ const { createHttpError } = require('../utils/http-error');
 
 const TERMINAL_PEDIDO_STATES = new Set(['CANCELADO', 'CERRADO']);
 const ACTIVE_PEDIDO_STATES = new Set(['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO']);
-const ADD_ITEMS_ALLOWED_STATES = new Set(['PENDIENTE']);
+const ADD_ITEMS_ALLOWED_STATES = new Set(['PENDIENTE', 'EN_PREPARACION', 'LISTO', 'ENTREGADO', 'COBRADO']);
 
 const PEDIDO_TRANSITIONS = {
   PENDIENTE: new Set(['EN_PREPARACION', 'CANCELADO']),

@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 
 import api from '../services/api'
 import useAsync from './useAsync'
+import useFormModal from './useFormModal'
 
 const initialForm = {
   nombre: '',
@@ -16,11 +17,22 @@ const initialForm = {
   tarifaHora: '',
 }
 
+const mapUsuarioToForm = (usuario) => ({
+  nombre: usuario.nombre,
+  apellido: usuario.apellido || '',
+  email: usuario.email,
+  password: '',
+  dni: usuario.dni || '',
+  telefono: usuario.telefono || '',
+  direccion: usuario.direccion || '',
+  rol: usuario.rol,
+  tarifaHora: usuario.tarifaHora || '',
+})
+
 export default function useUsuariosPage() {
   const [usuarios, setUsuarios] = useState([])
-  const [showModal, setShowModal] = useState(false)
-  const [editando, setEditando] = useState(null)
-  const [form, setForm] = useState(initialForm)
+  const { open: showModal, editando, form, setForm, abrir: abrirModal, cerrar: cerrarModal } =
+    useFormModal(initialForm, { mapToForm: mapUsuarioToForm })
 
   const cargarUsuarios = useCallback(async () => {
     const response = await api.get('/usuarios', { skipToast: true })
@@ -39,20 +51,7 @@ export default function useUsuariosPage() {
     }
   )
 
-  const resetForm = useCallback(() => {
-    setForm(initialForm)
-    setEditando(null)
-  }, [])
-
-  const abrirNuevoUsuario = useCallback(() => {
-    resetForm()
-    setShowModal(true)
-  }, [resetForm])
-
-  const cerrarModal = useCallback(() => {
-    setShowModal(false)
-    resetForm()
-  }, [resetForm])
+  const abrirNuevoUsuario = useCallback(() => abrirModal(), [abrirModal])
 
   const handleSubmit = useCallback(
     async (event) => {
@@ -78,21 +77,7 @@ export default function useUsuariosPage() {
     [cargarUsuariosAsync, cerrarModal, editando, form]
   )
 
-  const handleEdit = useCallback((usuario) => {
-    setEditando(usuario)
-    setForm({
-      nombre: usuario.nombre,
-      apellido: usuario.apellido || '',
-      email: usuario.email,
-      password: '',
-      dni: usuario.dni || '',
-      telefono: usuario.telefono || '',
-      direccion: usuario.direccion || '',
-      rol: usuario.rol,
-      tarifaHora: usuario.tarifaHora || '',
-    })
-    setShowModal(true)
-  }, [])
+  const handleEdit = useCallback((usuario) => abrirModal(usuario), [abrirModal])
 
   const handleToggleActivo = useCallback(
     async (usuario) => {
@@ -108,6 +93,20 @@ export default function useUsuariosPage() {
     [cargarUsuariosAsync]
   )
 
+  const handleResetMfa = useCallback(
+    async (usuario) => {
+      try {
+        await api.post(`/usuarios/${usuario.id}/mfa/reset`, {}, { skipToast: true })
+        toast.success(`MFA reiniciado para ${usuario.nombre}`)
+        cargarUsuariosAsync()
+      } catch (error) {
+        console.error('Error:', error)
+        toast.error(error.response?.data?.error?.message || 'Error al reiniciar MFA')
+      }
+    },
+    [cargarUsuariosAsync]
+  )
+
   return {
     abrirNuevoUsuario,
     cerrarModal,
@@ -116,6 +115,7 @@ export default function useUsuariosPage() {
     form,
     handleToggleActivo,
     handleEdit,
+    handleResetMfa,
     handleSubmit,
     loading,
     setForm,

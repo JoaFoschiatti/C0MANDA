@@ -43,8 +43,8 @@ const obtener = async (req, res) => {
 // Eliminar reserva
 const eliminar = async (req, res) => {
   const prisma = getPrisma(req);
-  const resultado = await reservasService.eliminar(prisma, req.params.id);
-  res.json(resultado);
+  await reservasService.eliminar(prisma, req.params.id);
+  res.status(204).end();
 };
 
 module.exports = {

@@ -30,12 +30,16 @@ const planoRoutes = require('./routes/plano.routes');
 
 const { errorMiddleware } = require('./middlewares/error.middleware');
 const { createHttpError } = require('./utils/http-error');
+const { asyncHandler } = require('./utils/async-handler');
 const { logger } = require('./utils/logger');
 const { getReadinessStatus } = require('./services/health.service');
 const { getRuntimePaths } = require('./config/runtime');
 
 const app = express();
 const runtimePaths = getRuntimePaths();
+
+const { setupSentry, setupSentryErrorHandler } = require('./utils/sentry');
+setupSentry(app);
 
 // HTTPS redirect in production
 if (process.env.NODE_ENV === 'production') {
@@ -142,13 +146,15 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/ready', async (_req, res) => {
+app.get('/api/ready', asyncHandler(async (_req, res) => {
   const readiness = await getReadinessStatus();
   res.status(readiness.status === 'ready' ? 200 : 503).json(readiness);
-});
+}));
 
 // Ruta 404
 app.use((_req, _res, next) => next(createHttpError.notFound('Ruta no encontrada')));
+
+setupSentryErrorHandler(app);
 
 // Manejo de errores global
 app.use(errorMiddleware);

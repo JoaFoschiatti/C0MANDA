@@ -246,43 +246,68 @@ export default function Cocina() {
               </div>
 
               <div className="space-y-3 mb-4">
-                {pedido.items?.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-start gap-3 bg-surface p-3 rounded-xl"
-                  >
-                    <span className="text-2xl font-bold text-primary-500">
-                      {item.cantidad}x
-                    </span>
+                {(() => {
+                  const rondas = pedido.rondas || []
+                  const ronda = rondas[rondas.length - 1]
+                  if (!ronda) return null
+                  const showLabel = rondas.length > 1
+
+                  return (
                     <div>
-                      <p className="font-medium text-text-primary">
-                        {item.producto?.nombre}
-                      </p>
-                      {item.modificadores?.length > 0 && (
-                        <div className="mt-1 space-y-0.5">
-                          {item.modificadores.map((mod) => (
-                            <p
-                              key={mod.id}
-                              className={`text-sm font-medium ${
-                                mod.modificador?.tipo === 'EXCLUSION'
-                                  ? 'text-error-600'
-                                  : 'text-success-600'
-                              }`}
-                            >
-                              {mod.modificador?.tipo === 'EXCLUSION' ? '- Sin' : '+ Extra'}{' '}
-                              {mod.modificador?.nombre}
-                            </p>
-                          ))}
+                      {showLabel && (
+                        <div className="flex items-center gap-2 mb-2 text-warning-600">
+                          <span className="text-xs font-semibold uppercase tracking-wide bg-warning-100 text-warning-700 px-2 py-0.5 rounded-full">
+                            Ronda {ronda.numero} — Nueva
+                          </span>
+                          <div className="flex-1 border-t border-border-default" />
                         </div>
                       )}
-                      {item.observaciones && (
-                        <p className="text-sm text-warning-600 font-medium mt-1">
-                          Nota: {item.observaciones}
-                        </p>
-                      )}
+                      <div className="space-y-2">
+                        {ronda.items?.map((item) => (
+                          <div
+                            key={item.id}
+                            className={`flex items-start gap-3 p-3 rounded-xl ${
+                              showLabel
+                                ? 'bg-warning-50 border border-warning-200'
+                                : 'bg-surface'
+                            }`}
+                          >
+                            <span className={`text-2xl font-bold ${showLabel ? 'text-warning-600' : 'text-primary-500'}`}>
+                              {item.cantidad}x
+                            </span>
+                            <div>
+                              <p className="font-medium text-text-primary">
+                                {item.producto?.nombre}
+                              </p>
+                              {item.modificadores?.length > 0 && (
+                                <div className="mt-1 space-y-0.5">
+                                  {item.modificadores.map((mod) => (
+                                    <p
+                                      key={mod.id}
+                                      className={`text-sm font-medium ${
+                                        mod.modificador?.tipo === 'EXCLUSION'
+                                          ? 'text-error-600'
+                                          : 'text-success-600'
+                                      }`}
+                                    >
+                                      {mod.modificador?.tipo === 'EXCLUSION' ? '- Sin' : '+ Extra'}{' '}
+                                      {mod.modificador?.nombre}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                              {item.observaciones && (
+                                <p className="text-sm text-warning-600 font-medium mt-1">
+                                  Nota: {item.observaciones}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })()}
               </div>
 
               {pedido.observaciones && (

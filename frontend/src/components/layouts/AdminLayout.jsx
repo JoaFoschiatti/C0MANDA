@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
-import SubscriptionBanner from '../SubscriptionBanner'
 import { Avatar, OfflineBanner, SyncStatusIndicator } from '../ui'
 import {
   HomeIcon,
@@ -37,7 +36,7 @@ const navSections = [
       { name: 'Tareas', href: '/tareas', icon: ListBulletIcon, roles: ['ADMIN', 'CAJERO'] },
       { name: 'Mesas', href: '/mozo/mesas', icon: TableCellsIcon, roles: ['ADMIN', 'MOZO'] },
       { name: 'Mesas', href: '/mesas', icon: TableCellsIcon, roles: ['CAJERO'] },
-      { name: 'Reservas', href: '/reservas', icon: CalendarDaysIcon, roles: ['ADMIN'] },
+      { name: 'Reservas', href: '/reservas', icon: CalendarDaysIcon, roles: ['ADMIN', 'CAJERO', 'MOZO'] },
       { name: 'Pedidos', href: '/pedidos', icon: ClipboardDocumentListIcon, roles: ['ADMIN', 'MOZO', 'CAJERO'] },
       { name: 'Cocina', href: '/cocina', icon: FireIcon, roles: ['ADMIN', 'COCINERO', 'CAJERO'] },
       { name: 'Mis Entregas', href: '/delivery/pedidos', icon: TruckIcon, roles: ['ADMIN', 'DELIVERY'] }
@@ -198,7 +197,6 @@ export default function AdminLayout() {
       </div>
 
       <div className="lg:pl-64">
-        <SubscriptionBanner />
         <OfflineBanner />
 
         <header className="admin-topbar sticky top-0 z-40">

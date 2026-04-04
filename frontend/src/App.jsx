@@ -93,7 +93,7 @@ export default function App() {
         <Route path="configuracion" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Configuracion /></LazyScreen></ProtectedRoute>} />
         <Route path="cierre-caja" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><CierreCaja /></LazyScreen></ProtectedRoute>} />
         <Route path="tareas" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><Tareas /></LazyScreen></ProtectedRoute>} />
-        <Route path="reservas" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Reservas /></LazyScreen></ProtectedRoute>} />
+        <Route path="reservas" element={<ProtectedRoute roles={['ADMIN', 'CAJERO', 'MOZO']}><LazyScreen><Reservas /></LazyScreen></ProtectedRoute>} />
         <Route path="modificadores" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><Modificadores /></LazyScreen></ProtectedRoute>} />
         <Route path="transacciones-mp" element={<ProtectedRoute roles={['ADMIN']}><LazyScreen><TransaccionesMercadoPago /></LazyScreen></ProtectedRoute>} />
         <Route path="facturacion" element={<ProtectedRoute roles={['ADMIN', 'CAJERO']}><LazyScreen><Facturacion /></LazyScreen></ProtectedRoute>} />
