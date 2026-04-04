@@ -63,9 +63,14 @@ describe('MercadoPago OAuth Endpoints', () => {
   });
 
   it('GET /api/mercadopago/oauth/callback guarda config global y redirige a connected', async () => {
-    const { buildOAuthAuthorizationUrl } = require('../services/mercadopago-config.service');
-    const authUrl = new URL(buildOAuthAuthorizationUrl());
+    const authorizeResponse = await request(app)
+      .get('/api/mercadopago/oauth/authorize')
+      .set('Authorization', authHeader(token))
+      .expect(200);
+
+    const authUrl = new URL(authorizeResponse.body.authUrl);
     const state = authUrl.searchParams.get('state');
+    const bindingCookie = authorizeResponse.headers['set-cookie'];
 
     const fetchMock = jest.fn()
       .mockResolvedValueOnce({
@@ -89,6 +94,7 @@ describe('MercadoPago OAuth Endpoints', () => {
     try {
       const response = await request(app)
         .get(`/api/mercadopago/oauth/callback?code=abc&state=${encodeURIComponent(state)}`)
+        .set('Cookie', bindingCookie)
         .expect(302);
 
       expect(response.headers.location).toBe(`${process.env.FRONTEND_URL}/configuracion?mp=connected`);

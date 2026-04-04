@@ -27,7 +27,7 @@ El abono mensual de mantenimiento no se cobra ni se controla desde la app.
 - Base de datos: PostgreSQL
 - ORM: Prisma
 - Pagos: Mercado Pago
-- Infraestructura objetivo: AWS EC2 + Nginx + systemd
+- Infraestructura objetivo: AWS EC2 + Nginx + systemd sobre Ubuntu 24.04 amd64
 
 ## Desarrollo local
 
@@ -86,15 +86,21 @@ Las mas importantes para un ambiente productivo son:
 - `DATABASE_URL`
 - `DIRECT_URL`
 - `JWT_SECRET`
+- `PUBLIC_ORDER_JWT_SECRET`
 - `FRONTEND_URL`
 - `BACKEND_URL`
 - `ENCRYPTION_KEY`
+- `MFA_ISSUER`
+- `MFA_TRUSTED_DEVICE_DAYS`
 - `MERCADOPAGO_WEBHOOK_SECRET`
 - `ARCA_CUIT`
 - `ARCA_CERT_PATH`
 - `ARCA_KEY_PATH`
 - `BRIDGE_TOKEN`
+- `BRIDGE_ALLOWED_IPS`
+- `BRIDGE_SIGNATURE_TTL_SECONDS`
 - `S3_BACKUP_URI`
+- `S3_UPLOADS_BACKUP_URI`
 - `AWS_REGION`
 
 ## Endpoints principales
@@ -117,11 +123,14 @@ Las mas importantes para un ambiente productivo son:
 
 La guia operativa esta en [DEPLOY.md](/C:/Programacion/Comanda/DEPLOY.md). El pack ejecutable esta en [ops/ec2/README.md](/C:/Programacion/Comanda/ops/ec2/README.md). Hay una guia dedicada para ejecutar deploys desde la propia EC2 con Codex CLI en [ops/ec2/CODEX-CLI-DEPLOY.md](/C:/Programacion/Comanda/ops/ec2/CODEX-CLI-DEPLOY.md). El handoff de entrega esta en [docs/entrega](/C:/Programacion/Comanda/docs/entrega). El escenario objetivo es:
 
-- EC2 Linux como host principal.
-- Nginx sirviendo frontend y actuando como reverse proxy del backend.
+- EC2 Ubuntu 24.04 amd64 como host principal.
+- Si se usan opciones gratuitas de AWS, el host recomendado es `t3.micro`; `t3.small` solo como alivio temporal si el primer deploy queda justo de RAM.
+- Nginx sirviendo frontend y actuando como unico borde publico del backend.
 - Node.js administrado con systemd.
 - PostgreSQL del ambiente actual.
+- `3001` y `5432` no deben exponerse a internet; solo `80/443`.
 - Backups diarios con `pg_dump` a S3 y prueba periodica de restore.
+- Backup opcional y versionado de `uploads` a S3 cuando el negocio guarda imagenes o archivos.
 - `openssl`, certificado y clave privada disponibles en el host para WSAA/WSFEv1.
 
 ## Notas
@@ -129,4 +138,4 @@ La guia operativa esta en [DEPLOY.md](/C:/Programacion/Comanda/DEPLOY.md). El pa
 - La facturacion electronica requiere credenciales WSAA/WSFEv1 reales del restaurante para emitir CAE.
 - El checkout web de Mercado Pago requiere Access Token valido y la cuenta conectada del local.
 - El POS puede mostrar alias, titular y CVU configurados para registrar transferencias manuales.
-- La entrega operativa incluye health `/api/health`, readiness `/api/ready`, pack EC2, checklist de release y manuales bajo `docs/entrega`.
+- La entrega operativa incluye health publico en `/api/health` y readiness local en `http://127.0.0.1:3001/api/ready`, ademas del pack EC2, checklist de release y manuales bajo `docs/entrega`.

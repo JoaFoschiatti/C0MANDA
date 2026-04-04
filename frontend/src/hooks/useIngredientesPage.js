@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 
 import api from '../services/api'
 import useAsync from './useAsync'
+import useFormModal from './useFormModal'
 import { SUCURSAL_IDS, SUCURSALES, getSucursalById } from '../constants/sucursales'
 import { parseEnumParam, parsePositiveIntParam } from '../utils/query-params'
 
@@ -14,6 +15,14 @@ const initialIngredienteForm = {
   stockMinimo: '',
   costo: '',
 }
+
+const mapIngredienteToForm = (ing) => ({
+  nombre: ing.nombre,
+  unidad: ing.unidad,
+  stockActual: ing.stockActual,
+  stockMinimo: ing.stockMinimo,
+  costo: ing.costo || '',
+})
 
 const initialMovimientoForm = {
   tipo: 'ENTRADA',
@@ -33,12 +42,11 @@ const initialDescarteForm = {
 export default function useIngredientesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [ingredientes, setIngredientes] = useState([])
-  const [showModal, setShowModal] = useState(false)
+  const { open: showModal, editando, form, setForm, abrir: abrirIngredienteModal, cerrar: cerrarIngredienteModal } =
+    useFormModal(initialIngredienteForm, { mapToForm: mapIngredienteToForm })
   const [showMovModal, setShowMovModal] = useState(false)
   const [showDescarteModal, setShowDescarteModal] = useState(false)
-  const [editando, setEditando] = useState(null)
   const [ingredienteSeleccionado, setIngredienteSeleccionado] = useState(null)
-  const [form, setForm] = useState(initialIngredienteForm)
   const [movForm, setMovForm] = useState(initialMovimientoForm)
   const [descarteForm, setDescarteForm] = useState(initialDescarteForm)
 
@@ -99,11 +107,6 @@ export default function useIngredientesPage() {
     }
   )
 
-  const resetForm = useCallback(() => {
-    setForm(initialIngredienteForm)
-    setEditando(null)
-  }, [])
-
   const resetMovimientoForm = useCallback(() => {
     setMovForm(initialMovimientoForm)
   }, [])
@@ -112,15 +115,7 @@ export default function useIngredientesPage() {
     setDescarteForm(initialDescarteForm)
   }, [])
 
-  const abrirNuevoIngrediente = useCallback(() => {
-    resetForm()
-    setShowModal(true)
-  }, [resetForm])
-
-  const cerrarIngredienteModal = useCallback(() => {
-    setShowModal(false)
-    resetForm()
-  }, [resetForm])
+  const abrirNuevoIngrediente = useCallback(() => abrirIngredienteModal(), [abrirIngredienteModal])
 
   const cerrarMovimientoModal = useCallback(() => {
     setShowMovModal(false)
@@ -182,17 +177,7 @@ export default function useIngredientesPage() {
     }
   }
 
-  const handleEdit = useCallback((ingrediente) => {
-    setEditando(ingrediente)
-    setForm({
-      nombre: ingrediente.nombre,
-      unidad: ingrediente.unidad,
-      stockActual: ingrediente.stockActual,
-      stockMinimo: ingrediente.stockMinimo,
-      costo: ingrediente.costo || '',
-    })
-    setShowModal(true)
-  }, [])
+  const handleEdit = useCallback((ingrediente) => abrirIngredienteModal(ingrediente), [abrirIngredienteModal])
 
   const abrirMovimiento = useCallback(
     (ingrediente) => {

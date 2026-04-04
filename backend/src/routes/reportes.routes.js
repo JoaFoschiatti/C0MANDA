@@ -39,6 +39,12 @@ router.get(
   validate({ query: consumoInsumosQuerySchema }),
   asyncHandler(reportesController.consumoInsumos)
 );
+router.get(
+  '/ventas-por-hora',
+  esAdminOCajero,
+  validate({ query: ventasReporteQuerySchema }),
+  asyncHandler(reportesController.ventasPorHora)
+);
 
 module.exports = router;
 

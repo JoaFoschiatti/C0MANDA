@@ -11,4 +11,5 @@
 - [ ] Impresion validada si corresponde
 - [ ] Webhook de Mercado Pago validado
 - [ ] Si ARCA esta habilitado, emitir en homologacion
+- [ ] Validar backup de base y restore de `uploads` si corresponde
 - [ ] Ejecutar `ops/ec2/scripts/post-deploy-smoke.sh`

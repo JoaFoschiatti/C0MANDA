@@ -18,6 +18,13 @@ else
   git -C "${APP_DIR}" pull --ff-only origin "${BRANCH}"
 fi
 
+if [[ ! -f "${APP_DIR}/backend/.env" ]]; then
+  echo "Falta ${APP_DIR}/backend/.env. Copialo desde backend/.env.example antes del deploy."
+  exit 1
+fi
+
+APP_DIR="${APP_DIR}" bash "${APP_DIR}/ops/ec2/scripts/preflight-production.sh"
+
 cd "${APP_DIR}/backend"
 npm ci --omit=dev
 npx prisma generate

@@ -1,5 +1,6 @@
 const request = require('supertest');
 const app = require('../app');
+const { buildExpectedSignature } = require('../services/bridge-auth.service');
 const {
   prisma,
   uniqueId,
@@ -10,6 +11,24 @@ const {
   ensureNegocio
 } = require('./helpers/test-helpers');
 
+const signBridgeRequest = (path, body, bridgeId = body?.bridgeId || 'bridge-test') => {
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = uniqueId('nonce');
+
+  return {
+    'x-bridge-id': bridgeId,
+    'x-bridge-ts': timestamp,
+    'x-bridge-nonce': nonce,
+    'x-bridge-signature': buildExpectedSignature({
+      method: 'POST',
+      path,
+      timestamp,
+      nonce,
+      body
+    })
+  };
+};
+
 describe('Impresion Endpoints', () => {
     let token;
   let pedido;
@@ -17,6 +36,7 @@ describe('Impresion Endpoints', () => {
 
   beforeAll(async () => {
     process.env.BRIDGE_TOKEN = 'test-bridge-token';
+    process.env.BRIDGE_ALLOWED_IPS = '127.0.0.1,::1,::ffff:127.0.0.1';
 
         await cleanupOperationalData();
     await ensureNegocio();
@@ -44,9 +64,16 @@ describe('Impresion Endpoints', () => {
         total: 10
       }
     });
+    const ronda = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 1
+      }
+    });
     await prisma.pedidoItem.create({
       data: {
         pedidoId: pedido.id,
+        rondaId: ronda.id,
         productoId: producto.id,
         cantidad: 1,
         precioUnitario: 10,
@@ -88,10 +115,11 @@ describe('Impresion Endpoints', () => {
   });
 
   it('Bridge: POST /api/impresion/jobs/claim devuelve trabajos globales', async () => {
+    const body = { bridgeId: 'bridge-test', limit: 1 };
     const response = await request(app)
       .post('/api/impresion/jobs/claim')
-      .set('x-bridge-token', process.env.BRIDGE_TOKEN)
-      .send({ bridgeId: 'bridge-test', limit: 1 })
+      .set(signBridgeRequest('/api/impresion/jobs/claim', body))
+      .send(body)
       .expect(200);
 
     expect(response.body.jobs).toHaveLength(1);
@@ -99,10 +127,11 @@ describe('Impresion Endpoints', () => {
   });
 
   it('Bridge: claim/ack/fail opera en instalacion unica', async () => {
+    const claimBody = { bridgeId: 'bridge-test', limit: 3 };
     const claimed = await request(app)
       .post('/api/impresion/jobs/claim')
-      .set('x-bridge-token', process.env.BRIDGE_TOKEN)
-      .send({ bridgeId: 'bridge-test', limit: 3 })
+      .set(signBridgeRequest('/api/impresion/jobs/claim', claimBody))
+      .send(claimBody)
       .expect(200);
 
     expect(claimed.body.jobs.length).toBeGreaterThan(0);
@@ -112,19 +141,21 @@ describe('Impresion Endpoints', () => {
     expect(jobA).toBeDefined();
     expect(jobB).toBeDefined();
 
+    const ackBody = { bridgeId: 'bridge-test' };
     await request(app)
       .post(`/api/impresion/jobs/${jobA.id}/ack`)
-      .set('x-bridge-token', process.env.BRIDGE_TOKEN)
-      .send({ bridgeId: 'bridge-test' })
+      .set(signBridgeRequest(`/api/impresion/jobs/${jobA.id}/ack`, ackBody))
+      .send(ackBody)
       .expect(200);
 
     const jobAUpdated = await prisma.printJob.findUnique({ where: { id: jobA.id } });
     expect(jobAUpdated.status).toBe('OK');
 
+    const failBody = { bridgeId: 'bridge-test', error: 'Printer error' };
     await request(app)
       .post(`/api/impresion/jobs/${jobB.id}/fail`)
-      .set('x-bridge-token', process.env.BRIDGE_TOKEN)
-      .send({ bridgeId: 'bridge-test', error: 'Printer error' })
+      .set(signBridgeRequest(`/api/impresion/jobs/${jobB.id}/fail`, failBody))
+      .send(failBody)
       .expect(200);
 
     const jobBUpdated = await prisma.printJob.findUnique({ where: { id: jobB.id } });

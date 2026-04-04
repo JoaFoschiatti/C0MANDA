@@ -2,17 +2,38 @@ const bcrypt = require('bcryptjs');
 const { createHttpError } = require('../utils/http-error');
 const { createCrudService } = require('./crud-factory.service');
 const { normalizeEmail } = require('../utils/email');
+const { resetUserMfa } = require('./mfa.service');
 
 // Campos que nunca se exponen al cliente
 const selectSinPassword = {
   id: true, email: true, nombre: true, apellido: true, dni: true,
   telefono: true, direccion: true, rol: true, tarifaHora: true,
-  activo: true, createdAt: true, updatedAt: true
+  activo: true, createdAt: true, updatedAt: true,
+  mfaCredential: {
+    select: {
+      enabledAt: true
+    }
+  }
+};
+
+const normalizeUsuarioResponse = (usuario) => {
+  const { password: _, mfaCredential, ...rest } = usuario;
+  return {
+    ...rest,
+    mfaEnabled: Boolean(mfaCredential?.enabledAt)
+  };
 };
 
 const baseCrud = createCrudService('usuario', {
   uniqueFields: { email: 'Email', dni: 'DNI' },
   defaultOrderBy: { nombre: 'asc' },
+  defaultInclude: {
+    mfaCredential: {
+      select: {
+        enabledAt: true
+      }
+    }
+  },
   softDelete: true,
   softDeleteField: 'activo',
   entityName: 'usuario',
@@ -43,7 +64,7 @@ const baseCrud = createCrudService('usuario', {
 // Override listar para excluir password
 const listar = async (prisma, query) => {
   const result = await baseCrud.listar(prisma, query);
-  return result.map(({ password: _, ...u }) => u);
+  return result.map(normalizeUsuarioResponse);
 };
 
 // Override obtener para excluir password e incluir relaciones
@@ -60,21 +81,45 @@ const obtener = async (prisma, id) => {
     throw createHttpError.notFound('Usuario no encontrado');
   }
 
-  return usuario;
+  return normalizeUsuarioResponse(usuario);
 };
 
 // Override crear para excluir password del response
 const crear = async (prisma, data) => {
   const usuario = await baseCrud.crear(prisma, data);
-  const { password: _, ...sinPassword } = usuario;
-  return sinPassword;
+  return normalizeUsuarioResponse(usuario);
 };
 
 // Override actualizar para excluir password del response
 const actualizar = async (prisma, id, data) => {
   const usuario = await baseCrud.actualizar(prisma, id, data);
-  const { password: _, ...sinPassword } = usuario;
-  return sinPassword;
+  return normalizeUsuarioResponse(usuario);
+};
+
+const resetMfa = async (prisma, id) => {
+  const usuario = await prisma.usuario.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      nombre: true,
+      email: true
+    }
+  });
+
+  if (!usuario) {
+    throw createHttpError.notFound('Usuario no encontrado');
+  }
+
+  await resetUserMfa(prisma, id);
+
+  return {
+    message: 'MFA reiniciado correctamente',
+    usuario: {
+      id: usuario.id,
+      nombre: usuario.nombre,
+      email: usuario.email
+    }
+  };
 };
 
 module.exports = {
@@ -82,5 +127,6 @@ module.exports = {
   listar,
   obtener,
   crear,
-  actualizar
+  actualizar,
+  resetMfa
 };

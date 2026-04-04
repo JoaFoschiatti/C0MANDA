@@ -9,17 +9,21 @@ import {
   PlusCircleIcon
 } from '@heroicons/react/24/outline'
 import useAsync from '../../hooks/useAsync'
+import useFormModal from '../../hooks/useFormModal'
 import { PageHeader, Button, Spinner } from '../../components/ui'
+
+const initialModForm = { nombre: '', precio: '', tipo: 'ADICION' }
+
+const mapModToForm = (mod) => ({
+  nombre: mod.nombre,
+  precio: mod.precio,
+  tipo: mod.tipo,
+})
 
 export default function Modificadores() {
   const [modificadores, setModificadores] = useState([])
-  const [showModal, setShowModal] = useState(false)
-  const [editando, setEditando] = useState(null)
-  const [formData, setFormData] = useState({
-    nombre: '',
-    precio: '',
-    tipo: 'ADICION'
-  })
+  const { open: showModal, editando, form: formData, setForm: setFormData, abrir: abrirModal, cerrar: cerrarModal } =
+    useFormModal(initialModForm, { mapToForm: mapModToForm })
 
   const cargarModificadores = useCallback(async () => {
     const response = await api.get('/modificadores')
@@ -40,25 +44,6 @@ export default function Modificadores() {
     { onError: handleLoadError }
   )
 
-  const abrirModal = (mod = null) => {
-    if (mod) {
-      setEditando(mod)
-      setFormData({
-        nombre: mod.nombre,
-        precio: mod.precio,
-        tipo: mod.tipo
-      })
-    } else {
-      setEditando(null)
-      setFormData({
-        nombre: '',
-        precio: '',
-        tipo: 'ADICION'
-      })
-    }
-    setShowModal(true)
-  }
-
   const guardarModificador = async (e) => {
     e.preventDefault()
     try {
@@ -69,7 +54,7 @@ export default function Modificadores() {
         await api.post('/modificadores', formData)
         toast.success('Modificador creado')
       }
-      setShowModal(false)
+      cerrarModal()
       cargarModificadoresAsync()
     } catch (error) {
       console.error('Error:', error)
@@ -307,7 +292,7 @@ export default function Modificadores() {
               <div className="modal-footer">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={cerrarModal}
                   className="btn btn-secondary"
                 >
                   Cancelar

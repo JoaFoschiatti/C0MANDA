@@ -2,7 +2,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const pagosController = require('../controllers/pagos.controller');
-const { verificarToken, esAdminOCajero } = require('../middlewares/auth.middleware');
+const { verificarToken, esAdminOCajero, verificarRol } = require('../middlewares/auth.middleware');
 const { validate } = require('../middlewares/validate.middleware');
 const { asyncHandler } = require('../utils/async-handler');
 const {
@@ -26,8 +26,10 @@ router.post('/webhook/mercadopago', webhookLimiter, asyncHandler(pagosController
 router.use(verificarToken);
 
 router.post('/', esAdminOCajero, validate({ body: registrarPagoBodySchema }), asyncHandler(pagosController.registrarPago));
-router.get('/mercadopago/transferencia-config', esAdminOCajero, asyncHandler(pagosController.obtenerConfiguracionTransferenciaMercadoPago));
+router.get('/mercadopago/transferencia-config', verificarRol('ADMIN', 'CAJERO', 'MOZO'), asyncHandler(pagosController.obtenerConfiguracionTransferenciaMercadoPago));
 router.post('/mercadopago/preferencia', esAdminOCajero, validate({ body: crearPreferenciaBodySchema }), asyncHandler(pagosController.crearPreferenciaMercadoPago));
 router.get('/pedido/:pedidoId', esAdminOCajero, validate({ params: pedidoIdParamSchema }), asyncHandler(pagosController.listarPagosPedido));
+router.post('/reembolso', esAdminOCajero, asyncHandler(pagosController.registrarReembolso));
+router.get('/pedido/:pedidoId/reembolsos', esAdminOCajero, validate({ params: pedidoIdParamSchema }), asyncHandler(pagosController.listarReembolsos));
 
 module.exports = router;

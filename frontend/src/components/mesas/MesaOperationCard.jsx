@@ -13,10 +13,18 @@ export default function MesaOperationCard({
   overlay,
   forceOverlayVisible = false,
   mobileFill = false,
+  highlighted = false,
+  attentionPulse = false,
 }) {
   const [overlayActive, setOverlayActive] = useState(false)
   const statusUi = getMesaStatusUi(mesa.estado)
   const overlayVisible = Boolean(overlay) && (forceOverlayVisible || overlayActive)
+
+  const ariaLabel = [
+    `Mesa ${mesa.numero}`,
+    statusUi.label,
+    secondaryText,
+  ].filter(Boolean).join(' — ')
 
   return (
     <div
@@ -27,6 +35,7 @@ export default function MesaOperationCard({
         mobileFill ? 'w-full h-[8.75rem] sm:w-32 sm:h-32' : MESA_OPERATION_CARD_SIZE_CLASS,
         statusUi.themeClass,
         onClick && 'cursor-pointer',
+        highlighted && 'mesa-status-card--changed',
         className
       )}
       onMouseEnter={overlay ? () => setOverlayActive(true) : undefined}
@@ -53,11 +62,20 @@ export default function MesaOperationCard({
       {onClick ? (
         <button
           type="button"
-          aria-label={`Mesa ${mesa.numero} - ${statusUi.label}`}
+          aria-label={ariaLabel}
           className="mesa-status-card-hitarea"
           onClick={onClick}
         />
       ) : null}
+
+      {attentionPulse && (
+        <div className="absolute left-2 top-2 z-10">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-warning-500" />
+          </span>
+        </div>
+      )}
 
       {reservaTooltip && (
         <div

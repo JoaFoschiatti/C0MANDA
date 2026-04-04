@@ -1,5 +1,8 @@
 const request = require('supertest');
-const { signPublicOrderToken } = require('../utils/public-order-access');
+const {
+  PUBLIC_ORDER_COOKIE_NAME,
+  signPublicOrderToken
+} = require('../utils/public-order-access');
 
 const mockCreatePreference = jest.fn();
 const mockSearchPaymentByReference = jest.fn();
@@ -23,6 +26,10 @@ const {
   ensureNegocio,
   cleanupOperationalData
 } = require('./helpers/test-helpers');
+
+const withPublicOrderCookie = (testRequest, pedidoId, token = signPublicOrderToken(pedidoId)) => (
+  testRequest.set('Cookie', [`${PUBLIC_ORDER_COOKIE_NAME}=${token}`])
+);
 
 describe('Publico MercadoPago', () => {
   beforeEach(async () => {
@@ -55,6 +62,7 @@ describe('Publico MercadoPago', () => {
   });
 
   it('POST /api/publico/pedido con MERCADOPAGO crea preferencia y pago pendiente', async () => {
+    const agent = request.agent(app);
     const categoria = await prisma.categoria.create({
       data: { nombre: `Cat-${uniqueId('cat')}`, orden: 1, activa: true }
     });
@@ -72,7 +80,7 @@ describe('Publico MercadoPago', () => {
       init_point: 'https://mercadopago.test/init'
     });
 
-    const response = await request(app)
+    const response = await agent
       .post('/api/publico/pedido')
       .send({
         items: [{ productoId: producto.id, cantidad: 1 }],
@@ -84,7 +92,10 @@ describe('Publico MercadoPago', () => {
       .expect(201);
 
     expect(response.body.initPoint).toBe('https://mercadopago.test/init');
-    expect(response.body.accessToken).toEqual(expect.any(String));
+    expect(response.body.accessToken).toBeUndefined();
+    expect(response.headers['set-cookie']).toEqual(
+      expect.arrayContaining([expect.stringContaining('public_order_access=')])
+    );
     expect(response.body.pedido.origen).toBe('MENU_PUBLICO');
     expect(response.body.pedido.operacionConfirmada).toBe(false);
 
@@ -96,6 +107,7 @@ describe('Publico MercadoPago', () => {
   });
 
   it('POST /api/publico/pedido reutiliza el mismo pedido con clientRequestId y no duplica la orden', async () => {
+    const agent = request.agent(app);
     const categoria = await prisma.categoria.create({
       data: { nombre: `Cat-${uniqueId('cat-idem')}`, orden: 1, activa: true }
     });
@@ -127,12 +139,12 @@ describe('Publico MercadoPago', () => {
       clientRequestId: 'request-idem-1'
     };
 
-    const firstResponse = await request(app)
+    const firstResponse = await agent
       .post('/api/publico/pedido')
       .send(payload)
       .expect(201);
 
-    const secondResponse = await request(app)
+    const secondResponse = await agent
       .post('/api/publico/pedido')
       .send(payload)
       .expect(201);
@@ -203,9 +215,10 @@ describe('Publico MercadoPago', () => {
       sandbox_init_point: 'https://sandbox.mercadopago.test/pay'
     });
 
-    const response = await request(app)
-      .post(`/api/publico/pedido/${pedido.id}/pagar`)
-      .send({ token: signPublicOrderToken(pedido.id) })
+    const response = await withPublicOrderCookie(
+      request(app).post(`/api/publico/pedido/${pedido.id}/pagar`),
+      pedido.id
+    )
       .expect(200);
 
     expect(response.body.preferenceId).toBe('PREF_PAY');
@@ -271,9 +284,10 @@ describe('Publico MercadoPago', () => {
     const unsubscribe = eventBus.subscribe((event) => captured.push(event));
 
     try {
-      const response = await request(app)
-        .get(`/api/publico/pedido/${pedido.id}`)
-        .query({ token: signPublicOrderToken(pedido.id) })
+      const response = await withPublicOrderCookie(
+        request(app).get(`/api/publico/pedido/${pedido.id}`),
+        pedido.id
+      )
         .expect(200);
 
       expect(response.body.estadoPago).toBe('APROBADO');
@@ -306,7 +320,7 @@ describe('Publico MercadoPago', () => {
     }
   });
 
-  it('GET /api/publico/pedido/:id rechaza acceso sin token valido', async () => {
+  it('GET /api/publico/pedido/:id rechaza acceso sin cookie valida', async () => {
     const pedido = await prisma.pedido.create({
       data: {
         tipo: 'MOSTRADOR',
@@ -317,9 +331,11 @@ describe('Publico MercadoPago', () => {
       }
     });
 
-    await request(app)
-      .get(`/api/publico/pedido/${pedido.id}`)
-      .query({ token: 'token-invalido' })
+    await withPublicOrderCookie(
+      request(app).get(`/api/publico/pedido/${pedido.id}`),
+      pedido.id,
+      'token-invalido'
+    )
       .expect(404);
   });
 });

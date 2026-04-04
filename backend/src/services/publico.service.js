@@ -1,7 +1,6 @@
 const { createHttpError } = require('../utils/http-error');
 const { logger } = require('../utils/logger');
 const { getNegocio } = require('../db/prisma');
-const { signPublicOrderToken, matchesPublicOrderToken } = require('../utils/public-order-access');
 const { SUCURSAL_IDS } = require('../constants/sucursales');
 const { decimalToNumber: toNumber } = require('../utils/decimal');
 const {
@@ -112,23 +111,16 @@ const normalizePublicOrderItems = (items = []) => items.map((item, index) => {
   };
 });
 
-const assertPublicOrderAccess = (pedidoId, accessToken) => {
-  if (!matchesPublicOrderToken(accessToken, pedidoId)) {
-    throw createHttpError.notFound('Pedido no encontrado');
-  }
-};
-
-const buildPublicPaymentReturnUrl = ({ frontendUrl, status, pedidoId, accessToken }) => {
+const buildPublicPaymentReturnUrl = ({ frontendUrl, status, pedidoId }) => {
   const params = new URLSearchParams({
     pago: status,
-    pedido: String(pedidoId),
-    token: accessToken
+    pedido: String(pedidoId)
   });
 
   return `${frontendUrl}/menu?${params.toString()}`;
 };
 
-const buildPreferenceData = ({ pedidoId, negocioNombre, items, costoEnvio, accessToken }) => {
+const buildPreferenceData = ({ pedidoId, negocioNombre, items, costoEnvio }) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
   const isLocalhost = frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1');
@@ -154,9 +146,9 @@ const buildPreferenceData = ({ pedidoId, negocioNombre, items, costoEnvio, acces
   const preferenceData = {
     items: mpItems,
     back_urls: {
-      success: buildPublicPaymentReturnUrl({ frontendUrl, status: 'exito', pedidoId, accessToken }),
-      failure: buildPublicPaymentReturnUrl({ frontendUrl, status: 'error', pedidoId, accessToken }),
-      pending: buildPublicPaymentReturnUrl({ frontendUrl, status: 'pendiente', pedidoId, accessToken })
+      success: buildPublicPaymentReturnUrl({ frontendUrl, status: 'exito', pedidoId }),
+      failure: buildPublicPaymentReturnUrl({ frontendUrl, status: 'error', pedidoId }),
+      pending: buildPublicPaymentReturnUrl({ frontendUrl, status: 'pendiente', pedidoId })
     },
     external_reference: `pedido-${pedidoId}`,
     notification_url: `${backendUrl}/api/pagos/webhook/mercadopago`,
@@ -367,7 +359,6 @@ const buildPublicCreateOrderResult = async (prisma, {
   shouldSendEmail = false,
   publishEvents = false
 }) => {
-  const accessToken = signPublicOrderToken(pedido.id);
   let initPoint = null;
 
   if (metodoPago === 'MERCADOPAGO' && pedido.estadoPago !== 'APROBADO' && !isPedidoTerminal(pedido.estado)) {
@@ -375,7 +366,6 @@ const buildPublicCreateOrderResult = async (prisma, {
       const paymentResult = await startMercadoPagoPaymentForOrder(prisma, {
         negocio,
         pedidoId: pedido.id,
-        accessToken,
         skipAccessValidation: true
       });
       initPoint = paymentResult.initPoint;
@@ -398,7 +388,6 @@ const buildPublicCreateOrderResult = async (prisma, {
     costoEnvio: toNumber(refreshedPedido?.costoEnvio || pedido.costoEnvio),
     total: toNumber(refreshedPedido?.total || pedido.total),
     initPoint,
-    accessToken,
     shouldSendEmail,
     events: publishEvents
       ? [{
@@ -566,90 +555,124 @@ const createPublicOrder = async (prisma, { negocio, body, requestMeta = {} }) =>
   }
 
   const productoIds = [...new Set(normalizedItems.map((item) => item.productoId))];
-  const productos = await prisma.producto.findMany({
-    where: {
-      id: { in: productoIds },
-      disponible: true
-    },
-    include: {
-      ingredientes: {
+
+  let pedido;
+
+  try {
+    pedido = await prisma.$transaction(async (tx) => {
+      const productos = await tx.producto.findMany({
+        where: {
+          id: { in: productoIds },
+          disponible: true
+        },
         include: {
-          ingrediente: {
+          ingredientes: {
             include: {
-              stocks: {
-                where: {
-                  sucursalId: SUCURSAL_IDS.DELIVERY,
-                  activo: true
+              ingrediente: {
+                include: {
+                  stocks: {
+                    where: {
+                      sucursalId: SUCURSAL_IDS.DELIVERY,
+                      activo: true
+                    }
+                  }
                 }
               }
             }
           }
         }
+      });
+
+      if (productos.length !== productoIds.length) {
+        throw createHttpError.badRequest('Algunos productos no estan disponibles');
       }
-    }
-  });
 
-  if (productos.length !== productoIds.length) {
-    throw createHttpError.badRequest('Algunos productos no estan disponibles');
-  }
+      const ingredienteIds = [
+        ...new Set(
+          productos.flatMap((p) => (p.ingredientes || []).map((pi) => pi.ingredienteId))
+        )
+      ];
 
-  assertProductsAvailableForSucursal(productos, SUCURSAL_IDS.DELIVERY, normalizedItems);
+      if (ingredienteIds.length > 0) {
+        await tx.$queryRawUnsafe(
+          `SELECT id FROM ingredientes_stock WHERE "ingredienteId" IN (${ingredienteIds.join(',')}) AND "sucursalId" = ${SUCURSAL_IDS.DELIVERY} AND activo = true FOR UPDATE`
+        );
 
-  let subtotal = 0;
-  const itemsData = normalizedItems.map((item) => {
-    const producto = productos.find((candidate) => candidate.id === item.productoId);
-    const cantidad = item.cantidad;
-    const precioUnitario = parseFloat(producto.precio);
-    const itemSubtotal = precioUnitario * cantidad;
-    subtotal += itemSubtotal;
+        const productosRefreshed = await tx.producto.findMany({
+          where: { id: { in: productoIds }, disponible: true },
+          include: {
+            ingredientes: {
+              include: {
+                ingrediente: {
+                  include: {
+                    stocks: {
+                      where: { sucursalId: SUCURSAL_IDS.DELIVERY, activo: true }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        });
 
-    return {
-      productoId: producto.id,
-      cantidad,
-      precioUnitario,
-      subtotal: itemSubtotal,
-      observaciones: item.observaciones || null
-    };
-  });
+        assertProductsAvailableForSucursal(productosRefreshed, SUCURSAL_IDS.DELIVERY, normalizedItems);
+      } else {
+        assertProductsAvailableForSucursal(productos, SUCURSAL_IDS.DELIVERY, normalizedItems);
+      }
 
-  const total = subtotal + costoEnvio;
+      let subtotal = 0;
+      const itemsData = normalizedItems.map((item) => {
+        const producto = productos.find((candidate) => candidate.id === item.productoId);
+        const cantidad = item.cantidad;
+        const precioUnitario = parseFloat(producto.precio);
+        const itemSubtotal = precioUnitario * cantidad;
+        subtotal += itemSubtotal;
 
-  if (metodoPago === 'EFECTIVO' && montoAbonado != null && parseFloat(montoAbonado) + 0.01 < total) {
-    throw createHttpError.badRequest('El monto abonado no alcanza para cubrir el pedido');
-  }
+        return {
+          productoId: producto.id,
+          cantidad,
+          precioUnitario,
+          subtotal: itemSubtotal,
+          observaciones: item.observaciones || null
+        };
+      });
 
-  let pedido;
+      const total = subtotal + costoEnvio;
 
-  try {
-    pedido = await prisma.pedido.create({
-      data: {
-        tipo: 'DELIVERY',
-        sucursalId: SUCURSAL_IDS.DELIVERY,
-        tipoEntrega,
-        clienteNombre: clienteNombreValue,
-        clienteTelefono: clienteTelefonoValue,
-        clienteDireccion: tipoEntrega === 'DELIVERY' ? clienteDireccionValue : null,
-        clienteEmail: clienteEmailValue,
-        clientRequestId: clientRequestIdValue,
-        costoEnvio,
-        subtotal,
-        total,
-        observaciones: observacionesValue,
-        origen: 'MENU_PUBLICO',
-        estadoPago: 'PENDIENTE',
-        operacionConfirmada: false,
-        items: {
-          create: itemsData
+      if (metodoPago === 'EFECTIVO' && montoAbonado != null && parseFloat(montoAbonado) + 0.01 < total) {
+        throw createHttpError.badRequest('El monto abonado no alcanza para cubrir el pedido');
+      }
+
+      return tx.pedido.create({
+        data: {
+          tipo: 'DELIVERY',
+          sucursalId: SUCURSAL_IDS.DELIVERY,
+          tipoEntrega,
+          clienteNombre: clienteNombreValue,
+          clienteTelefono: clienteTelefonoValue,
+          clienteDireccion: tipoEntrega === 'DELIVERY' ? clienteDireccionValue : null,
+          clienteEmail: clienteEmailValue,
+          clientRequestId: clientRequestIdValue,
+          costoEnvio,
+          subtotal,
+          total,
+          observaciones: observacionesValue,
+          origen: 'MENU_PUBLICO',
+          estadoPago: 'PENDIENTE',
+          operacionConfirmada: false,
+          items: {
+            create: itemsData
+          }
+        },
+        select: {
+          id: true,
+          total: true,
+          costoEnvio: true,
+          clienteEmail: true,
+          estado: true,
+          estadoPago: true
         }
-      },
-      select: {
-        id: true,
-        total: true,
-        costoEnvio: true,
-        clienteEmail: true,
-        estado: true,
-        estadoPago: true
-      }
+      });
     });
   } catch (error) {
     if (!clientRequestIdValue || !isClientRequestIdConstraintError(error)) {
@@ -730,11 +753,10 @@ const createPublicOrder = async (prisma, { negocio, body, requestMeta = {} }) =>
 const startMercadoPagoPaymentForOrder = async (prisma, {
   negocio,
   pedidoId,
-  accessToken,
   skipAccessValidation = false
 }) => {
   if (!skipAccessValidation) {
-    assertPublicOrderAccess(pedidoId, accessToken);
+    throw createHttpError.internal('La validacion de acceso debe resolverse en la capa HTTP');
   }
 
   const pedido = await prisma.pedido.findUnique({
@@ -782,8 +804,7 @@ const startMercadoPagoPaymentForOrder = async (prisma, {
     pedidoId,
     negocioNombre: negocio.nombre,
     items: pedido.items,
-    costoEnvio: parseFloat(pedido.costoEnvio),
-    accessToken
+    costoEnvio: parseFloat(pedido.costoEnvio)
   });
 
   let response;
@@ -825,9 +846,7 @@ const startMercadoPagoPaymentForOrder = async (prisma, {
   };
 };
 
-const getPublicOrderStatus = async (prisma, { pedidoId, accessToken }) => {
-  assertPublicOrderAccess(pedidoId, accessToken);
-
+const getPublicOrderStatus = async (prisma, { pedidoId }) => {
   let pedido = await prisma.pedido.findUnique({
     where: { id: pedidoId },
     include: {

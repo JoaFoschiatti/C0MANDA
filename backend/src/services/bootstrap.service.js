@@ -1,9 +1,8 @@
 const bcrypt = require('bcryptjs');
 const { normalizeEmail } = require('../utils/email');
+const { roundStock } = require('../utils/decimal');
 const { ensureBaseSucursales } = require('./sucursales.service');
 const { SUCURSAL_IDS } = require('../constants/sucursales');
-
-const roundStock = (value) => Number.parseFloat(Number(value || 0).toFixed(3));
 
 const splitStockBetweenBranches = (value) => {
   const total = roundStock(value);
@@ -15,6 +14,56 @@ const splitStockBetweenBranches = (value) => {
     delivery
   };
 };
+
+const BASE_DEMO_USERS = [
+  {
+    email: 'mozo@comanda.local',
+    password: 'mozo123',
+    nombre: 'Juan',
+    apellido: 'Perez',
+    dni: '30123456',
+    telefono: '1155551234',
+    rol: 'MOZO',
+    tarifaHora: 1500
+  },
+  {
+    email: 'mozo2@comanda.local',
+    password: 'mozo123',
+    nombre: 'Maria',
+    apellido: 'Garcia',
+    dni: '31234567',
+    telefono: '1155552345',
+    rol: 'MOZO',
+    tarifaHora: 1500
+  },
+  {
+    email: 'cocinero@comanda.local',
+    password: 'cocinero123',
+    nombre: 'Pedro',
+    apellido: 'Lopez',
+    dni: '32345678',
+    telefono: '1155553456',
+    rol: 'COCINERO',
+    tarifaHora: 1800
+  },
+  {
+    email: 'cajero@comanda.local',
+    password: 'cajero123',
+    nombre: 'Carla',
+    apellido: 'Suarez',
+    dni: '33456789',
+    telefono: '1155554567',
+    rol: 'CAJERO',
+    tarifaHora: 1700
+  },
+  {
+    email: 'delivery@comanda.local',
+    password: 'delivery123',
+    nombre: 'Diego',
+    apellido: 'Delivery',
+    rol: 'DELIVERY'
+  }
+];
 
 const upsertConfig = async (prisma, clave, valor) => prisma.configuracion.upsert({
   where: { clave },
@@ -36,6 +85,17 @@ const saveUsuarioByEmail = async (prisma, data) => {
   }
 
   return prisma.usuario.create({ data });
+};
+
+const seedBaseDemoUsers = async (prisma) => {
+  for (const user of BASE_DEMO_USERS) {
+    const { password, ...rest } = user;
+    await saveUsuarioByEmail(prisma, {
+      ...rest,
+      email: normalizeEmail(user.email),
+      password: await bcrypt.hash(password, 10)
+    });
+  }
 };
 
 const bootstrapCore = async (prisma, options = {}) => {
@@ -122,17 +182,7 @@ const bootstrapCore = async (prisma, options = {}) => {
 };
 
 const seedCatalogDemoData = async (prisma) => {
-  const usuarios = [
-    { email: normalizeEmail('mozo@comanda.local'), password: await bcrypt.hash('mozo123', 10), nombre: 'Juan', apellido: 'Perez', dni: '30123456', telefono: '1155551234', rol: 'MOZO', tarifaHora: 1500 },
-    { email: normalizeEmail('mozo2@comanda.local'), password: await bcrypt.hash('mozo123', 10), nombre: 'Maria', apellido: 'Garcia', dni: '31234567', telefono: '1155552345', rol: 'MOZO', tarifaHora: 1500 },
-    { email: normalizeEmail('cocinero@comanda.local'), password: await bcrypt.hash('cocinero123', 10), nombre: 'Pedro', apellido: 'Lopez', dni: '32345678', telefono: '1155553456', rol: 'COCINERO', tarifaHora: 1800 },
-    { email: normalizeEmail('cajero@comanda.local'), password: await bcrypt.hash('cajero123', 10), nombre: 'Carla', apellido: 'Suarez', dni: '33456789', telefono: '1155554567', rol: 'CAJERO', tarifaHora: 1700 },
-    { email: normalizeEmail('delivery@comanda.local'), password: await bcrypt.hash('delivery123', 10), nombre: 'Diego', apellido: 'Delivery', rol: 'DELIVERY' }
-  ];
-
-  for (const usuario of usuarios) {
-    await saveUsuarioByEmail(prisma, usuario);
-  }
+  await seedBaseDemoUsers(prisma);
 
   const mesas = [
     { numero: 1, zona: 'Interior', capacidad: 4, posX: 40, posY: 40 },
@@ -376,8 +426,10 @@ const seedCatalogDemoData = async (prisma) => {
 };
 
 module.exports = {
+  BASE_DEMO_USERS,
   bootstrapCore,
   seedDemoData: seedCatalogDemoData,
+  seedBaseDemoUsers,
   seedCatalogDemoData,
   saveUsuarioByEmail,
   splitStockBetweenBranches,

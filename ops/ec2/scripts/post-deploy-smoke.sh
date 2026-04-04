@@ -2,12 +2,13 @@
 set -euo pipefail
 
 : "${BASE_URL:?Falta BASE_URL, por ejemplo https://comanda.midominio.com}"
+: "${READY_URL:=http://127.0.0.1:3001/api/ready}"
 
 COOKIE_JAR="$(mktemp)"
 trap 'rm -f "${COOKIE_JAR}"' EXIT
 
 curl -fsS "${BASE_URL}/api/health" >/dev/null
-curl -fsS "${BASE_URL}/api/ready" >/dev/null
+curl -fsS "${READY_URL}" >/dev/null
 curl -fsS "${BASE_URL}/menu" >/dev/null
 
 if [[ -n "${SMOKE_ADMIN_EMAIL:-}" && -n "${SMOKE_ADMIN_PASSWORD:-}" ]]; then

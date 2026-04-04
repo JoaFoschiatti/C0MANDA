@@ -26,8 +26,13 @@ const requireBothOrNone = (data) =>
 
 const ventasReporteQuerySchema = z.object({
   ...dateRangeRequiredFields,
-  agrupacion: z.string().optional()
-}).strip();
+  agrupacion: z.string().optional(),
+  fechaDesdeComp: dateOnlySchema.optional(),
+  fechaHastaComp: dateOnlySchema.optional()
+}).strip().refine(
+  (data) => (data.fechaDesdeComp && data.fechaHastaComp) || (!data.fechaDesdeComp && !data.fechaHastaComp),
+  { message: 'Ambas fechas de comparacion son requeridas', path: ['fechaDesdeComp'] }
+);
 
 const productosMasVendidosQuerySchema = z.object({
   ...dateRangeOptionalFields,

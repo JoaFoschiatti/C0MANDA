@@ -133,7 +133,9 @@ describe('impresion.service', () => {
 
       const result = await previewComanda(prisma, 1, { tipo: 'caja', anchoMm: 58 });
 
-      expect(printService.buildComandaText).toHaveBeenCalledWith(pedido, 'CAJA', 58);
+      expect(printService.buildComandaText).toHaveBeenCalledWith(pedido, 'CAJA', 58, {
+        rondaId: undefined
+      });
       expect(result).toBe('texto');
     });
   });

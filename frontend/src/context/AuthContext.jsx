@@ -28,9 +28,12 @@ export function AuthProvider({ children }) {
     setLoading(false)
   }, [])
 
-  const login = useCallback(async (email, password, options = {}) => {
-    const response = await api.post('/auth/login', { email, password }, options)
-    const { usuario: usuarioData, negocio: negocioData } = response.data
+  const finishSession = useCallback((sessionData) => {
+    const { usuario: usuarioData, negocio: negocioData } = sessionData || {}
+
+    if (!usuarioData) {
+      return null
+    }
 
     localStorage.setItem('usuario', JSON.stringify(usuarioData))
     setUsuario(usuarioData)
@@ -45,6 +48,20 @@ export function AuthProvider({ children }) {
 
     return { usuario: usuarioData, negocio: negocioData }
   }, [])
+
+  const login = useCallback(async (email, password, options = {}) => {
+    const controller = new AbortController()
+    const response = await api.post('/auth/login', { email, password }, {
+      ...options,
+      signal: controller.signal
+    })
+
+    if (response.status === 202) {
+      return response.data
+    }
+
+    return finishSession(response.data)
+  }, [finishSession])
 
   const logout = useCallback(async () => {
     try {
@@ -69,6 +86,7 @@ export function AuthProvider({ children }) {
     return {
       usuario,
       negocio,
+      finishSession,
       login,
       logout,
       loading,
@@ -78,7 +96,7 @@ export function AuthProvider({ children }) {
       esCajero,
       esDelivery
     }
-  }, [usuario, negocio, login, logout, loading])
+  }, [usuario, negocio, finishSession, login, logout, loading])
 
   return (
     <AuthContext.Provider value={value}>

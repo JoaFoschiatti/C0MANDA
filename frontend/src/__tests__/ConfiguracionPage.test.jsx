@@ -17,61 +17,63 @@ vi.mock('../services/api', () => ({
   }
 }))
 
+vi.mock('react-hot-toast', () => ({
+  default: {
+    success: vi.fn(),
+    error: vi.fn()
+  }
+}))
+
 vi.mock('../components/configuracion/MercadoPagoConfig', () => ({
   default: () => <div data-testid="mercadopago-config" />
 }))
+
+const negocioData = {
+  nombre: 'Mi Local',
+  email: 'info@test.com',
+  telefono: '123',
+  direccion: 'Calle 1',
+  colorPrimario: '#111111',
+  colorSecundario: '#222222'
+}
+
+const configData = {
+  tienda_abierta: 'true',
+  horario_apertura: '09:00',
+  horario_cierre: '18:00',
+  nombre_negocio: 'Mi Local',
+  tagline_negocio: 'Pedidos, caja y cocina en un solo lugar',
+  costo_delivery: '0',
+  delivery_habilitado: 'true',
+  efectivo_enabled: 'true'
+}
+
+function mockLoadSuccess(overrideNegocio = {}, overrideConfig = {}) {
+  api.get
+    .mockResolvedValueOnce({ data: { ...negocioData, ...overrideNegocio } })
+    .mockResolvedValueOnce({ data: { ...configData, ...overrideConfig } })
+}
 
 describe('Configuracion page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('guarda la identidad y la configuracion operativa', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: {
-          tienda_abierta: 'true',
-          horario_apertura: '09:00',
-          horario_cierre: '18:00',
-          nombre_negocio: 'Mi Local',
-          tagline_negocio: 'Pedidos, caja y cocina en un solo lugar',
-          costo_delivery: '0',
-          delivery_habilitado: 'true',
-          efectivo_enabled: 'true'
-        }
-      })
-
+  it('guarda toda la configuracion con un solo boton', async () => {
+    mockLoadSuccess()
     api.put.mockResolvedValue({ data: {} })
 
     const user = userEvent.setup()
-    const { container } = render(<Configuracion />)
+    render(<Configuracion />)
 
     expect(await screen.findByRole('heading', { name: /Identidad del Negocio/i })).toBeInTheDocument()
-    expect(screen.queryByText(/Datos del Negocio/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Branding/i)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/Nombre visible en el menu/i)).not.toBeInTheDocument()
 
     await user.clear(screen.getByLabelText(/Nombre del Negocio/i))
     await user.type(screen.getByLabelText(/Nombre del Negocio/i), 'Nuevo Nombre')
     await user.clear(screen.getByLabelText(/Tagline \/ Slogan/i))
     await user.type(screen.getByLabelText(/Tagline \/ Slogan/i), 'Un slogan nuevo')
 
-    expect(screen.getByRole('button', { name: /Guardar identidad/i })).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /Guardar configuracion operativa/i })
-    ).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /Guardar identidad/i }))
+    await user.click(screen.getByRole('button', { name: /Guardar configuracion/i }))
 
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith(
@@ -90,28 +92,22 @@ describe('Configuracion page', () => {
         expect.objectContaining({ skipToast: true })
       ])
     })
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith(
+        '/facturacion/configuracion',
+        expect.objectContaining({ habilitada: false }),
+        expect.objectContaining({ skipToast: true })
+      )
+    })
   })
 
   it('guarda los datos de transferencia de Mercado Pago', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: {
-          tienda_abierta: 'true',
-          mercadopago_transfer_alias: 'alias-viejo.mp',
-          mercadopago_transfer_titular: 'Titular Viejo',
-          mercadopago_transfer_cvu: '0000000000000000000000'
-        }
-      })
+    mockLoadSuccess({}, {
+      mercadopago_transfer_alias: 'alias-viejo.mp',
+      mercadopago_transfer_titular: 'Titular Viejo',
+      mercadopago_transfer_cvu: '0000000000000000000000'
+    })
 
     api.put.mockResolvedValue({ data: {} })
 
@@ -127,7 +123,7 @@ describe('Configuracion page', () => {
     await user.clear(screen.getByLabelText('CVU'))
     await user.type(screen.getByLabelText('CVU'), '0000003100000000000001')
 
-    await user.click(screen.getByRole('button', { name: /Guardar configuracion operativa/i }))
+    await user.click(screen.getByRole('button', { name: /Guardar configuracion/i }))
 
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith(
@@ -143,20 +139,7 @@ describe('Configuracion page', () => {
   })
 
   it('presenta una sola seccion de identidad con el link canonico', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: { tienda_abierta: 'true' }
-      })
+    mockLoadSuccess()
 
     render(<Configuracion />)
 
@@ -170,23 +153,7 @@ describe('Configuracion page', () => {
   })
 
   it('muestra el preview del banner guardado', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: {
-          tienda_abierta: 'true',
-          banner_imagen: '/uploads/banner-test.png'
-        }
-      })
+    mockLoadSuccess({}, { banner_imagen: '/uploads/banner-test.png' })
 
     render(<Configuracion />)
 
@@ -195,24 +162,10 @@ describe('Configuracion page', () => {
   })
 
   it('muestra el preview del logo y banner dentro de la identidad unificada', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          logo: '/uploads/logo-test.png',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: {
-          tienda_abierta: 'true',
-          banner_imagen: '/uploads/banner-test.png'
-        }
-      })
+    mockLoadSuccess(
+      { logo: '/uploads/logo-test.png' },
+      { banner_imagen: '/uploads/banner-test.png' }
+    )
 
     render(<Configuracion />)
 
@@ -222,23 +175,7 @@ describe('Configuracion page', () => {
   })
 
   it('muestra el preview del logo guardado', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          logo: '/uploads/logo-test.png',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: {
-          tienda_abierta: 'true'
-        }
-      })
+    mockLoadSuccess({ logo: '/uploads/logo-test.png' })
 
     render(<Configuracion />)
 
@@ -247,21 +184,7 @@ describe('Configuracion page', () => {
   })
 
   it('muestra error cuando falla la subida del logo', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: { tienda_abierta: 'true' }
-      })
-
+    mockLoadSuccess()
     api.post.mockRejectedValueOnce(new Error('fail'))
 
     const { container } = render(<Configuracion />)
@@ -275,26 +198,14 @@ describe('Configuracion page', () => {
     const user = userEvent.setup()
     await user.upload(logoInput, file)
 
-    expect(await screen.findByText(/Error al subir logo/i)).toBeInTheDocument()
+    const toast = (await import('react-hot-toast')).default
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Error al subir logo')
+    })
   })
 
   it('permite quitar el logo guardado', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          logo: '/uploads/logo-test.png',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: { tienda_abierta: 'true' }
-      })
-
+    mockLoadSuccess({ logo: '/uploads/logo-test.png' })
     api.put.mockResolvedValueOnce({ data: {} })
 
     const user = userEvent.setup()
@@ -315,24 +226,7 @@ describe('Configuracion page', () => {
   })
 
   it('permite quitar el banner guardado', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: {
-          tienda_abierta: 'true',
-          banner_imagen: '/uploads/banner-test.png'
-        }
-      })
-
+    mockLoadSuccess({}, { banner_imagen: '/uploads/banner-test.png' })
     api.put.mockResolvedValueOnce({ data: {} })
 
     const user = userEvent.setup()
@@ -355,21 +249,7 @@ describe('Configuracion page', () => {
 
   it('muestra error cuando falla la subida del banner', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: { tienda_abierta: 'true' }
-      })
-
+    mockLoadSuccess()
     api.post.mockRejectedValueOnce(new Error('fail'))
 
     render(<Configuracion />)
@@ -380,25 +260,15 @@ describe('Configuracion page', () => {
     const user = userEvent.setup()
     await user.upload(bannerInput, file)
 
-    expect(await screen.findByText(/Error al subir banner/i)).toBeInTheDocument()
+    const toast = (await import('react-hot-toast')).default
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Error al subir banner')
+    })
     consoleError.mockRestore()
   })
 
   it('rechaza un banner con formato invalido sin llamar al backend', async () => {
-    api.get
-      .mockResolvedValueOnce({
-        data: {
-          nombre: 'Mi Local',
-          email: 'info@test.com',
-          telefono: '123',
-          direccion: 'Calle 1',
-          colorPrimario: '#111111',
-          colorSecundario: '#222222'
-        }
-      })
-      .mockResolvedValueOnce({
-        data: { tienda_abierta: 'true' }
-      })
+    mockLoadSuccess()
 
     render(<Configuracion />)
 
@@ -409,7 +279,48 @@ describe('Configuracion page', () => {
       target: { files: [invalidFile] }
     })
 
-    expect(await screen.findByText(/Formato no permitido\. Usa PNG, JPG o WebP\./i)).toBeInTheDocument()
+    const toast = (await import('react-hot-toast')).default
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/Formato no permitido/i))
+    })
     expect(api.post).not.toHaveBeenCalled()
+  })
+
+  it('muestra estado de error persistente con boton reintentar', async () => {
+    api.get.mockRejectedValueOnce(new Error('network'))
+
+    render(<Configuracion />)
+
+    expect(await screen.findByRole('heading', { name: /No pudimos cargar la configuracion/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Reintentar/i })).toBeInTheDocument()
+  })
+
+  it('deshabilita los campos de facturacion cuando no esta habilitada', async () => {
+    mockLoadSuccess({}, { facturacion_habilitada: 'false' })
+
+    render(<Configuracion />)
+
+    await screen.findByRole('heading', { name: /Facturacion Electronica/i })
+
+    const cuitInput = screen.getByLabelText('CUIT Emisor')
+    expect(cuitInput.closest('[class*="pointer-events-none"]')).not.toBeNull()
+  })
+
+  it('muestra indicador de cambios sin guardar', async () => {
+    mockLoadSuccess()
+    const user = userEvent.setup()
+
+    render(<Configuracion />)
+
+    await screen.findByRole('heading', { name: /Identidad del Negocio/i })
+
+    expect(screen.queryByText('Hay cambios sin guardar')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Guardar configuracion/i })).toBeDisabled()
+
+    await user.clear(screen.getByLabelText(/Nombre del Negocio/i))
+    await user.type(screen.getByLabelText(/Nombre del Negocio/i), 'Otro nombre')
+
+    expect(screen.getByText('Hay cambios sin guardar')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Guardar configuracion/i })).not.toBeDisabled()
   })
 })

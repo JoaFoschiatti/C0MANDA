@@ -192,9 +192,94 @@ const obtenerConfiguracionTransferenciaMercadoPago = async (prisma) => {
   };
 };
 
+const registrarReembolso = async (prisma, payload) => {
+  const { pagoId, monto, motivo, usuarioId } = payload;
+
+  const montoReembolso = parseFloat(monto);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const pago = await tx.pago.findUnique({
+      where: { id: pagoId },
+      include: { pedido: true, reembolsos: true }
+    });
+
+    if (!pago) {
+      throw createHttpError.notFound('Pago no encontrado');
+    }
+
+    if (pago.estado !== 'APROBADO') {
+      throw createHttpError.badRequest('Solo se pueden reembolsar pagos aprobados');
+    }
+
+    const totalReembolsado = pago.reembolsos
+      .filter((r) => r.estado !== 'RECHAZADO')
+      .reduce((sum, r) => sum + parseFloat(r.monto), 0);
+
+    const disponible = parseFloat(pago.monto) - totalReembolsado;
+    if (montoReembolso > disponible + 0.01) {
+      throw createHttpError.badRequest(`Monto excede lo reembolsable ($${disponible.toFixed(2)})`);
+    }
+
+    const reembolso = await tx.reembolso.create({
+      data: {
+        pagoId,
+        pedidoId: pago.pedidoId,
+        monto: montoReembolso,
+        motivo,
+        metodo: pago.metodo,
+        estado: 'APROBADO',
+        usuarioId
+      }
+    });
+
+    // Recalculate pedido payment state
+    const pagos = await tx.pago.findMany({
+      where: { pedidoId: pago.pedidoId },
+      include: { reembolsos: true }
+    });
+
+    const totalPagadoNeto = pagos.reduce((sum, p) => {
+      if (p.estado !== 'APROBADO') return sum;
+      const reembolsado = (p.reembolsos || [])
+        .filter((r) => r.estado !== 'RECHAZADO')
+        .reduce((s, r) => s + parseFloat(r.monto), 0);
+      return sum + parseFloat(p.monto) - reembolsado;
+    }, 0);
+
+    const totalPedido = parseFloat(pago.pedido.total);
+    const nuevoEstadoPago = totalPagadoNeto >= totalPedido - 0.01 ? 'APROBADO' : 'PENDIENTE';
+
+    if (pago.pedido.estadoPago !== nuevoEstadoPago) {
+      await tx.pedido.update({
+        where: { id: pago.pedidoId },
+        data: { estadoPago: nuevoEstadoPago }
+      });
+    }
+
+    return { reembolso, pedidoId: pago.pedidoId, nuevoEstadoPago };
+  }, {
+    isolationLevel: 'Serializable'
+  });
+
+  return result;
+};
+
+const listarReembolsos = async (prisma, pedidoId) => {
+  return prisma.reembolso.findMany({
+    where: { pedidoId },
+    include: {
+      pago: { select: { id: true, monto: true, metodo: true } },
+      usuario: { select: { id: true, nombre: true } }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+};
+
 module.exports = {
   registrarPago,
   listarPagosPedido,
   crearPreferenciaMercadoPagoMock,
-  obtenerConfiguracionTransferenciaMercadoPago
+  obtenerConfiguracionTransferenciaMercadoPago,
+  registrarReembolso,
+  listarReembolsos
 };

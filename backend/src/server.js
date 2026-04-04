@@ -6,6 +6,7 @@ const { iniciarJobLotesVencidos, detenerJobLotesVencidos } = require('./jobs/lot
 const { ensureRuntimeDirectories, validateProductionEnvironment } = require('./config/runtime');
 
 const PORT = process.env.PORT || 3001;
+const SHUTDOWN_TIMEOUT_MS = 10000;
 
 let server;
 let shuttingDown = false;
@@ -48,7 +49,16 @@ const shutdown = async (signal) => {
 
   await new Promise((resolve) => {
     if (!server) return resolve();
-    server.close(() => resolve());
+
+    const forceTimer = setTimeout(() => {
+      logger.warn('Shutdown timeout: forzando cierre');
+      resolve();
+    }, SHUTDOWN_TIMEOUT_MS);
+
+    server.close(() => {
+      clearTimeout(forceTimer);
+      resolve();
+    });
   });
 
   try {

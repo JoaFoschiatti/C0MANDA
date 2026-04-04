@@ -1,4 +1,4 @@
-import { PencilIcon } from '@heroicons/react/24/outline'
+import { KeyIcon, PencilIcon } from '@heroicons/react/24/outline'
 
 const ROL_BADGE = {
   ADMIN: 'badge-error',
@@ -8,7 +8,7 @@ const ROL_BADGE = {
   DELIVERY: 'badge-info',
 }
 
-export default function UsuariosTable({ usuarios, onEdit, onToggleActivo }) {
+export default function UsuariosTable({ usuarios, onEdit, onResetMfa, onToggleActivo }) {
   return (
     <div className="card overflow-hidden">
       <table className="table">
@@ -17,6 +17,7 @@ export default function UsuariosTable({ usuarios, onEdit, onToggleActivo }) {
             <th>Nombre</th>
             <th>Email</th>
             <th>Rol</th>
+            <th>MFA</th>
             <th>Estado</th>
             <th className="text-right">Acciones</th>
           </tr>
@@ -39,6 +40,11 @@ export default function UsuariosTable({ usuarios, onEdit, onToggleActivo }) {
                 </span>
               </td>
               <td>
+                <span className={`badge ${usuario.mfaEnabled ? 'badge-success' : 'badge-warning'}`}>
+                  {usuario.mfaEnabled ? 'Activo' : 'Pendiente'}
+                </span>
+              </td>
+              <td>
                 <button
                   type="button"
                   onClick={() => onToggleActivo(usuario)}
@@ -48,6 +54,15 @@ export default function UsuariosTable({ usuarios, onEdit, onToggleActivo }) {
                 </button>
               </td>
               <td className="text-right">
+                <button
+                  onClick={() => onResetMfa(usuario)}
+                  type="button"
+                  aria-label={`Reiniciar MFA de ${usuario.nombre}`}
+                  title="Reiniciar MFA"
+                  className="mr-3 text-warning-500 transition-colors hover:text-warning-400"
+                >
+                  <KeyIcon className="h-5 w-5" />
+                </button>
                 <button
                   onClick={() => onEdit(usuario)}
                   type="button"

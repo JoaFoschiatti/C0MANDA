@@ -108,6 +108,13 @@ const renderMenu = (initialEntry = '/menu') => render(
   </MemoryRouter>
 )
 
+const expectPendingOrderSaved = (matcher) => {
+  expect(localStorage.setItem).toHaveBeenCalledWith(
+    'mp_pedido_pendiente',
+    expect.stringContaining(matcher)
+  )
+}
+
 describe('MenuPublico page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -126,8 +133,8 @@ describe('MenuPublico page', () => {
     expect(screen.getByText('Pizzas')).toBeInTheDocument()
     expect(screen.getByText('Muzzarella')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'La Casa' })).toHaveAttribute('src', '/comanda-logo.png')
-    expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/config`, {})
-    expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/menu`, {})
+    expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/config`, { credentials: 'include' })
+    expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/menu`, { credentials: 'include' })
   })
 
   it('usa el logo configurado en el badge del hero', async () => {
@@ -177,6 +184,7 @@ describe('MenuPublico page', () => {
     fetch
       .mockResolvedValueOnce({
         ok: false,
+        status: 400,
         json: async () => ({ error: { message: 'Error al cargar configuracion' } })
       })
       .mockResolvedValueOnce({ ok: true, json: async () => menuData })
@@ -199,13 +207,14 @@ describe('MenuPublico page', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => configData })
       .mockResolvedValueOnce({ ok: true, json: async () => menuData })
 
-    renderMenu('/menu?pago=error&pedido=123&token=abc-token')
+    renderMenu('/menu?pago=error&pedido=123')
 
     expect(await screen.findByText(/El pago no fue aprobado/i)).toBeInTheDocument()
-    expect(fetch).not.toHaveBeenCalledWith('/api/publico/pedido/123?token=abc-token', {})
-    expect(localStorage.setItem).toHaveBeenCalledWith(
+    expect(fetch).not.toHaveBeenCalledWith('/api/publico/pedido/123', { credentials: 'include' })
+    expectPendingOrderSaved('"pedidoId":123')
+    expect(localStorage.setItem).not.toHaveBeenCalledWith(
       'mp_pedido_pendiente',
-      expect.stringContaining('"accessToken":"abc-token"')
+      expect.stringContaining('"accessToken"')
     )
   })
 
@@ -220,8 +229,7 @@ describe('MenuPublico page', () => {
         json: async () => ({
           pedido: { id: 123, total: 1600 },
           total: 1600,
-          initPoint: 'https://mercadopago.test/init',
-          accessToken: 'abc-token'
+          initPoint: 'https://mercadopago.test/init'
         })
       })
 
@@ -234,16 +242,14 @@ describe('MenuPublico page', () => {
     await user.click(screen.getByRole('button', { name: /Continuar pedido/i }))
     await user.type(screen.getByLabelText('Nombre'), 'Cliente Test')
     await user.type(screen.getByLabelText('Telefono'), '3410000000')
-    await user.type(screen.getByLabelText('Email'), 'cliente@test.com')
+    await user.type(screen.getByLabelText('Email (opcional)'), 'cliente@test.com')
     await user.type(screen.getByLabelText('Direccion'), 'Calle 123')
     await user.click(screen.getByRole('button', { name: /Mercado Pago/i }))
     await user.click(screen.getByRole('button', { name: /Ir a Mercado Pago/i }))
 
     expect(await screen.findByText(/No pudimos abrir Mercado Pago/i)).toBeInTheDocument()
-    expect(localStorage.setItem).toHaveBeenCalledWith(
-      'mp_pedido_pendiente',
-      expect.stringContaining('"accessToken":"abc-token"')
-    )
+    expectPendingOrderSaved('"pedidoId":123')
+    expectPendingOrderSaved('"status":"RETRY_MERCADOPAGO"')
     expect(localStorage.removeItem).not.toHaveBeenCalledWith('mp_pedido_pendiente')
   })
 
@@ -265,29 +271,40 @@ describe('MenuPublico page', () => {
     expect(screen.queryByRole('button', { name: /Ir a Mercado Pago/i })).not.toBeInTheDocument()
   })
 
-  it('persiste y usa accessToken al volver de MercadoPago', async () => {
-    fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => configData })
-      .mockResolvedValueOnce({ ok: true, json: async () => menuData })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          id: 123,
-          estadoPago: 'APROBADO',
-          total: 1200,
-          accessToken: 'abc-token'
-        })
-      })
+  it('persiste y verifica el pedido al volver de MercadoPago sin exponer tokens', async () => {
+    fetch.mockImplementation(async (url) => {
+      if (url === `${API_URL}/publico/config`) {
+        return { ok: true, json: async () => configData }
+      }
 
-    renderMenu('/menu?pago=exito&pedido=123&token=abc-token')
+      if (url === `${API_URL}/publico/menu`) {
+        return { ok: true, json: async () => menuData }
+      }
 
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith('/api/publico/pedido/123?token=abc-token', {})
+      if (url === `${API_URL}/publico/pedido/123`) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 123,
+            estadoPago: 'APROBADO',
+            total: 1200
+          })
+        }
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`)
     })
 
-    expect(localStorage.setItem).toHaveBeenCalledWith(
+    renderMenu('/menu?pago=exito&pedido=123')
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(`${API_URL}/publico/pedido/123`, { credentials: 'include' })
+    })
+
+    expectPendingOrderSaved('"pedidoId":123')
+    expect(localStorage.setItem).not.toHaveBeenCalledWith(
       'mp_pedido_pendiente',
-      expect.stringContaining('"accessToken":"abc-token"')
+      expect.stringContaining('"accessToken"')
     )
   })
 })

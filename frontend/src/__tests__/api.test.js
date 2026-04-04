@@ -85,7 +85,7 @@ describe('api interceptor', () => {
 
     await expect(axiosState.responseFailureHandlers.at(-1)(error)).rejects.toBe(error)
 
-    expect(toast.error).toHaveBeenCalledWith('Fallo')
+    expect(toast.error).toHaveBeenCalledWith('Fallo', { id: 'api-err-Fallo' })
     expect(getBackendStatusSnapshot().apiAvailable).toBe(true)
   })
 

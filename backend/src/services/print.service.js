@@ -85,9 +85,72 @@ const buildHeaderTitle = (pedido, tipo) => {
   return 'CONTROL MOSTRADOR';
 };
 
-const buildComandaText = (pedido, tipo, anchoMm) => {
+const normalizeTipos = (tipos) => {
+  const allowedTipos = new Set(['COCINA', 'CAJA', 'CLIENTE']);
+  const normalized = Array.isArray(tipos)
+    ? tipos
+      .map((tipo) => String(tipo || '').toUpperCase())
+      .filter((tipo) => allowedTipos.has(tipo))
+    : [];
+
+  return normalized.length ? normalized : ['COCINA', 'CAJA', 'CLIENTE'];
+};
+
+const normalizeRoundIds = (options = {}) => {
+  const rawRoundIds = Array.isArray(options.roundIds)
+    ? options.roundIds
+    : options.rondaId !== undefined && options.rondaId !== null
+      ? [options.rondaId]
+      : [];
+
+  return [...new Set(
+    rawRoundIds
+      .map((value) => parseInt(value, 10))
+      .filter((value) => Number.isInteger(value) && value > 0)
+  )];
+};
+
+const getPrintContext = (pedido, tipo, options = {}) => {
+  if (tipo !== 'COCINA') {
+    return {
+      fechaBase: pedido.createdAt,
+      items: pedido.items || [],
+      ronda: null
+    };
+  }
+
+  const [roundId] = normalizeRoundIds(options);
+  if (!roundId) {
+    return {
+      fechaBase: pedido.createdAt,
+      items: pedido.items || [],
+      ronda: null
+    };
+  }
+
+  const ronda = pedido.rondas?.find((item) => item.id === roundId) || null;
+  const items = ronda?.items || (pedido.items || []).filter((item) => item.rondaId === roundId);
+
+  return {
+    fechaBase: ronda?.createdAt || pedido.createdAt,
+    items,
+    ronda
+  };
+};
+
+const buildModifierLine = (modificador) => {
+  const mod = modificador?.modificador;
+  if (!mod?.nombre) return null;
+
+  return mod.tipo === 'EXCLUSION'
+    ? `  - Sin ${mod.nombre}`
+    : `  + Extra ${mod.nombre}`;
+};
+
+const buildComandaText = (pedido, tipo, anchoMm, options = {}) => {
   const maxChars = getMaxChars(anchoMm);
   const dashed = '-'.repeat(maxChars);
+  const { fechaBase, items, ronda } = getPrintContext(pedido, tipo, options);
   const fecha = new Intl.DateTimeFormat('es-AR', {
     day: '2-digit',
     month: '2-digit',
@@ -95,7 +158,7 @@ const buildComandaText = (pedido, tipo, anchoMm) => {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit'
-  }).format(new Date(pedido.createdAt));
+  }).format(new Date(fechaBase));
   const lineas = [];
 
   lineas.push(centerText(buildHeaderTitle(pedido, tipo), maxChars));
@@ -105,6 +168,10 @@ const buildComandaText = (pedido, tipo, anchoMm) => {
 
   if (pedido.tipo === 'MESA' && pedido.mesa) {
     lineas.push(`Mesa: ${pedido.mesa.numero}`);
+  }
+
+  if (tipo === 'COCINA' && ronda) {
+    lineas.push(`Ronda: ${ronda.numero}`);
   }
 
   if (pedido.clienteNombre) lineas.push(`Cliente: ${pedido.clienteNombre}`);
@@ -120,7 +187,7 @@ const buildComandaText = (pedido, tipo, anchoMm) => {
     lineas.push(dashed);
   }
 
-  for (const item of pedido.items) {
+  for (const item of items) {
     const nombre = item.producto?.nombre || 'Producto';
     const cantidad = item.cantidad || 0;
     const baseLine = `${cantidad} ${nombre}`;
@@ -138,6 +205,16 @@ const buildComandaText = (pedido, tipo, anchoMm) => {
           lineas.push(itemLines[i]);
         }
       }
+    }
+
+    for (const modificador of item.modificadores || []) {
+      const modifierLine = buildModifierLine(modificador);
+      if (!modifierLine) {
+        continue;
+      }
+
+      const modifierLines = wrapText(modifierLine, maxChars);
+      lineas.push(...modifierLines);
     }
 
     if (item.observaciones) {
@@ -192,13 +269,60 @@ const enqueuePrintJobs = async (prisma, pedidoId, options = {}) => {
   const anchoMm = parseInt(options.anchoMm || DEFAULT_WIDTH_MM, 10);
   const maxIntentos = parseInt(options.maxIntentos || DEFAULT_MAX_RETRIES, 10);
   const batchId = options.batchId || generateBatchId();
+  const tipos = normalizeTipos(options.tipos);
+  const roundIds = normalizeRoundIds(options);
 
   const pedido = await prisma.pedido.findUnique({
     where: { id: parseInt(pedidoId) },
     include: {
       mesa: true,
       usuario: { select: { nombre: true } },
-      items: { include: { producto: { select: { nombre: true } } } }
+      items: {
+        include: {
+          producto: { select: { nombre: true } },
+          ronda: {
+            select: {
+              id: true,
+              numero: true,
+              createdAt: true
+            }
+          },
+          modificadores: {
+            include: {
+              modificador: {
+                select: {
+                  nombre: true,
+                  tipo: true,
+                  precio: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: { createdAt: 'asc' }
+      },
+      rondas: {
+        include: {
+          items: {
+            include: {
+              producto: { select: { nombre: true } },
+              modificadores: {
+                include: {
+                  modificador: {
+                    select: {
+                      nombre: true,
+                      tipo: true,
+                      precio: true
+                    }
+                  }
+                }
+              }
+            },
+            orderBy: { createdAt: 'asc' }
+          }
+        },
+        orderBy: { numero: 'asc' }
+      }
     }
   });
 
@@ -206,26 +330,43 @@ const enqueuePrintJobs = async (prisma, pedidoId, options = {}) => {
     throw createHttpError.notFound('Pedido no encontrado');
   }
 
-  const comandas = {
-    COCINA: buildComandaText(pedido, 'COCINA', anchoMm),
-    CAJA: buildComandaText(pedido, 'CAJA', anchoMm),
-    CLIENTE: buildComandaText(pedido, 'CLIENTE', anchoMm)
-  };
-
   const now = new Date();
-  const jobs = Object.entries(comandas).map(([tipo, contenido]) => ({
-    pedidoId: pedido.id,
-    tipo,
-    status: 'PENDIENTE',
-    intentos: 0,
-    maxIntentos,
-    nextAttemptAt: now,
-    contenido,
-    anchoMm,
-    batchId,
-    createdAt: now,
-    updatedAt: now
-  }));
+  const jobs = [];
+
+  for (const tipo of tipos) {
+    if (tipo === 'COCINA' && roundIds.length > 0) {
+      for (const roundId of roundIds) {
+        jobs.push({
+          pedidoId: pedido.id,
+          tipo,
+          status: 'PENDIENTE',
+          intentos: 0,
+          maxIntentos,
+          nextAttemptAt: now,
+          contenido: buildComandaText(pedido, tipo, anchoMm, { rondaId: roundId }),
+          anchoMm,
+          batchId,
+          createdAt: now,
+          updatedAt: now
+        });
+      }
+      continue;
+    }
+
+    jobs.push({
+      pedidoId: pedido.id,
+      tipo,
+      status: 'PENDIENTE',
+      intentos: 0,
+      maxIntentos,
+      nextAttemptAt: now,
+      contenido: buildComandaText(pedido, tipo, anchoMm),
+      anchoMm,
+      batchId,
+      createdAt: now,
+      updatedAt: now
+    });
+  }
 
   await prisma.$transaction([
     prisma.printJob.createMany({ data: jobs }),

@@ -80,10 +80,12 @@ const cleanupOperationalData = async () => {
   await prisma.transaccionMercadoPago.deleteMany();
   await prisma.comprobanteFiscal.deleteMany();
   await prisma.printJob.deleteMany();
+  await prisma.bridgeRequestNonce.deleteMany();
   await prisma.movimientoStock.deleteMany();
   await prisma.pago.deleteMany();
   await prisma.pedidoAuditoria.deleteMany();
   await prisma.pedidoItem.deleteMany();
+  await prisma.pedidoRonda.deleteMany();
   await prisma.pedido.deleteMany();
   await prisma.reserva.deleteMany();
   await prisma.loteStock.deleteMany();
@@ -91,6 +93,10 @@ const cleanupOperationalData = async () => {
   await prisma.cierreCaja.deleteMany();
   await prisma.fichaje.deleteMany();
   await prisma.refreshToken.deleteMany();
+  await prisma.mercadoPagoOAuthState.deleteMany();
+  await prisma.usuarioTrustedDevice.deleteMany();
+  await prisma.usuarioMfaRecoveryCode.deleteMany();
+  await prisma.usuarioMfa.deleteMany();
   await prisma.operationalEvent.deleteMany();
   await prisma.usuario.deleteMany({
     where: {
@@ -108,7 +114,6 @@ const cleanupOperationalData = async () => {
   await prisma.mercadoPagoConfig.deleteMany();
   await prisma.clienteFiscal.deleteMany();
   await prisma.puntoVentaFiscal.deleteMany();
-  await prisma.sucursal.deleteMany();
 
   await ensureBaseSucursales(prisma);
 };

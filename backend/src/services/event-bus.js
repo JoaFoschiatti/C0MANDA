@@ -10,6 +10,7 @@ const POLL_INTERVAL_MS = Number.parseInt(process.env.OPERATIONAL_EVENTS_POLL_MS 
 const INSTANCE_ID = process.env.INSTANCE_ID || `${process.env.HOSTNAME || 'local'}-${process.pid}`;
 const RETENTION_HOURS = Number.parseInt(process.env.OPERATIONAL_EVENTS_RETENTION_HOURS || '72', 10);
 const CLEANUP_INTERVAL_MS = Number.parseInt(process.env.OPERATIONAL_EVENTS_CLEANUP_MS || '300000', 10);
+const EVENT_FETCH_LIMIT = 100;
 
 let pollerId = null;
 let subscriberCount = 0;
@@ -89,7 +90,7 @@ const pollEvents = async () => {
       id: { gt: lastSeenEventId || 0 }
     },
     orderBy: { id: 'asc' },
-    take: 100
+    take: EVENT_FETCH_LIMIT
   });
 
   if (events.length === 0) {

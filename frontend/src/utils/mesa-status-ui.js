@@ -34,6 +34,14 @@ const FALLBACK_STATUS_UI = {
   themeClass: 'mesa-status-theme--cerrada',
 }
 
+export const MESA_STATUS_PRIORITY = {
+  ESPERANDO_CUENTA: 0,
+  OCUPADA: 1,
+  RESERVADA: 2,
+  CERRADA: 3,
+  LIBRE: 4,
+}
+
 export const MESA_OPERATION_CARD_SIZE_CLASS = 'w-28 h-28 sm:w-32 sm:h-32'
 
 export function getMesaStatusUi(estado) {

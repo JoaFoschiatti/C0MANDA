@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 
 import Reservas from '../pages/admin/Reservas'
 import api from '../services/api'
@@ -53,7 +54,7 @@ describe('Reservas page', () => {
     api.post.mockResolvedValueOnce({ data: { id: 1 } })
 
     const user = userEvent.setup()
-    render(<Reservas />)
+    render(<MemoryRouter><Reservas /></MemoryRouter>)
 
     await user.click(screen.getByRole('button', { name: /Nueva Reserva/i }))
 

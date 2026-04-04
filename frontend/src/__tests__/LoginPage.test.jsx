@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 
 const mockNavigate = vi.fn()
 const mockLogin = vi.fn()
+const mockFinishSession = vi.fn()
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')
@@ -18,7 +19,10 @@ vi.mock('react-router-dom', async () => {
 })
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ login: mockLogin })
+  useAuth: () => ({
+    login: mockLogin,
+    finishSession: mockFinishSession
+  })
 }))
 
 vi.mock('react-hot-toast', () => ({
@@ -50,8 +54,11 @@ describe('Login page', () => {
     await user.click(screen.getByRole('button', { name: /Ingresar/i }))
 
     expect(mockLogin).toHaveBeenCalledWith('admin@demo.com', 'secret', { skipToast: true })
-    expect(toast.success).toHaveBeenCalledWith('Bienvenido!')
-    expect(mockNavigate).toHaveBeenCalledWith('/dashboard')
+    await waitFor(() => {
+      expect(mockFinishSession).toHaveBeenCalledWith({ id: 1 })
+      expect(toast.success).toHaveBeenCalledWith('Bienvenido!')
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard')
+    })
   })
 
   it('muestra error cuando el login falla', async () => {

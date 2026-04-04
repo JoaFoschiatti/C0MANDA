@@ -146,6 +146,45 @@ describe('Pedidos Endpoints', () => {
     expect(mesaActualizada.estado).toBe('OCUPADA');
   });
 
+  it('POST /api/pedidos rechaza abrir otra cuenta en una mesa con pedido abierto', async () => {
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 200,
+        capacidad: 4,
+        estado: 'LIBRE',
+        activa: true
+      }
+    });
+
+    const { producto } = await createCategoriaYProducto();
+
+    const pedidoInicial = await request(app)
+      .post('/api/pedidos')
+      .set('Authorization', authHeader(tokenAdmin))
+      .send({
+        tipo: 'MESA',
+        mesaId: mesa.id,
+        items: [{ productoId: producto.id, cantidad: 1 }]
+      })
+      .expect(201);
+
+    const response = await request(app)
+      .post('/api/pedidos')
+      .set('Authorization', authHeader(tokenAdmin))
+      .send({
+        tipo: 'MESA',
+        mesaId: mesa.id,
+        items: [{ productoId: producto.id, cantidad: 1 }]
+      })
+      .expect(409);
+
+    expect(response.body.error.message).toBe('La mesa ya tiene un pedido abierto');
+    expect(response.body.error.details).toEqual(expect.objectContaining({
+      pedidoId: pedidoInicial.body.id,
+      mesaId: mesa.id
+    }));
+  });
+
   it('MOZO no puede crear pedidos DELIVERY pero si MESA y MOSTRADOR', async () => {
     const { producto } = await createCategoriaYProducto();
     const mesa = await prisma.mesa.create({
@@ -415,7 +454,7 @@ describe('Pedidos Endpoints', () => {
 
     expect(response.body.estado).toBe('EN_PREPARACION');
     expect(response.body.impresion).toBeDefined();
-    expect(response.body.impresion.total).toBe(3);
+    expect(response.body.impresion.total).toBe(1);
     expect(response.body.impresion.batchId).toBeDefined();
 
     const ingredienteActualizado = await prisma.ingrediente.findUnique({ where: { id: ingrediente.id } });
@@ -430,7 +469,7 @@ describe('Pedidos Endpoints', () => {
     const jobs = await prisma.printJob.findMany({
       where: { pedidoId }
     });
-    expect(jobs.length).toBe(3);
+    expect(jobs.length).toBe(1);
 
     const detalle = await request(app)
       .get(`/api/pedidos/${pedidoId}`)
@@ -439,7 +478,7 @@ describe('Pedidos Endpoints', () => {
 
     expect(detalle.body.id).toBe(pedidoId);
     expect(detalle.body.impresion).toBeDefined();
-    expect(detalle.body.impresion.total).toBe(3);
+    expect(detalle.body.impresion.total).toBe(1);
     expect(detalle.body.impresion.status).toBe('PENDIENTE');
     expect(detalle.body.printJobs).toBeUndefined();
 
@@ -917,22 +956,31 @@ describe('Pedidos Endpoints', () => {
         mesaId: mesa.id,
         subtotal: 20,
         total: 20,
-        observaciones: 'Sin demora',
-        items: {
-          create: [{
-            productoId: producto.id,
-            cantidad: 1,
-            precioUnitario: 20,
-            subtotal: 20,
-            observaciones: 'Bien cocido',
-            modificadores: {
-              create: [{
-                modificadorId: modificador.id,
-                precio: 5
-              }]
-            }
-          }]
-        }
+        observaciones: 'Sin demora'
+      }
+    });
+    const ronda = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 1
+      }
+    });
+    const pedidoItem = await prisma.pedidoItem.create({
+      data: {
+        pedidoId: pedido.id,
+        rondaId: ronda.id,
+        productoId: producto.id,
+        cantidad: 1,
+        precioUnitario: 20,
+        subtotal: 20,
+        observaciones: 'Bien cocido'
+      }
+    });
+    await prisma.pedidoItemModificador.create({
+      data: {
+        pedidoItemId: pedidoItem.id,
+        modificadorId: modificador.id,
+        precio: 5
       }
     });
 
@@ -983,15 +1031,23 @@ describe('Pedidos Endpoints', () => {
         clienteDireccion: 'Calle 1',
         observaciones: 'Puerta azul',
         subtotal: 18,
-        total: 18,
-        items: {
-          create: [{
-            productoId: producto.id,
-            cantidad: 2,
-            precioUnitario: 9,
-            subtotal: 18
-          }]
-        }
+        total: 18
+      }
+    });
+    const ronda = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 1
+      }
+    });
+    await prisma.pedidoItem.create({
+      data: {
+        pedidoId: pedido.id,
+        rondaId: ronda.id,
+        productoId: producto.id,
+        cantidad: 2,
+        precioUnitario: 9,
+        subtotal: 18
       }
     });
 
@@ -1035,15 +1091,23 @@ describe('Pedidos Endpoints', () => {
         origen: 'MENU_PUBLICO',
         operacionConfirmada: false,
         subtotal: 18,
-        total: 18,
-        items: {
-          create: [{
-            productoId: producto.id,
-            cantidad: 1,
-            precioUnitario: 18,
-            subtotal: 18
-          }]
-        }
+        total: 18
+      }
+    });
+    const rondaCocina = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedidoCocina.id,
+        numero: 1
+      }
+    });
+    await prisma.pedidoItem.create({
+      data: {
+        pedidoId: pedidoCocina.id,
+        rondaId: rondaCocina.id,
+        productoId: producto.id,
+        cantidad: 1,
+        precioUnitario: 18,
+        subtotal: 18
       }
     });
 
@@ -1057,15 +1121,23 @@ describe('Pedidos Endpoints', () => {
         clienteTelefono: '123',
         clienteDireccion: 'Calle 1',
         subtotal: 18,
-        total: 18,
-        items: {
-          create: [{
-            productoId: producto.id,
-            cantidad: 1,
-            precioUnitario: 18,
-            subtotal: 18
-          }]
-        }
+        total: 18
+      }
+    });
+    const rondaDelivery = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedidoDelivery.id,
+        numero: 1
+      }
+    });
+    await prisma.pedidoItem.create({
+      data: {
+        pedidoId: pedidoDelivery.id,
+        rondaId: rondaDelivery.id,
+        productoId: producto.id,
+        cantidad: 1,
+        precioUnitario: 18,
+        subtotal: 18
       }
     });
 
@@ -1104,5 +1176,199 @@ describe('Pedidos Endpoints', () => {
 
     expect(cocinaConfirmada.body.some((item) => item.id === pedidoCocina.id)).toBe(true);
     expect(deliveryConfirmado.body.some((item) => item.id === pedidoDelivery.id)).toBe(true);
+  });
+
+  it('POST /api/pedidos/:id/items agrega una nueva ronda sobre un pedido cobrado y reabre la cuenta', async () => {
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 65,
+        capacidad: 4,
+        estado: 'ESPERANDO_CUENTA',
+        activa: true
+      }
+    });
+
+    const { producto } = await createCategoriaYProducto();
+
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MESA',
+        mesaId: mesa.id,
+        estado: 'COBRADO',
+        estadoPago: 'APROBADO',
+        subtotal: 10,
+        total: 10
+      }
+    });
+    const rondaInicial = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 1,
+        enviadaCocinaAt: new Date(),
+        stockAplicadoAt: new Date()
+      }
+    });
+    await prisma.pedidoItem.create({
+      data: {
+        pedidoId: pedido.id,
+        rondaId: rondaInicial.id,
+        productoId: producto.id,
+        cantidad: 1,
+        precioUnitario: 10,
+        subtotal: 10
+      }
+    });
+    await prisma.pago.create({
+      data: {
+        pedidoId: pedido.id,
+        monto: 10,
+        metodo: 'EFECTIVO',
+        canalCobro: 'CAJA',
+        estado: 'APROBADO'
+      }
+    });
+
+    const response = await request(app)
+      .post(`/api/pedidos/${pedido.id}/items`)
+      .set('Authorization', authHeader(tokenMozo))
+      .send({
+        items: [{ productoId: producto.id, cantidad: 1 }]
+      })
+      .expect(200);
+
+    expect(response.body.ronda).toEqual(expect.objectContaining({ numero: 2 }));
+    expect(response.body.impresion).toEqual(expect.objectContaining({ total: 1 }));
+    expect(response.body.pedido.estado).toBe('EN_PREPARACION');
+    expect(response.body.pedido.estadoPago).toBe('PENDIENTE');
+    expect(Number(response.body.pedido.total)).toBe(20);
+
+    const mesaActualizada = await prisma.mesa.findUnique({ where: { id: mesa.id } });
+    expect(mesaActualizada.estado).toBe('OCUPADA');
+
+    const rondas = await prisma.pedidoRonda.findMany({
+      where: { pedidoId: pedido.id },
+      orderBy: { numero: 'asc' }
+    });
+    expect(rondas).toHaveLength(2);
+    expect(rondas[1].enviadaCocinaAt).not.toBeNull();
+
+    const jobs = await prisma.printJob.findMany({ where: { pedidoId: pedido.id } });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].tipo).toBe('COCINA');
+  });
+
+  it('POST /api/mesas/:id/precuenta calcula el total acumulado y encola CAJA + CLIENTE', async () => {
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 66,
+        capacidad: 4,
+        estado: 'OCUPADA',
+        activa: true
+      }
+    });
+
+    const { producto } = await createCategoriaYProducto();
+
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MESA',
+        mesaId: mesa.id,
+        estado: 'PENDIENTE',
+        subtotal: 20,
+        total: 20
+      }
+    });
+    const ronda1 = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 1
+      }
+    });
+    const ronda2 = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 2
+      }
+    });
+    await prisma.pedidoItem.createMany({
+      data: [
+        {
+          pedidoId: pedido.id,
+          rondaId: ronda1.id,
+          productoId: producto.id,
+          cantidad: 1,
+          precioUnitario: 10,
+          subtotal: 10
+        },
+        {
+          pedidoId: pedido.id,
+          rondaId: ronda2.id,
+          productoId: producto.id,
+          cantidad: 1,
+          precioUnitario: 10,
+          subtotal: 10
+        }
+      ]
+    });
+
+    const response = await request(app)
+      .post(`/api/mesas/${mesa.id}/precuenta`)
+      .set('Authorization', authHeader(tokenMozo))
+      .send({})
+      .expect(200);
+
+    expect(Number(response.body.pedido.total)).toBe(20);
+    expect(Number(response.body.pendiente)).toBe(20);
+    expect(response.body.mesa.estado).toBe('ESPERANDO_CUENTA');
+    expect(response.body.impresion).toEqual(expect.objectContaining({ total: 2 }));
+
+    const jobs = await prisma.printJob.findMany({
+      where: { pedidoId: pedido.id },
+      orderBy: { tipo: 'asc' }
+    });
+    expect(jobs.map((job) => job.tipo)).toEqual(['CAJA', 'CLIENTE']);
+  });
+
+  it('POST /api/pedidos/:id/cerrar permite a un mozo cerrar una cuenta saldada', async () => {
+    const mesa = await prisma.mesa.create({
+      data: {
+        numero: 67,
+        capacidad: 4,
+        estado: 'OCUPADA',
+        activa: true
+      }
+    });
+
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MESA',
+        mesaId: mesa.id,
+        estado: 'COBRADO',
+        estadoPago: 'APROBADO',
+        subtotal: 10,
+        total: 10
+      }
+    });
+    await prisma.pago.create({
+      data: {
+        pedidoId: pedido.id,
+        monto: 10,
+        metodo: 'EFECTIVO',
+        canalCobro: 'CAJA',
+        estado: 'APROBADO'
+      }
+    });
+
+    const response = await request(app)
+      .post(`/api/pedidos/${pedido.id}/cerrar`)
+      .set('Authorization', authHeader(tokenMozo))
+      .send({})
+      .expect(200);
+
+    expect(response.body.estado).toBe('CERRADO');
+    expect(response.body.estadoPago).toBe('APROBADO');
+
+    const mesaActualizada = await prisma.mesa.findUnique({ where: { id: mesa.id } });
+    expect(mesaActualizada.estado).toBe('CERRADA');
   });
 });

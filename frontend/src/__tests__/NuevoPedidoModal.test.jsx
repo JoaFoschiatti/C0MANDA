@@ -94,7 +94,10 @@ describe('NuevoPedidoModal', () => {
     })
 
     expect(toast.success).toHaveBeenCalledWith('Pedido #123 creado!')
-    expect(onSuccess).toHaveBeenCalledWith({ id: 123 }, { tipo: 'MOSTRADOR' })
+    expect(onSuccess).toHaveBeenCalledWith(
+      { id: 123 },
+      expect.objectContaining({ tipo: 'MOSTRADOR', mode: 'create', pedidoId: 123 })
+    )
     expect(api.get).toHaveBeenCalledWith('/categorias/publicas', expect.objectContaining({ skipToast: true }))
     expect(api.get).toHaveBeenCalledWith('/mesas', expect.objectContaining({ skipToast: true }))
     expect(api.get).toHaveBeenCalledWith('/modificadores/producto/10', expect.objectContaining({ skipToast: true }))

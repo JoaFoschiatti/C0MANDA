@@ -6,8 +6,14 @@ const imprimirComanda = async (req, res) => {
   const prisma = getPrisma(req);
   const { pedidoId } = req.params;
   const anchoMm = req.body?.anchoMm;
+  const tipo = req.body?.tipo;
+  const rondaId = req.body?.rondaId;
 
-  const result = await impresionService.imprimirComanda(prisma, pedidoId, { anchoMm });
+  const result = await impresionService.imprimirComanda(prisma, pedidoId, {
+    anchoMm,
+    tipos: tipo ? [tipo] : undefined,
+    rondaId
+  });
 
   eventBus.publish('impresion.updated', {
     pedidoId: parseInt(pedidoId, 10),

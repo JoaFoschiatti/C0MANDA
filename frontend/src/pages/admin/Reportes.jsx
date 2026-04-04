@@ -34,16 +34,20 @@ export default function Reportes() {
     consumoInsumos,
     datosMetodosPago,
     datosTipoPedido,
+    compararActivo,
+    exportarCSV,
     fechaDesde,
     fechaHasta,
     loadingReportes,
     productosMasVendidos,
     setAgruparPorBase,
+    setCompararActivo,
     setFechaDesde,
     setFechaHasta,
     setTabActiva,
     tabActiva,
     ventas,
+    ventasPorHora,
     ventasPorMozo,
   } = useReportesData()
 
@@ -88,6 +92,26 @@ export default function Reportes() {
           >
             {loadingReportes ? 'Cargando...' : 'Actualizar'}
           </button>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={compararActivo}
+              onChange={(e) => setCompararActivo(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-text-secondary">Comparar periodo anterior</span>
+          </label>
+          <button
+            onClick={() => {
+              if (tabActiva === 'ventas') exportarCSV('ventas')
+              else if (tabActiva === 'insumos') exportarCSV('insumos')
+              else if (tabActiva === 'horasPico') exportarCSV('horasPico')
+            }}
+            className="btn btn-secondary"
+            disabled={loadingReportes}
+          >
+            Exportar CSV
+          </button>
         </div>
       </div>
 
@@ -104,6 +128,12 @@ export default function Reportes() {
         >
           Consumo de Insumos
         </button>
+        <button
+          onClick={() => setTabActiva('horasPico')}
+          className={`tab ${tabActiva === 'horasPico' ? 'active' : ''}`}
+        >
+          Horas Pico
+        </button>
       </div>
 
       {tabActiva === 'ventas' && ventas && (
@@ -114,16 +144,31 @@ export default function Reportes() {
               <p className="text-2xl font-bold text-success-600">
                 ${ventas.totalVentas?.toLocaleString('es-AR')}
               </p>
+              {ventas.variacion?.totalVentas != null && (
+                <p className={`text-sm font-medium ${ventas.variacion.totalVentas >= 0 ? 'text-success-600' : 'text-error-500'}`}>
+                  {ventas.variacion.totalVentas >= 0 ? '+' : ''}{ventas.variacion.totalVentas}%
+                </p>
+              )}
             </div>
             <div className="card">
               <p className="text-sm text-text-secondary">Total Pedidos</p>
               <p className="text-2xl font-bold text-text-primary">{ventas.totalPedidos}</p>
+              {ventas.variacion?.totalPedidos != null && (
+                <p className={`text-sm font-medium ${ventas.variacion.totalPedidos >= 0 ? 'text-success-600' : 'text-error-500'}`}>
+                  {ventas.variacion.totalPedidos >= 0 ? '+' : ''}{ventas.variacion.totalPedidos}%
+                </p>
+              )}
             </div>
             <div className="card">
               <p className="text-sm text-text-secondary">Ticket Promedio</p>
               <p className="text-2xl font-bold text-primary-600">
                 ${ventas.ticketPromedio?.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
               </p>
+              {ventas.variacion?.ticketPromedio != null && (
+                <p className={`text-sm font-medium ${ventas.variacion.ticketPromedio >= 0 ? 'text-success-600' : 'text-error-500'}`}>
+                  {ventas.variacion.ticketPromedio >= 0 ? '+' : ''}{ventas.variacion.ticketPromedio}%
+                </p>
+              )}
             </div>
             <div className="card">
               <p className="text-sm text-text-secondary">Ventas por Tipo</p>
@@ -215,6 +260,53 @@ export default function Reportes() {
           </h3>
           <ConsumoInsumosTable data={consumoInsumos} />
         </div>
+      )}
+
+      {tabActiva === 'horasPico' && ventasPorHora && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="card">
+              <p className="text-sm text-text-secondary">Hora Pico (mas pedidos)</p>
+              <p className="text-2xl font-bold text-primary-600">{ventasPorHora.horaPico}</p>
+            </div>
+            <div className="card">
+              <p className="text-sm text-text-secondary">Hora Mayor Facturacion</p>
+              <p className="text-2xl font-bold text-success-600">{ventasPorHora.horaMaxVentas}</p>
+            </div>
+            <div className="card">
+              <p className="text-sm text-text-secondary">Total Horas con Actividad</p>
+              <p className="text-2xl font-bold text-text-primary">
+                {ventasPorHora.horas?.filter((h) => h.cantidadPedidos > 0).length || 0}
+              </p>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="text-heading-3 mb-4">Pedidos por Hora del Dia</h3>
+            <div className="space-y-1">
+              {ventasPorHora.horas?.map((h) => {
+                const maxPedidos = Math.max(...ventasPorHora.horas.map((x) => x.cantidadPedidos), 1)
+                const widthPct = (h.cantidadPedidos / maxPedidos) * 100
+                const isPico = h.hora === ventasPorHora.horaPico
+                return (
+                  <div key={h.hora} className="flex items-center gap-3 text-sm">
+                    <span className="w-12 text-right text-text-secondary font-mono">{h.hora}</span>
+                    <div className="flex-1 h-6 bg-surface-hover rounded overflow-hidden">
+                      <div
+                        className={`h-full rounded ${isPico ? 'bg-primary-500' : 'bg-primary-300'}`}
+                        style={{ width: `${widthPct}%` }}
+                      />
+                    </div>
+                    <span className="w-8 text-right text-text-primary font-medium">{h.cantidadPedidos}</span>
+                    <span className="w-24 text-right text-text-secondary">
+                      ${h.totalVentas.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

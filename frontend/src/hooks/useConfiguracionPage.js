@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import toast from 'react-hot-toast'
 
 import api from '../services/api'
-import useTimeout from './useTimeout'
 import useAsync from './useAsync'
 import { validateImageFile } from '../utils/file-validation'
 import { normalizeHexColor } from '../utils/color'
@@ -59,21 +59,48 @@ const DEFAULT_BACKEND_URL = (import.meta.env.VITE_API_URL || '/api').replace('/a
 
 export default function useConfiguracionPage() {
   const [negocio, setNegocio] = useState(NEGOCIO_INICIAL)
-  const [savingNegocio, setSavingNegocio] = useState(false)
   const [config, setConfig] = useState(CONFIG_INICIAL)
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [uploadingBanner, setUploadingBanner] = useState(false)
-  const [message, setMessage] = useState(null)
-  const { set: setMessageTimeout } = useTimeout()
+  const [loadError, setLoadError] = useState(null)
 
-  const mostrarMensaje = useCallback(
-    (texto, tipo = 'success') => {
-      setMessage({ texto, tipo })
-      setMessageTimeout(() => setMessage(null), 3000)
-    },
-    [setMessageTimeout]
-  )
+  // Dirty state tracking — snapshot of last saved state
+  const savedNegocioRef = useRef(NEGOCIO_INICIAL)
+  const savedConfigRef = useRef(CONFIG_INICIAL)
+
+  const isDirty = useCallback(() => {
+    const negocioDirty = JSON.stringify(negocio) !== JSON.stringify(savedNegocioRef.current)
+    const configDirty = JSON.stringify(config) !== JSON.stringify(savedConfigRef.current)
+    return negocioDirty || configDirty
+  }, [negocio, config])
+
+  // beforeunload warning when there are unsaved changes
+  useEffect(() => {
+    const handler = (e) => {
+      if (isDirty()) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isDirty])
+
+  const parseConfigData = (raw) => {
+    const configData = {}
+    Object.entries(raw).forEach(([key, value]) => {
+      if (value === 'true') {
+        configData[key] = true
+      } else if (value === 'false') {
+        configData[key] = false
+      } else if (value !== '' && !Number.isNaN(Number(value)) && !TEXT_CONFIG_KEYS.has(key)) {
+        configData[key] = Number(value)
+      } else {
+        configData[key] = value
+      }
+    })
+    return configData
+  }
 
   const cargarDatos = useCallback(async () => {
     const [negocioResponse, configuracionResponse] = await Promise.all([
@@ -81,7 +108,7 @@ export default function useConfiguracionPage() {
       api.get('/configuracion', { skipToast: true }),
     ])
 
-    setNegocio({
+    const loadedNegocio = {
       nombre: negocioResponse.data.nombre || '',
       email: negocioResponse.data.email || '',
       telefono: negocioResponse.data.telefono || '',
@@ -95,29 +122,25 @@ export default function useConfiguracionPage() {
         negocioResponse.data.colorSecundario,
         NEGOCIO_INICIAL.colorSecundario
       ),
-    })
+    }
 
-    const configData = {}
-    Object.entries(configuracionResponse.data).forEach(([key, value]) => {
-      if (value === 'true') {
-        configData[key] = true
-      } else if (value === 'false') {
-        configData[key] = false
-      } else if (value !== '' && !Number.isNaN(Number(value)) && !TEXT_CONFIG_KEYS.has(key)) {
-        configData[key] = Number(value)
-      } else {
-        configData[key] = value
-      }
-    })
+    const configData = parseConfigData(configuracionResponse.data)
+    const loadedConfig = { ...CONFIG_INICIAL, ...configData }
 
-    setConfig((prev) => ({ ...prev, ...configData }))
+    setNegocio(loadedNegocio)
+    setConfig(loadedConfig)
+    setLoadError(null)
+
+    // Snapshot for dirty tracking
+    savedNegocioRef.current = loadedNegocio
+    savedConfigRef.current = loadedConfig
   }, [])
 
   const { loading, execute: cargarDatosAsync } = useAsync(
     useCallback(async () => cargarDatos(), [cargarDatos]),
     {
       immediate: false,
-      onError: () => mostrarMensaje('Error al cargar configuracion', 'error'),
+      onError: () => setLoadError('No pudimos cargar la configuracion. Verifica tu conexion.'),
     }
   )
 
@@ -157,59 +180,16 @@ export default function useConfiguracionPage() {
     return response
   }, [])
 
-  const guardarNegocio = async () => {
-    setSavingNegocio(true)
-    try {
-      const payload = {
-        ...negocio,
-        colorPrimario: normalizeHexColor(negocio.colorPrimario, NEGOCIO_INICIAL.colorPrimario),
-        colorSecundario: normalizeHexColor(negocio.colorSecundario, NEGOCIO_INICIAL.colorSecundario),
-      }
-      await persistNegocio(payload)
-      mostrarMensaje('Datos del negocio guardados')
-    } catch (error) {
-      mostrarMensaje(error.response?.data?.error?.message || 'Error al guardar negocio', 'error')
-    } finally {
-      setSavingNegocio(false)
-    }
-  }
-
-  const guardarIdentidad = async () => {
-    setSavingNegocio(true)
-    try {
-      const payload = {
-        ...negocio,
-        colorPrimario: normalizeHexColor(negocio.colorPrimario, NEGOCIO_INICIAL.colorPrimario),
-        colorSecundario: normalizeHexColor(negocio.colorSecundario, NEGOCIO_INICIAL.colorSecundario),
-      }
-
-      await Promise.all([
-        persistNegocio(payload),
-        api.put(
-          '/configuracion',
-          {
-            tagline_negocio: config.tagline_negocio || '',
-          },
-          { skipToast: true }
-        ),
-      ])
-
-      setConfig((prev) => ({
-        ...prev,
-        nombre_negocio: payload.nombre,
-        tagline_negocio: config.tagline_negocio || '',
-      }))
-      mostrarMensaje('Identidad guardada correctamente')
-    } catch (error) {
-      mostrarMensaje(error.response?.data?.error?.message || 'Error al guardar identidad', 'error')
-    } finally {
-      setSavingNegocio(false)
-    }
-  }
-
-  const guardarConfiguracion = async () => {
+  // Unified save — saves identity + operational config + facturacion in one click
+  const guardarTodo = async () => {
     setSaving(true)
     try {
+      const negocioPayload = {
+        ...negocio,
+        colorPrimario: normalizeHexColor(negocio.colorPrimario, NEGOCIO_INICIAL.colorPrimario),
+        colorSecundario: normalizeHexColor(negocio.colorSecundario, NEGOCIO_INICIAL.colorSecundario),
+      }
+
       const {
         nombre_negocio,
         tagline_negocio,
@@ -224,7 +204,12 @@ export default function useConfiguracionPage() {
       } = config
 
       await Promise.all([
-        api.put('/configuracion', configGeneral, { skipToast: true }),
+        persistNegocio(negocioPayload),
+        api.put(
+          '/configuracion',
+          { ...configGeneral, tagline_negocio: tagline_negocio || '' },
+          { skipToast: true }
+        ),
         api.put(
           '/facturacion/configuracion',
           {
@@ -239,12 +224,13 @@ export default function useConfiguracionPage() {
         ),
       ])
 
-      mostrarMensaje('Configuracion guardada correctamente')
+      // Update dirty tracking snapshot after successful save
+      savedNegocioRef.current = { ...negocio }
+      savedConfigRef.current = { ...config }
+
+      toast.success('Configuracion guardada')
     } catch (error) {
-      mostrarMensaje(
-        error.response?.data?.error?.message || 'Error al guardar configuracion',
-        'error'
-      )
+      toast.error(error.response?.data?.error?.message || 'Error al guardar configuracion')
     } finally {
       setSaving(false)
     }
@@ -258,7 +244,7 @@ export default function useConfiguracionPage() {
 
     const validation = validateImageFile(file)
     if (!validation.ok) {
-      mostrarMensaje(validation.error, 'error')
+      toast.error(validation.error)
       event.target.value = ''
       return
     }
@@ -273,9 +259,10 @@ export default function useConfiguracionPage() {
         skipToast: true,
       })
       setConfig((prev) => ({ ...prev, banner_imagen: response.data.url }))
-      mostrarMensaje('Banner subido correctamente')
+      savedConfigRef.current = { ...savedConfigRef.current, banner_imagen: response.data.url }
+      toast.success('Banner subido')
     } catch {
-      mostrarMensaje('Error al subir banner', 'error')
+      toast.error('Error al subir banner')
     } finally {
       setUploadingBanner(false)
       event.target.value = ''
@@ -292,10 +279,11 @@ export default function useConfiguracionPage() {
 
     try {
       await api.put('/configuracion', { banner_imagen: '' }, { skipToast: true })
-      mostrarMensaje('Banner eliminado')
+      savedConfigRef.current = { ...savedConfigRef.current, banner_imagen: '' }
+      toast.success('Banner eliminado')
     } catch (error) {
       setConfig((prev) => ({ ...prev, banner_imagen: previousBanner }))
-      mostrarMensaje(error.response?.data?.error?.message || 'Error al quitar banner', 'error')
+      toast.error(error.response?.data?.error?.message || 'Error al quitar banner')
     }
   }
 
@@ -307,7 +295,7 @@ export default function useConfiguracionPage() {
 
     const validation = validateImageFile(file)
     if (!validation.ok) {
-      mostrarMensaje(validation.error, 'error')
+      toast.error(validation.error)
       event.target.value = ''
       return
     }
@@ -322,9 +310,10 @@ export default function useConfiguracionPage() {
         skipToast: true,
       })
       setNegocio((prev) => ({ ...prev, logo: response.data.url }))
-      mostrarMensaje('Logo subido correctamente')
+      savedNegocioRef.current = { ...savedNegocioRef.current, logo: response.data.url }
+      toast.success('Logo subido')
     } catch {
-      mostrarMensaje('Error al subir logo', 'error')
+      toast.error('Error al subir logo')
     } finally {
       setUploadingLogo(false)
       event.target.value = ''
@@ -341,23 +330,40 @@ export default function useConfiguracionPage() {
 
     try {
       await api.put('/negocio', { logo: '' }, { skipToast: true })
-      mostrarMensaje('Logo eliminado')
+      savedNegocioRef.current = { ...savedNegocioRef.current, logo: '' }
+      toast.success('Logo eliminado')
     } catch (error) {
       setNegocio((prev) => ({ ...prev, logo: previousLogo }))
-      mostrarMensaje(error.response?.data?.error?.message || 'Error al quitar logo', 'error')
+      toast.error(error.response?.data?.error?.message || 'Error al quitar logo')
     }
   }
 
   const toggleTiendaAbierta = async () => {
     const nuevoEstado = !config.tienda_abierta
     handleConfigChange('tienda_abierta', nuevoEstado)
+    savedConfigRef.current = { ...savedConfigRef.current, tienda_abierta: nuevoEstado }
 
     try {
       await api.put('/configuracion/tienda_abierta', { valor: nuevoEstado }, { skipToast: true })
-      mostrarMensaje(nuevoEstado ? 'Local abierto' : 'Local cerrado')
+      toast.success(nuevoEstado ? 'Local abierto' : 'Local cerrado')
     } catch {
       handleConfigChange('tienda_abierta', !nuevoEstado)
-      mostrarMensaje('Error al cambiar estado del local', 'error')
+      savedConfigRef.current = { ...savedConfigRef.current, tienda_abierta: !nuevoEstado }
+      toast.error('Error al cambiar estado del local')
+    }
+  }
+
+  // Save hours immediately on blur (like the toggle)
+  const guardarHorario = async (key, value) => {
+    handleConfigChange(key, value)
+    const prevValue = savedConfigRef.current[key]
+    savedConfigRef.current = { ...savedConfigRef.current, [key]: value }
+
+    try {
+      await api.put(`/configuracion/${key}`, { valor: value }, { skipToast: true })
+    } catch {
+      savedConfigRef.current = { ...savedConfigRef.current, [key]: prevValue }
+      toast.error('Error al guardar horario')
     }
   }
 
@@ -366,22 +372,20 @@ export default function useConfiguracionPage() {
     cargarDatosAsync,
     config,
     frontendUrl: import.meta.env.VITE_FRONTEND_URL || window.location.origin,
-    guardarIdentidad,
-    guardarConfiguracion,
-    guardarNegocio,
+    guardarTodo,
     handleBannerRemove,
     handleBannerUpload,
     handleConfigChange,
     handleLogoRemove,
     handleLogoUpload,
     handleNegocioChange,
+    isDirty,
     loading,
-    message,
+    loadError,
     negocio,
     saving,
-    savingNegocio,
-    setMessage,
     toggleTiendaAbierta,
+    guardarHorario,
     uploadingBanner,
     uploadingLogo,
   }

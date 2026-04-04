@@ -1,5 +1,6 @@
 const { createHttpError } = require('../utils/http-error');
 const { decimalToNumber } = require('../utils/decimal');
+const { startOfDay } = require('../utils/date-helpers');
 const {
   ensureIngredienteStock,
   roundStock
@@ -58,11 +59,6 @@ const buildConsumibleLoteWhere = (referenceDate = new Date(), sucursalId = null)
   return where;
 };
 
-const startOfDay = (value = new Date()) => {
-  const nextDate = new Date(value);
-  nextDate.setHours(0, 0, 0, 0);
-  return nextDate;
-};
 
 const buildExpiredLotsWhere = (referenceDate = new Date(), sucursalId = null) => {
   const where = {

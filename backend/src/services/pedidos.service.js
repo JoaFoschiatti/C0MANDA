@@ -12,6 +12,7 @@
  */
 
 const { createHttpError } = require('../utils/http-error');
+const { decimalToNumber } = require('../utils/decimal');
 const printService = require('./print.service');
 const { registrarAuditoriaPedido } = require('./pedido-auditoria.service');
 const {
@@ -27,9 +28,8 @@ const {
   assertPedidoTransition,
   canAddItemsToPedido
 } = require('./order-state.service');
-const {
-  isDeferredSettlementPedido
-} = require('./public-order-security.service');
+
+const DEFAULT_PEDIDOS_LIMIT = 50;
 
 const PRINT_JOB_SUMMARY_SELECT = {
   status: true,
@@ -77,6 +77,54 @@ const PEDIDO_COMPROBANTE_SELECT = {
   cae: true,
   caeVencimiento: true,
   createdAt: true
+};
+
+const PEDIDO_ITEM_MODIFICADOR_SELECT = {
+  id: true,
+  modificadorId: true,
+  precio: true,
+  modificador: {
+    select: {
+      id: true,
+      nombre: true,
+      tipo: true,
+      precio: true
+    }
+  }
+};
+
+const PEDIDO_ITEM_SELECT = {
+  id: true,
+  rondaId: true,
+  productoId: true,
+  cantidad: true,
+  precioUnitario: true,
+  subtotal: true,
+  observaciones: true,
+  createdAt: true,
+  producto: {
+    select: {
+      id: true,
+      nombre: true,
+      precio: true
+    }
+  },
+  modificadores: {
+    select: PEDIDO_ITEM_MODIFICADOR_SELECT
+  }
+};
+
+const PEDIDO_ROUNDA_SELECT = {
+  id: true,
+  numero: true,
+  enviadaCocinaAt: true,
+  stockAplicadoAt: true,
+  createdAt: true,
+  updatedAt: true,
+  items: {
+    select: PEDIDO_ITEM_SELECT,
+    orderBy: { createdAt: 'asc' }
+  }
 };
 
 const PEDIDO_LIST_SELECT = {
@@ -168,36 +216,22 @@ const PEDIDO_DETAIL_SELECT = {
   },
   items: {
     select: {
-      id: true,
-      productoId: true,
-      cantidad: true,
-      precioUnitario: true,
-      subtotal: true,
-      observaciones: true,
-      createdAt: true,
-      producto: {
+      ...PEDIDO_ITEM_SELECT,
+      ronda: {
         select: {
           id: true,
-          nombre: true,
-          precio: true
-        }
-      },
-      modificadores: {
-        select: {
-          id: true,
-          modificadorId: true,
-          precio: true,
-          modificador: {
-            select: {
-              id: true,
-              nombre: true,
-              tipo: true,
-              precio: true
-            }
-          }
+          numero: true,
+          enviadaCocinaAt: true,
+          stockAplicadoAt: true,
+          createdAt: true
         }
       }
-    }
+    },
+    orderBy: { createdAt: 'asc' }
+  },
+  rondas: {
+    select: PEDIDO_ROUNDA_SELECT,
+    orderBy: { numero: 'asc' }
   },
   pagos: {
     select: PEDIDO_PAGO_DETAIL_SELECT
@@ -215,6 +249,28 @@ const attachPedidoImpresionSummary = (pedido) => {
   const { printJobs: _printJobs, ...rest } = pedido;
   return { ...rest, impresion };
 };
+
+const OPEN_PEDIDO_WHERE = {
+  estado: { notIn: ['CERRADO', 'CANCELADO'] }
+};
+
+const findOpenPedidoByMesa = async (tx, mesaId) => tx.pedido.findFirst({
+  where: {
+    mesaId,
+    ...OPEN_PEDIDO_WHERE
+  },
+  orderBy: { createdAt: 'desc' },
+  select: {
+    id: true,
+    estado: true,
+    mesaId: true
+  }
+});
+
+const createMesaPedidoConflict = (pedido) => createHttpError.conflict(
+  'La mesa ya tiene un pedido abierto',
+  pedido ? { pedidoId: pedido.id, mesaId: pedido.mesaId, estado: pedido.estado } : undefined
+);
 
 const resolvePedidoSucursal = async (tx, { tipo, mesaId, sucursalId }) => {
   await ensureBaseSucursales(tx);
@@ -253,6 +309,31 @@ const resolvePedidoSucursal = async (tx, { tipo, mesaId, sucursalId }) => {
     mesa: null,
     sucursalId: resolvedSucursalId
   };
+};
+
+/**
+ * Validates modifier IDs against the available modifiers map and returns
+ * the validated modifier objects along with their aggregated price.
+ *
+ * @private
+ * @param {Array<number>} itemModificadores - Modifier IDs requested for the item
+ * @param {Map<number, Object>} disponibles - Map of available modifiers keyed by ID
+ * @returns {{ mods: Array<Object>, precioModificadores: number }}
+ */
+const validateAndMapModificadores = (itemModificadores, disponibles) => {
+  let precioModificadores = 0;
+  const mods = (itemModificadores || []).map(modId => {
+    const mod = disponibles.get(modId);
+    if (!mod) {
+      throw createHttpError.badRequest(`Modificador ${modId} no encontrado`);
+    }
+    if (!mod.activo) {
+      throw createHttpError.badRequest(`Modificador "${mod.nombre}" no está activo`);
+    }
+    precioModificadores += parseFloat(mod.precio);
+    return mod;
+  });
+  return { mods, precioModificadores };
 };
 
 /**
@@ -320,18 +401,7 @@ const buildPedidoItems = async (prisma, items) => {
       throw createHttpError.badRequest(`Producto "${producto.nombre}" no está disponible`);
     }
 
-    let precioModificadores = 0;
-    const mods = (item.modificadores || []).map(modId => {
-      const mod = modificadorById.get(modId);
-      if (!mod) {
-        throw createHttpError.badRequest(`Modificador ${modId} no encontrado`);
-      }
-      if (!mod.activo) {
-        throw createHttpError.badRequest(`Modificador "${mod.nombre}" no está activo`);
-      }
-      precioModificadores += parseFloat(mod.precio);
-      return mod;
-    });
+    const { mods, precioModificadores } = validateAndMapModificadores(item.modificadores, modificadorById);
 
     const precioUnitario = parseFloat(producto.precio) + precioModificadores;
     const itemSubtotal = precioUnitario * item.cantidad;
@@ -349,6 +419,173 @@ const buildPedidoItems = async (prisma, items) => {
   }
 
   return { subtotal, itemsConPrecio, pedidoItemModificadores };
+};
+
+const createPedidoRonda = async (tx, { pedidoId, usuarioId = null, marcaOperativa = false }) => {
+  const now = new Date();
+  const { _max } = await tx.pedidoRonda.aggregate({
+    where: { pedidoId },
+    _max: { numero: true }
+  });
+
+  return tx.pedidoRonda.create({
+    data: {
+      pedidoId,
+      usuarioId,
+      numero: (_max.numero || 0) + 1,
+      ...(marcaOperativa
+        ? {
+            enviadaCocinaAt: now,
+            stockAplicadoAt: now
+          }
+        : {})
+    }
+  });
+};
+
+const createPedidoItemsForRound = async (tx, {
+  pedidoId,
+  rondaId,
+  itemsConPrecio,
+  pedidoItemModificadores
+}) => {
+  const createdItems = await Promise.all(
+    itemsConPrecio.map((itemData) => tx.pedidoItem.create({
+      data: {
+        pedidoId,
+        rondaId,
+        ...itemData
+      }
+    }))
+  );
+
+  const modificadoresToCreate = [];
+  for (let idx = 0; idx < createdItems.length; idx += 1) {
+    const pedidoItem = createdItems[idx];
+    const mods = pedidoItemModificadores[idx] || [];
+    for (const mod of mods) {
+      modificadoresToCreate.push({
+        pedidoItemId: pedidoItem.id,
+        modificadorId: mod.id,
+        precio: mod.precio
+      });
+    }
+  }
+
+  if (modificadoresToCreate.length) {
+    await tx.pedidoItemModificador.createMany({
+      data: modificadoresToCreate
+    });
+  }
+
+  return createdItems;
+};
+
+const getPedidoByIdWithDetail = async (prisma, pedidoId) => {
+  const pedido = await prisma.pedido.findUnique({
+    where: { id: pedidoId },
+    select: PEDIDO_DETAIL_SELECT
+  });
+
+  return pedido ? attachPedidoImpresionSummary(pedido) : null;
+};
+
+const getPedidoRoundsForOperation = async (tx, pedidoId, where = {}) => tx.pedidoRonda.findMany({
+  where: {
+    pedidoId,
+    ...where
+  },
+  orderBy: { numero: 'asc' },
+  include: {
+    items: {
+      include: {
+        producto: {
+          include: {
+            ingredientes: true
+          }
+        },
+        modificadores: {
+          include: {
+            modificador: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    }
+  }
+});
+
+const applyRoundsStock = async (tx, pedido, rondas = []) => {
+  if (!rondas.length) {
+    return;
+  }
+
+  const ingredienteUpdates = new Map();
+
+  for (const ronda of rondas) {
+    for (const item of ronda.items) {
+      for (const prodIng of item.producto.ingredientes) {
+        const cantidadDescontar = parseFloat(prodIng.cantidad) * item.cantidad;
+        const ingredienteId = prodIng.ingredienteId;
+        const currentTotal = ingredienteUpdates.get(ingredienteId) || 0;
+        ingredienteUpdates.set(ingredienteId, currentTotal + cantidadDescontar);
+      }
+    }
+  }
+
+  for (const [ingredienteId, cantidadTotal] of ingredienteUpdates.entries()) {
+    const ingrediente = await tx.ingrediente.findUnique({
+      where: { id: ingredienteId },
+      select: { id: true, nombre: true, stockActual: true }
+    });
+
+    const ingredienteSincronizado = await sincronizarStockIngrediente(
+      tx,
+      ingrediente,
+      pedido.sucursalId,
+      new Date()
+    );
+    const stockActual = parseFloat(ingredienteSincronizado?.stockActual || 0);
+
+    if (stockActual < cantidadTotal) {
+      throw createHttpError.badRequest(
+        `Stock insuficiente de ${ingrediente.nombre} para completar el pedido. Disponible: ${stockActual}, Necesario: ${cantidadTotal}`
+      );
+    }
+
+    await consumirLotesFIFO(tx, {
+      ingredienteId,
+      sucursalId: pedido.sucursalId,
+      cantidad: cantidadTotal,
+      motivo: `Pedido #${pedido.id}`,
+      pedidoId: pedido.id,
+      tipoMovimiento: 'SALIDA'
+    });
+  }
+
+  await tx.pedidoRonda.updateMany({
+    where: { id: { in: rondas.map((ronda) => ronda.id) } },
+    data: { stockAplicadoAt: new Date() }
+  });
+};
+
+const markRoundsSentToKitchen = async (prisma, rondaIds = []) => {
+  if (!rondaIds.length) {
+    return;
+  }
+
+  await prisma.pedidoRonda.updateMany({
+    where: { id: { in: rondaIds } },
+    data: { enviadaCocinaAt: new Date() }
+  });
+};
+
+const resolvePedidoEstadoAfterItemsAdded = (estadoActual) => {
+  if (estadoActual === 'PENDIENTE' || estadoActual === 'EN_PREPARACION') {
+    return estadoActual;
+  }
+
+  return 'EN_PREPARACION';
 };
 
 /**
@@ -422,6 +659,11 @@ const crearPedido = async (prisma, payload) => {
     });
 
     if (tipo === 'MESA' && mesaId) {
+      const pedidoAbierto = await findOpenPedidoByMesa(tx, mesaId);
+      if (pedidoAbierto) {
+        throw createMesaPedidoConflict(pedidoAbierto);
+      }
+
       await tx.mesa.update({
         where: { id: mesaId },
         data: { estado: 'OCUPADA' }
@@ -445,53 +687,22 @@ const crearPedido = async (prisma, payload) => {
       }
     });
 
-    // Create all items in parallel to avoid N+1 query problem
-    const createdItems = await Promise.all(
-      itemsConPrecio.map(itemData =>
-        tx.pedidoItem.create({
-          data: {
-            pedidoId: pedido.id,
-            ...itemData
-          }
-        })
-      )
-    );
+    const ronda = await createPedidoRonda(tx, {
+      pedidoId: pedido.id,
+      usuarioId
+    });
 
-    const modificadoresToCreate = [];
-    for (let idx = 0; idx < createdItems.length; idx += 1) {
-      const pedidoItem = createdItems[idx];
-      const mods = pedidoItemModificadores[idx] || [];
-      for (const mod of mods) {
-        modificadoresToCreate.push({
-          pedidoItemId: pedidoItem.id,
-          modificadorId: mod.id,
-          precio: mod.precio
-        });
-      }
-    }
-
-    if (modificadoresToCreate.length) {
-      await tx.pedidoItemModificador.createMany({
-        data: modificadoresToCreate
-      });
-    }
+    await createPedidoItemsForRound(tx, {
+      pedidoId: pedido.id,
+      rondaId: ronda.id,
+      itemsConPrecio,
+      pedidoItemModificadores
+    });
 
     return { pedidoId: pedido.id, mesaUpdated: mesaUpdatedLocal };
   });
 
-  const pedidoCompleto = await prisma.pedido.findUnique({
-    where: { id: pedidoId },
-    include: {
-      mesa: true,
-      usuario: { select: { nombre: true } },
-      items: {
-        include: {
-          producto: true,
-          modificadores: { include: { modificador: true } }
-        }
-      }
-    }
-  });
+  const pedidoCompleto = await getPedidoByIdWithDetail(prisma, pedidoId);
 
   return { pedido: pedidoCompleto, mesaUpdated };
 };
@@ -519,7 +730,7 @@ const crearPedido = async (prisma, payload) => {
  * @returns {Promise<Object>} Resultado del cambio de estado
  * @returns {Object} returns.pedidoAntes - Estado previo del pedido (para comparación)
  * @returns {Object} returns.pedidoActualizado - Pedido con el nuevo estado
- * @returns {boolean} returns.shouldPrint - Si debe imprimirse comanda (true cuando pasa a EN_PREPARACION)
+ * @returns {Array<number>} returns.roundIdsToPrint - IDs de rondas a imprimir en cocina
  * @returns {Array<Object>} returns.mesaUpdates - Mesas que cambiaron estado [{mesaId, estado}]
  * @returns {Array<Object>} returns.productosAgotados - Productos marcados como no disponibles
  *
@@ -532,7 +743,7 @@ const crearPedido = async (prisma, payload) => {
  *   estado: 'EN_PREPARACION'
  * });
  *
- * if (result.shouldPrint) {
+ * if (result.roundIdsToPrint.length > 0) {
  *   await imprimirComanda(result.pedidoActualizado);
  * }
  *
@@ -546,114 +757,72 @@ const cambiarEstadoPedido = async (prisma, payload) => {
   const result = await prisma.$transaction(async (tx) => {
     const pedido = await tx.pedido.findUnique({
       where: { id: pedidoId },
-      include: { items: { include: { producto: { include: { ingredientes: true } } } } }
+      include: {
+        mesa: true,
+        pagos: true
+      }
     });
 
-      if (!pedido) {
-        throw createHttpError.notFound('Pedido no encontrado');
-      }
-
-      assertPedidoTransition(pedido.estado, estado);
-
-      let estadoDestino = estado;
-      const confirmarOperacionPublica = (
-        pedido.origen === 'MENU_PUBLICO' &&
-        pedido.operacionConfirmada === false &&
-        estado === 'EN_PREPARACION'
-      );
-
-      if (
-        estado === 'ENTREGADO' &&
-        isDeferredSettlementPedido(pedido) &&
-        pedido.estadoPago === 'APROBADO'
-      ) {
-        estadoDestino = 'COBRADO';
-      }
-
-      const shouldPrint = estado === 'EN_PREPARACION' && pedido.estado === 'PENDIENTE';
-      const mesaUpdates = [];
-      const productosAgotados = [];
-
-    // Deduccion de stock: agrega necesidades de ingredientes de todos los items,
-    // verifica disponibilidad por ingrediente, luego consume de lotes usando FIFO.
-    if (shouldPrint) {
-      const ingredienteUpdates = new Map();
-
-      for (const item of pedido.items) {
-        for (const prodIng of item.producto.ingredientes) {
-          const cantidadDescontar = parseFloat(prodIng.cantidad) * item.cantidad;
-          const ingredienteId = prodIng.ingredienteId;
-
-          const currentTotal = ingredienteUpdates.get(ingredienteId) || 0;
-          ingredienteUpdates.set(ingredienteId, currentTotal + cantidadDescontar);
-        }
-      }
-
-      for (const [ingredienteId, cantidadTotal] of ingredienteUpdates.entries()) {
-        const ingrediente = await tx.ingrediente.findUnique({
-          where: { id: ingredienteId },
-          select: { id: true, nombre: true, stockActual: true }
-        });
-
-        const ingredienteSincronizado = await sincronizarStockIngrediente(
-          tx,
-          ingrediente,
-          pedido.sucursalId,
-          new Date()
-        );
-        const stockActual = parseFloat(ingredienteSincronizado?.stockActual || 0);
-
-        if (stockActual < cantidadTotal) {
-          throw createHttpError.badRequest(
-            `Stock insuficiente de ${ingrediente.nombre} para completar el pedido. Disponible: ${stockActual}, Necesario: ${cantidadTotal}`
-          );
-        }
-
-        await consumirLotesFIFO(tx, {
-          ingredienteId,
-          sucursalId: pedido.sucursalId,
-          cantidad: cantidadTotal,
-          motivo: `Pedido #${pedido.id}`,
-          pedidoId: pedido.id,
-          tipoMovimiento: 'SALIDA'
-        });
-      }
-
+    if (!pedido) {
+      throw createHttpError.notFound('Pedido no encontrado');
     }
 
-      if ((estadoDestino === 'COBRADO' || estadoDestino === 'CERRADO') && pedido.mesaId) {
-        await tx.mesa.update({
-          where: { id: pedido.mesaId },
-          data: { estado: 'CERRADA' }
-        });
-        mesaUpdates.push({ mesaId: pedido.mesaId, estado: 'CERRADA' });
-      }
+    assertPedidoTransition(pedido.estado, estado);
 
-      const pedidoActualizado = await tx.pedido.update({
-        where: { id: pedidoId },
-        data: {
-          estado: estadoDestino,
-          ...(confirmarOperacionPublica ? { operacionConfirmada: true } : {})
-        },
-        include: {
-          mesa: true,
-          usuario: { select: { nombre: true } },
-        items: { include: { producto: true } }
-      }
+    let estadoDestino = estado;
+    const confirmarOperacionPublica = (
+      pedido.origen === 'MENU_PUBLICO' &&
+      pedido.operacionConfirmada === false &&
+      estado === 'EN_PREPARACION'
+    );
+
+    if (estado === 'ENTREGADO' && pedido.estadoPago === 'APROBADO') {
+      estadoDestino = 'COBRADO';
+    }
+
+    const mesaUpdates = [];
+    const productosAgotados = [];
+    let roundIdsToPrint = [];
+
+    if (estado === 'EN_PREPARACION' && pedido.estado === 'PENDIENTE') {
+      const rondasPendientes = await getPedidoRoundsForOperation(tx, pedido.id, {
+        enviadaCocinaAt: null
+      });
+      const rondasPendientesStock = rondasPendientes.filter((ronda) => !ronda.stockAplicadoAt);
+
+      await applyRoundsStock(tx, pedido, rondasPendientesStock);
+      roundIdsToPrint = rondasPendientes.map((ronda) => ronda.id);
+    }
+
+    if (estadoDestino === 'CERRADO' && pedido.mesaId) {
+      await tx.mesa.update({
+        where: { id: pedido.mesaId },
+        data: { estado: 'CERRADA' }
+      });
+      mesaUpdates.push({ mesaId: pedido.mesaId, estado: 'CERRADA' });
+    }
+
+    const pedidoActualizado = await tx.pedido.update({
+      where: { id: pedidoId },
+      data: {
+        estado: estadoDestino,
+        ...(confirmarOperacionPublica ? { operacionConfirmada: true } : {})
+      },
+      select: PEDIDO_DETAIL_SELECT
     });
 
-      await registrarAuditoriaPedido(tx, {
-        pedidoId: pedido.id,
-        usuarioId,
-        accion: `ESTADO_${estadoDestino}`,
-        snapshotAntes: pedido,
-        snapshotDespues: pedidoActualizado
-      });
+    await registrarAuditoriaPedido(tx, {
+      pedidoId: pedido.id,
+      usuarioId,
+      accion: `ESTADO_${estadoDestino}`,
+      snapshotAntes: pedido,
+      snapshotDespues: pedidoActualizado
+    });
 
     return {
       pedidoAntes: pedido,
-      pedidoActualizado,
-      shouldPrint,
+      pedidoActualizado: attachPedidoImpresionSummary(pedidoActualizado),
+      roundIdsToPrint,
       mesaUpdates,
       productosAgotados
     };
@@ -665,8 +834,7 @@ const cambiarEstadoPedido = async (prisma, payload) => {
 /**
  * Agrega items adicionales a un pedido existente.
  *
- * Permite agregar más productos a un pedido que aún no ha sido cobrado o cancelado.
- * Actualiza automáticamente el subtotal y total del pedido.
+ * Permite agregar más productos a un pedido abierto y crear una nueva ronda.
  *
  * @param {import('@prisma/client').PrismaClient} prisma - Cliente Prisma
  * @param {Object} payload - Datos de los items a agregar
@@ -676,17 +844,24 @@ const cambiarEstadoPedido = async (prisma, payload) => {
  * @param {number} payload.items[].cantidad - Cantidad
  * @param {string} [payload.items[].observaciones] - Observaciones
  *
- * @returns {Promise<Object>} Pedido actualizado con todos los items
+ * @returns {Promise<Object>} Resultado con pedido actualizado y ronda creada
  *
  * @throws {HttpError} 404 - Pedido no encontrado
- * @throws {HttpError} 400 - No se pueden agregar items a pedido COBRADO o CANCELADO
+ * @throws {HttpError} 400 - No se pueden agregar items a pedido CERRADO o CANCELADO
  * @throws {HttpError} 400 - Producto no disponible
  */
 const agregarItemsPedido = async (prisma, payload) => {
-  const { pedidoId, items } = payload;
+  const { pedidoId, items, usuarioId = null } = payload;
 
   const result = await prisma.$transaction(async (tx) => {
-    const pedido = await tx.pedido.findUnique({ where: { id: pedidoId } });
+    const pedido = await tx.pedido.findUnique({
+      where: { id: pedidoId },
+      include: {
+        mesa: true,
+        pagos: true
+      }
+    });
+
     if (!pedido) {
       throw createHttpError.notFound('Pedido no encontrado');
     }
@@ -695,51 +870,69 @@ const agregarItemsPedido = async (prisma, payload) => {
       throw createHttpError.badRequest('No se pueden agregar items a este pedido');
     }
 
-    const productIds = [...new Set(items.map(item => item.productoId))];
-    const productos = await tx.producto.findMany({
-      where: { id: { in: productIds } },
-      select: { id: true, precio: true, disponible: true }
+    const { subtotal, itemsConPrecio, pedidoItemModificadores } = await buildPedidoItems(tx, items);
+    const ronda = await createPedidoRonda(tx, {
+      pedidoId: pedido.id,
+      usuarioId
     });
-    const productoById = new Map(productos.map(p => [p.id, p]));
 
-    let subtotalNuevo = 0;
-    const itemsConPrecio = [];
+    await createPedidoItemsForRound(tx, {
+      pedidoId: pedido.id,
+      rondaId: ronda.id,
+      itemsConPrecio,
+      pedidoItemModificadores
+    });
 
-    for (const item of items) {
-      const producto = productoById.get(item.productoId);
-      if (!producto || !producto.disponible) {
-        throw createHttpError.badRequest('Producto no disponible');
+    const nuevoCobro = buildPedidoCobroSummary({
+      total: parseFloat(pedido.total) + subtotal,
+      pagos: pedido.pagos
+    });
+    const estadoDestino = resolvePedidoEstadoAfterItemsAdded(pedido.estado);
+    let mesaUpdated = null;
+
+    if (pedido.estado !== 'PENDIENTE') {
+      const [rondaOperativa] = await getPedidoRoundsForOperation(tx, pedido.id, { id: ronda.id });
+
+      if (rondaOperativa && !rondaOperativa.stockAplicadoAt) {
+        await applyRoundsStock(tx, pedido, [rondaOperativa]);
       }
-
-      const itemSubtotal = parseFloat(producto.precio) * item.cantidad;
-      subtotalNuevo += itemSubtotal;
-
-      itemsConPrecio.push({
-        pedidoId,
-        productoId: item.productoId,
-        cantidad: item.cantidad,
-        precioUnitario: producto.precio,
-        subtotal: itemSubtotal,
-        observaciones: item.observaciones
-      });
     }
 
-    await tx.pedidoItem.createMany({ data: itemsConPrecio });
+    if (pedido.mesaId && pedido.mesa?.estado !== 'OCUPADA') {
+      await tx.mesa.update({
+        where: { id: pedido.mesaId },
+        data: { estado: 'OCUPADA' }
+      });
+      mesaUpdated = { mesaId: pedido.mesaId, estado: 'OCUPADA' };
+    }
 
-    const pedidoActualizado = await tx.pedido.update({
+    await tx.pedido.update({
       where: { id: pedidoId },
       data: {
-        subtotal: { increment: subtotalNuevo },
-        total: { increment: subtotalNuevo }
-      },
-      include: {
-        mesa: true,
-        usuario: { select: { nombre: true } },
-        items: { include: { producto: true } }
+        subtotal: { increment: subtotal },
+        total: { increment: subtotal },
+        estado: estadoDestino,
+        estadoPago: nuevoCobro.fullyPaid ? 'APROBADO' : 'PENDIENTE'
       }
     });
 
-    return pedidoActualizado;
+    const pedidoActualizado = await getPedidoByIdWithDetail(tx, pedido.id);
+    const rondaActualizada = pedidoActualizado?.rondas?.find((item) => item.id === ronda.id) || null;
+
+    await registrarAuditoriaPedido(tx, {
+      pedidoId: pedido.id,
+      usuarioId,
+      accion: `ITEMS_AGREGADOS_RONDA_${ronda.numero}`,
+      snapshotAntes: pedido,
+      snapshotDespues: pedidoActualizado
+    });
+
+    return {
+      pedido: pedidoActualizado,
+      ronda: rondaActualizada,
+      mesaUpdated,
+      roundIdsToPrint: pedido.estado === 'PENDIENTE' ? [] : [ronda.id]
+    };
   });
 
   return result;
@@ -853,18 +1046,16 @@ const precuentaMesa = async (prisma, payload) => {
       throw createHttpError.notFound('Mesa no encontrada');
     }
 
-    const pedido = await tx.pedido.findFirst({
-      where: {
-        mesaId,
-        estado: { notIn: ['CANCELADO', 'CERRADO'] }
-      },
-      include: { pagos: true, items: { include: { producto: true } } },
-      orderBy: { createdAt: 'desc' }
-    });
+    const pedidoAbierto = await findOpenPedidoByMesa(tx, mesaId);
 
-    if (!pedido) {
+    if (!pedidoAbierto) {
       throw createHttpError.badRequest('La mesa no tiene un pedido activo para generar precuenta');
     }
+
+    const pedido = await tx.pedido.findUnique({
+      where: { id: pedidoAbierto.id },
+      select: PEDIDO_DETAIL_SELECT
+    });
 
     const mesaActualizada = await tx.mesa.update({
       where: { id: mesaId },
@@ -886,10 +1077,270 @@ const precuentaMesa = async (prisma, payload) => {
 
     return {
       mesa: mesaActualizada,
-      pedido,
+      pedido: attachPedidoImpresionSummary(pedido),
       totalPagado: cobro.totalPagado,
       pendiente: cobro.pendiente
     };
+  });
+};
+
+const cambiarMesa = async (prisma, payload) => {
+  const { pedidoId, nuevoMesaId, usuarioId } = payload;
+
+  return prisma.$transaction(async (tx) => {
+    const pedido = await tx.pedido.findUnique({
+      where: { id: pedidoId },
+      select: { id: true, tipo: true, estado: true, mesaId: true, sucursalId: true, observaciones: true }
+    });
+
+    if (!pedido) {
+      throw createHttpError.notFound('Pedido no encontrado');
+    }
+
+    if (pedido.tipo !== 'MESA') {
+      throw createHttpError.badRequest('Solo se puede cambiar mesa de pedidos tipo MESA');
+    }
+
+    if (['CANCELADO', 'CERRADO'].includes(pedido.estado)) {
+      throw createHttpError.badRequest('No se puede cambiar mesa de un pedido ' + pedido.estado);
+    }
+
+    if (pedido.mesaId === nuevoMesaId) {
+      throw createHttpError.badRequest('El pedido ya esta en esa mesa');
+    }
+
+    const nuevaMesa = await tx.mesa.findUnique({ where: { id: nuevoMesaId } });
+    if (!nuevaMesa || !nuevaMesa.activa) {
+      throw createHttpError.notFound('Mesa destino no encontrada o inactiva');
+    }
+
+    const pedidoEnNuevaMesa = await findOpenPedidoByMesa(tx, nuevoMesaId);
+    if (pedidoEnNuevaMesa) {
+      throw createMesaPedidoConflict(pedidoEnNuevaMesa);
+    }
+
+    const mesaAnteriorId = pedido.mesaId;
+
+    // Free old mesa
+    if (mesaAnteriorId) {
+      await tx.mesa.update({
+        where: { id: mesaAnteriorId },
+        data: { estado: 'LIBRE' }
+      });
+    }
+
+    // Occupy new mesa
+    await tx.mesa.update({
+      where: { id: nuevoMesaId },
+      data: { estado: 'OCUPADA' }
+    });
+
+    const pedidoActualizado = await tx.pedido.update({
+      where: { id: pedidoId },
+      data: { mesaId: nuevoMesaId },
+      select: PEDIDO_DETAIL_SELECT
+    });
+
+    await registrarAuditoriaPedido(tx, {
+      pedidoId: pedido.id,
+      usuarioId,
+      accion: 'MESA_CAMBIADA',
+      motivo: `Mesa cambiada de #${mesaAnteriorId} a #${nuevoMesaId}`,
+      snapshotAntes: pedido,
+      snapshotDespues: pedidoActualizado
+    });
+
+    return {
+      pedido: attachPedidoImpresionSummary(pedidoActualizado),
+      mesaUpdates: [
+        ...(mesaAnteriorId ? [{ mesaId: mesaAnteriorId, estado: 'LIBRE' }] : []),
+        { mesaId: nuevoMesaId, estado: 'OCUPADA' }
+      ]
+    };
+  });
+};
+
+/**
+ * Reverses stock consumption for a single item whose round had stock applied.
+ * Creates ENTRADA movements to return ingredients to their lots.
+ *
+ * @private
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx - Transaction client
+ * @param {Object} item - The pedido item being reversed
+ * @param {Object} pedido - The parent pedido (must include movimientos and sucursalId)
+ */
+const reverseItemStock = async (tx, item, pedido) => {
+  const receta = await tx.productoIngrediente.findMany({
+    where: { productoId: item.productoId }
+  });
+
+  for (const ing of receta) {
+    const cantidadARevertir = parseFloat(ing.cantidad) * item.cantidad;
+
+    // Find a SALIDA movement for this ingredient+pedido to get the loteStockId
+    const movSalida = pedido.movimientos.find(
+      (m) => m.tipo === 'SALIDA' && m.ingredienteId === ing.ingredienteId
+    );
+
+    await registrarEntradaEnLote(tx, {
+      ingredienteId: ing.ingredienteId,
+      sucursalId: pedido.sucursalId,
+      loteStockId: movSalida?.loteStockId || null,
+      cantidad: cantidadARevertir,
+      motivo: `Anulacion item pedido #${pedido.id}`,
+      pedidoId: pedido.id,
+      tipoMovimiento: 'ENTRADA',
+      incrementStockInicial: false,
+      codigoLote: movSalida?.loteStockId ? null : buildAutoLoteCode(`DEV-${pedido.id}-${ing.ingredienteId}`)
+    });
+  }
+};
+
+const anularItem = async (prisma, payload) => {
+  const { pedidoId, itemId, usuarioId, motivo } = payload;
+
+  return prisma.$transaction(async (tx) => {
+    const pedido = await tx.pedido.findUnique({
+      where: { id: pedidoId },
+      select: {
+        ...PEDIDO_DETAIL_SELECT,
+        movimientos: true
+      }
+    });
+
+    if (!pedido) {
+      throw createHttpError.notFound('Pedido no encontrado');
+    }
+
+    if (['CANCELADO', 'CERRADO'].includes(pedido.estado)) {
+      throw createHttpError.badRequest('No se puede anular items de un pedido ' + pedido.estado);
+    }
+
+    const item = pedido.items.find((i) => i.id === itemId);
+    if (!item) {
+      throw createHttpError.notFound('Item no encontrado en este pedido');
+    }
+
+    const ronda = pedido.rondas.find((r) => r.id === item.rondaId);
+    if (ronda && ronda.enviadaCocinaAt) {
+      throw createHttpError.badRequest('No se puede anular un item cuya comanda ya fue enviada a cocina');
+    }
+
+    // Revert stock if it was applied for this round
+    if (ronda && ronda.stockAplicadoAt) {
+      await reverseItemStock(tx, item, pedido);
+    }
+
+    // Delete the item (cascade handles PedidoItemModificador)
+    await tx.pedidoItem.delete({ where: { id: itemId } });
+
+    // Check if any items remain
+    const remainingItems = await tx.pedidoItem.findMany({
+      where: { pedidoId },
+      select: { subtotal: true }
+    });
+
+    if (remainingItems.length === 0) {
+      // No items left - cancel the entire order
+      let mesaUpdated = null;
+      if (pedido.mesaId) {
+        await tx.mesa.update({
+          where: { id: pedido.mesaId },
+          data: { estado: 'LIBRE' }
+        });
+        mesaUpdated = { mesaId: pedido.mesaId, estado: 'LIBRE' };
+      }
+
+      const pedidoCancelado = await tx.pedido.update({
+        where: { id: pedidoId },
+        data: {
+          estado: 'CANCELADO',
+          observaciones: `${pedido.observaciones || ''} | Cancelado: ultimo item anulado`.trim()
+        },
+        select: PEDIDO_DETAIL_SELECT
+      });
+
+      await registrarAuditoriaPedido(tx, {
+        pedidoId: pedido.id,
+        usuarioId,
+        accion: 'PEDIDO_CANCELADO',
+        motivo: 'Ultimo item anulado',
+        snapshotAntes: pedido,
+        snapshotDespues: pedidoCancelado
+      });
+
+      return { pedido: attachPedidoImpresionSummary(pedidoCancelado), mesaUpdated };
+    }
+
+    // Recalculate totals
+    const nuevoSubtotal = remainingItems.reduce((sum, i) => sum + decimalToNumber(i.subtotal), 0);
+    let descuento = decimalToNumber(pedido.descuento);
+    if (descuento > nuevoSubtotal) {
+      descuento = nuevoSubtotal;
+    }
+    const costoEnvio = decimalToNumber(pedido.costoEnvio);
+    const nuevoTotal = nuevoSubtotal - descuento + costoEnvio;
+
+    const pedidoActualizado = await tx.pedido.update({
+      where: { id: pedidoId },
+      data: { subtotal: nuevoSubtotal, descuento, total: nuevoTotal },
+      select: PEDIDO_DETAIL_SELECT
+    });
+
+    await registrarAuditoriaPedido(tx, {
+      pedidoId: pedido.id,
+      usuarioId,
+      accion: 'ITEM_ANULADO',
+      motivo: motivo || `Item #${itemId} anulado`,
+      snapshotAntes: pedido,
+      snapshotDespues: pedidoActualizado
+    });
+
+    return { pedido: attachPedidoImpresionSummary(pedidoActualizado), mesaUpdated: null };
+  });
+};
+
+const aplicarDescuento = async (prisma, payload) => {
+  const { pedidoId, descuento, usuarioId, motivo } = payload;
+
+  return prisma.$transaction(async (tx) => {
+    const pedido = await tx.pedido.findUnique({
+      where: { id: pedidoId },
+      select: { ...PEDIDO_DETAIL_SELECT, pagos: { select: PEDIDO_PAGO_DETAIL_SELECT } }
+    });
+
+    if (!pedido) {
+      throw createHttpError.notFound('Pedido no encontrado');
+    }
+
+    if (['CANCELADO', 'CERRADO', 'COBRADO'].includes(pedido.estado)) {
+      throw createHttpError.badRequest('No se puede aplicar descuento a un pedido en estado ' + pedido.estado);
+    }
+
+    const subtotal = decimalToNumber(pedido.subtotal);
+    if (descuento > subtotal) {
+      throw createHttpError.badRequest(`El descuento ($${descuento}) no puede ser mayor al subtotal ($${subtotal})`);
+    }
+
+    const costoEnvio = decimalToNumber(pedido.costoEnvio);
+    const nuevoTotal = subtotal - descuento + costoEnvio;
+
+    const pedidoActualizado = await tx.pedido.update({
+      where: { id: pedidoId },
+      data: { descuento, total: nuevoTotal },
+      select: PEDIDO_DETAIL_SELECT
+    });
+
+    await registrarAuditoriaPedido(tx, {
+      pedidoId: pedido.id,
+      usuarioId,
+      accion: 'DESCUENTO_APLICADO',
+      motivo: motivo || `Descuento de $${descuento}`,
+      snapshotAntes: pedido,
+      snapshotDespues: pedidoActualizado
+    });
+
+    return attachPedidoImpresionSummary(pedidoActualizado);
   });
 };
 
@@ -910,8 +1361,8 @@ const cerrarPedido = async (prisma, payload) => {
       throw createHttpError.badRequest('No se puede cerrar un pedido cancelado');
     }
 
-    if (pedido.estado !== 'COBRADO') {
-      throw createHttpError.badRequest('Solo se puede cerrar un pedido ya cobrado');
+    if (pedido.estado === 'CERRADO') {
+      throw createHttpError.badRequest('El pedido ya se encuentra cerrado');
     }
 
     const cobro = buildPedidoCobroSummary(pedido);
@@ -935,12 +1386,7 @@ const cerrarPedido = async (prisma, payload) => {
         estado: 'CERRADO',
         estadoPago: 'APROBADO'
       },
-      include: {
-        mesa: true,
-        usuario: { select: { nombre: true } },
-        items: { include: { producto: true } },
-        pagos: true
-      }
+      select: PEDIDO_DETAIL_SELECT
     });
 
     await registrarAuditoriaPedido(tx, {
@@ -951,7 +1397,11 @@ const cerrarPedido = async (prisma, payload) => {
       snapshotDespues: pedidoActualizado
     });
 
-    return { pedidoAntes: pedido, pedidoActualizado, mesaUpdated };
+    return {
+      pedidoAntes: pedido,
+      pedidoActualizado: attachPedidoImpresionSummary(pedidoActualizado),
+      mesaUpdated
+    };
   });
 };
 
@@ -970,7 +1420,7 @@ const liberarMesa = async (prisma, payload) => {
     const pedidoAbierto = await tx.pedido.findFirst({
       where: {
         mesaId,
-        estado: { notIn: ['COBRADO', 'CERRADO', 'CANCELADO'] }
+        ...OPEN_PEDIDO_WHERE
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -982,9 +1432,9 @@ const liberarMesa = async (prisma, payload) => {
     const pedidoCerrado = await tx.pedido.findFirst({
       where: {
         mesaId,
-        estado: { in: ['COBRADO', 'CERRADO'] }
+        estado: 'CERRADO'
       },
-      include: { pagos: true },
+      select: PEDIDO_DETAIL_SELECT,
       orderBy: { createdAt: 'desc' }
     });
 
@@ -1008,7 +1458,7 @@ const liberarMesa = async (prisma, payload) => {
 
     return {
       mesa: mesaActualizada,
-      pedido: pedidoCerrado,
+      pedido: pedidoCerrado ? attachPedidoImpresionSummary(pedidoCerrado) : null,
       mesaUpdated: { mesaId: mesaActualizada.id, estado: 'LIBRE' }
     };
   });
@@ -1028,7 +1478,7 @@ module.exports = {
    * @returns {Promise<Array>} Lista de pedidos con items, mesa, usuario y pagos
    */
   listar: async (prisma, query) => {
-    const { q, estado, tipo, fecha, mesaId, sucursalId, incluirCerrados, limit = 50, offset = 0 } = query;
+    const { q, estado, tipo, fecha, mesaId, sucursalId, incluirCerrados, limit = DEFAULT_PEDIDOS_LIMIT, offset = 0 } = query;
 
     const where = {};
     const normalizedQuery = typeof q === 'string' ? q.trim() : '';
@@ -1113,8 +1563,12 @@ module.exports = {
   crearPedido,
   cambiarEstadoPedido,
   agregarItemsPedido,
+  markRoundsSentToKitchen,
   cancelarPedido,
   precuentaMesa,
+  cambiarMesa,
+  anularItem,
+  aplicarDescuento,
   cerrarPedido,
   liberarMesa
 };

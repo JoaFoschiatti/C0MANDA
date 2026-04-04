@@ -14,6 +14,7 @@ module.exports = async function globalTeardown() {
     await prisma.transaccionMercadoPago.deleteMany();
     await prisma.comprobanteFiscal.deleteMany();
     await prisma.printJob.deleteMany();
+    await prisma.bridgeRequestNonce.deleteMany();
     await prisma.movimientoStock.deleteMany();
     await prisma.pago.deleteMany();
     await prisma.pedidoAuditoria.deleteMany();
@@ -25,6 +26,10 @@ module.exports = async function globalTeardown() {
     await prisma.cierreCaja.deleteMany();
     await prisma.fichaje.deleteMany();
     await prisma.refreshToken.deleteMany();
+    await prisma.mercadoPagoOAuthState.deleteMany();
+    await prisma.usuarioTrustedDevice.deleteMany();
+    await prisma.usuarioMfaRecoveryCode.deleteMany();
+    await prisma.usuarioMfa.deleteMany();
     await prisma.usuario.deleteMany({
       where: { email: { not: 'admin@comanda.local' } }
     });
@@ -37,7 +42,6 @@ module.exports = async function globalTeardown() {
     await prisma.mercadoPagoConfig.deleteMany();
     await prisma.clienteFiscal.deleteMany();
     await prisma.puntoVentaFiscal.deleteMany();
-    await prisma.sucursal.deleteMany();
   } finally {
     await prisma.$disconnect();
   }

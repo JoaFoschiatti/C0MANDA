@@ -27,7 +27,7 @@ describe('Pagos Endpoints', () => {
     await cleanupOperationalData();
   });
 
-  it('POST /api/pagos permite pagos parciales y completa el pedido (cierra mesa)', async () => {
+  it('POST /api/pagos permite pagos parciales y completa el pedido sin cerrar la mesa automaticamente', async () => {
     const mesa = await prisma.mesa.create({
       data: {
         numero: 1,
@@ -65,10 +65,11 @@ describe('Pagos Endpoints', () => {
 
     expect(Number(pago2.body.totalPagado)).toBe(100);
     expect(Number(pago2.body.pendiente)).toBe(0);
-    expect(pago2.body.pedido.estado).toBe('COBRADO');
+    expect(pago2.body.pedido.estado).toBe('PENDIENTE');
+    expect(pago2.body.pedido.estadoPago).toBe('APROBADO');
 
     const mesaActualizada = await prisma.mesa.findUnique({ where: { id: mesa.id } });
-    expect(mesaActualizada.estado).toBe('CERRADA');
+    expect(mesaActualizada.estado).toBe('OCUPADA');
   });
 
   it('POST /api/pagos rechaza monto mayor al pendiente', async () => {
@@ -184,7 +185,8 @@ describe('Pagos Endpoints', () => {
 
     expect(response.body.pago.referencia).toBeNull();
     expect(response.body.pago.comprobante).toBeNull();
-    expect(response.body.pedido.estado).toBe('COBRADO');
+    expect(response.body.pedido.estado).toBe('PENDIENTE');
+    expect(response.body.pedido.estadoPago).toBe('APROBADO');
 
     const pagoPersistido = await prisma.pago.findUnique({
       where: { id: response.body.pago.id }
@@ -341,9 +343,16 @@ describe('Pagos Endpoints', () => {
         total: 10
       }
     });
+    const ronda = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 1
+      }
+    });
     await prisma.pedidoItem.create({
       data: {
         pedidoId: pedido.id,
+        rondaId: ronda.id,
         productoId: producto.id,
         cantidad: 1,
         precioUnitario: 10,

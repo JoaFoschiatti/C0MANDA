@@ -49,6 +49,12 @@ const consumoInsumos = async (req, res) => {
   res.json(resultado);
 };
 
+const ventasPorHora = async (req, res) => {
+  const prisma = getPrisma(req);
+  const resultado = await reportesService.ventasPorHora(prisma, req.query);
+  res.json(resultado);
+};
+
 module.exports = {
   dashboard,
   tareasCentro,
@@ -57,5 +63,6 @@ module.exports = {
   ventasPorMozo,
   inventarioReporte,
   ventasPorProductoBase,
-  consumoInsumos
+  consumoInsumos,
+  ventasPorHora
 };

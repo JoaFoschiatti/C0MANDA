@@ -7,5 +7,7 @@ const decimalToNumber = (value) => {
   return Number(value);
 };
 
-module.exports = { decimalToNumber };
+const roundStock = (value) => Number.parseFloat(Number(value || 0).toFixed(3));
+
+module.exports = { decimalToNumber, roundStock };
 

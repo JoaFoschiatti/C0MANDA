@@ -2,6 +2,7 @@ const { Prisma } = require('@prisma/client');
 const multer = require('multer');
 const { HttpError, createHttpError } = require('../utils/http-error');
 const { logger } = require('../utils/logger');
+const { captureException } = require('../utils/sentry');
 
 const isPrismaKnownError = (error) => error instanceof Prisma.PrismaClientKnownRequestError;
 const isPrismaValidationError = (error) => error instanceof Prisma.PrismaClientValidationError;
@@ -71,7 +72,7 @@ const errorMiddleware = (error, _req, res, _next) => {
   };
 
   if (status >= 500) {
-    // Log server errors for debugging
+    captureException(normalizedError);
     logger.error('Server error', {
       status,
       message: normalizedError.message,

@@ -1,20 +1,10 @@
 const PENDING_MP_ORDER_KEY = 'mp_pedido_pendiente'
 const DEFAULT_TTL_MS = 30 * 60 * 1000
-const PUBLIC_ORDER_TOKEN_PARAM = 'token'
-
-const normalizeAccessToken = (accessToken) => {
-  if (typeof accessToken !== 'string') {
-    return null
-  }
-
-  const trimmedToken = accessToken.trim()
-  return trimmedToken ? trimmedToken : null
-}
 
 export function savePendingMercadoPagoOrder({
   pedidoId,
-  accessToken = null,
   total = null,
+  status = null,
   timestamp = Date.now()
 }) {
   if (!pedidoId) {
@@ -25,8 +15,8 @@ export function savePendingMercadoPagoOrder({
     PENDING_MP_ORDER_KEY,
     JSON.stringify({
       pedidoId,
-      accessToken: normalizeAccessToken(accessToken),
       total: total == null ? null : Number(total),
+      status: status || null,
       timestamp
     })
   )
@@ -42,8 +32,10 @@ export function loadPendingMercadoPagoOrder(ttlMs = DEFAULT_TTL_MS) {
     const parsed = JSON.parse(rawValue)
     const pedidoId = Number(parsed?.pedidoId)
     const timestamp = Number(parsed?.timestamp)
-    const accessToken = normalizeAccessToken(parsed?.accessToken)
     const total = parsed?.total == null ? null : Number(parsed.total)
+    const status = typeof parsed?.status === 'string' && parsed.status.trim()
+      ? parsed.status.trim()
+      : null
 
     if (!Number.isInteger(pedidoId) || pedidoId <= 0 || !Number.isFinite(timestamp)) {
       clearPendingMercadoPagoOrder()
@@ -57,8 +49,8 @@ export function loadPendingMercadoPagoOrder(ttlMs = DEFAULT_TTL_MS) {
 
     return {
       pedidoId,
-      accessToken,
       total: Number.isFinite(total) ? total : null,
+      status,
       timestamp
     }
   } catch {
@@ -69,15 +61,4 @@ export function loadPendingMercadoPagoOrder(ttlMs = DEFAULT_TTL_MS) {
 
 export function clearPendingMercadoPagoOrder() {
   localStorage.removeItem(PENDING_MP_ORDER_KEY)
-}
-
-export function appendPublicOrderToken(url, accessToken) {
-  const normalizedToken = normalizeAccessToken(accessToken)
-
-  if (!normalizedToken) {
-    return url
-  }
-
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}${PUBLIC_ORDER_TOKEN_PARAM}=${encodeURIComponent(normalizedToken)}`
 }
