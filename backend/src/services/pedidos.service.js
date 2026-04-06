@@ -1279,7 +1279,7 @@ const anularItem = async (prisma, payload) => {
       descuento = nuevoSubtotal;
     }
     const costoEnvio = decimalToNumber(pedido.costoEnvio);
-    const nuevoTotal = nuevoSubtotal - descuento + costoEnvio;
+    const nuevoTotal = Math.max(0, nuevoSubtotal - descuento + costoEnvio);
 
     const pedidoActualizado = await tx.pedido.update({
       where: { id: pedidoId },
@@ -1313,7 +1313,7 @@ const aplicarDescuento = async (prisma, payload) => {
       throw createHttpError.notFound('Pedido no encontrado');
     }
 
-    if (['CANCELADO', 'CERRADO', 'COBRADO'].includes(pedido.estado)) {
+    if (['CANCELADO', 'CERRADO', 'COBRADO', 'ENTREGADO'].includes(pedido.estado)) {
       throw createHttpError.badRequest('No se puede aplicar descuento a un pedido en estado ' + pedido.estado);
     }
 
@@ -1324,6 +1324,10 @@ const aplicarDescuento = async (prisma, payload) => {
 
     const costoEnvio = decimalToNumber(pedido.costoEnvio);
     const nuevoTotal = subtotal - descuento + costoEnvio;
+
+    if (nuevoTotal < 0) {
+      throw createHttpError.badRequest('El total resultante no puede ser negativo');
+    }
 
     const pedidoActualizado = await tx.pedido.update({
       where: { id: pedidoId },

@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react'
 import api from '../services/api'
+import { clearQueue } from '../utils/offline-queue'
+import { clearPendingMercadoPagoOrder } from '../utils/public-storage'
 
 const AuthContext = createContext(null)
 
@@ -72,6 +74,8 @@ export function AuthProvider({ children }) {
 
     localStorage.removeItem('usuario')
     localStorage.removeItem('negocio')
+    clearQueue()
+    clearPendingMercadoPagoOrder()
     setUsuario(null)
     setNegocio(null)
   }, [])

@@ -248,8 +248,7 @@ const webhookMercadoPago = async (req, res) => {
       dataId: req.query['data.id']
     });
 
-    const shouldVerify = process.env.SKIP_WEBHOOK_VERIFICATION === 'true' && process.env.NODE_ENV !== 'production';
-    if (!shouldVerify && !verifyWebhookSignature(req)) {
+    if (!verifyWebhookSignature(req)) {
       logger.error('Webhook MercadoPago: firma invalida o WEBHOOK_SECRET no configurado');
       return res.sendStatus(401);
     }
@@ -369,10 +368,30 @@ const webhookMercadoPago = async (req, res) => {
         });
         pagoId = pagoActualizado.id;
       } else {
+        const webhookAmount = parseFloat(paymentInfo.transaction_amount);
+        const pedido = await prisma.pedido.findUnique({
+          where: { id: pedidoId },
+          select: { total: true, pagos: { select: { monto: true, estado: true } } }
+        });
+
+        if (pedido) {
+          const cobro = buildPedidoCobroSummary(pedido);
+          const tolerance = 0.01;
+          if (webhookAmount > cobro.pendiente + tolerance) {
+            logger.error('Webhook: monto excede pendiente del pedido', {
+              pedidoId,
+              webhookAmount,
+              pendiente: cobro.pendiente,
+              mpPaymentId: paymentIdStr
+            });
+            return res.sendStatus(200);
+          }
+        }
+
         const nuevoPago = await prisma.pago.create({
           data: {
             pedidoId,
-            monto: parseFloat(paymentInfo.transaction_amount),
+            monto: webhookAmount,
             metodo: 'MERCADOPAGO',
             canalCobro: 'CHECKOUT_WEB',
             estado: estadoPago,
