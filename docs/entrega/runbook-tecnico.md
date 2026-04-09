@@ -2,17 +2,27 @@
 
 ## Despliegue inicial
 
-1. Preparar el host con `ops/ec2/scripts/bootstrap-host.sh`.
-2. Instalar configuraciones de `nginx`, `systemd` y `logrotate`.
-3. Crear `/opt/comanda/backend/.env`.
-4. Ejecutar `bash ops/ec2/scripts/preflight-production.sh`.
-5. Ejecutar `ops/ec2/scripts/deploy-app.sh`.
-6. Verificar `systemctl status comanda-backend`.
+La ruta canonica de deploy ya no vive en este archivo. Para desplegar:
+
+- guia humana: [`../../ops/ec2/README.md`](../../ops/ec2/README.md)
+- deploy asistido por Codex: [`../../ops/ec2/CODEX-CLI-DEPLOY.md`](../../ops/ec2/CODEX-CLI-DEPLOY.md)
+
+Este runbook queda para operacion, redeploy, diagnostico y recovery.
 
 ## Redeploy
 
 ```bash
-sudo REPO_URL=<repo> BRANCH=main /opt/comanda/ops/ec2/scripts/deploy-app.sh
+cd /opt/comanda
+git fetch --all --prune
+git checkout main
+git pull --ff-only origin main
+sudo APP_DIR=/opt/comanda BRANCH=main bash /opt/comanda/ops/ec2/scripts/deploy-app.sh
+```
+
+El deploy ya ejecuta el smoke Playwright post deploy y falla si no pasa. Para correrlo a mano:
+
+```bash
+APP_DIR=/opt/comanda BASE_URL=https://tu-dominio.com /opt/comanda/ops/ec2/scripts/post-deploy-smoke.sh
 ```
 
 ## Rotacion de secretos
@@ -36,7 +46,7 @@ tail -f /opt/comanda/backend/logs/error.log
 
 ```bash
 curl -fsS https://tu-dominio.com/api/health
-curl -fsS https://tu-dominio.com/api/ready
+curl -fsS http://127.0.0.1:3001/api/ready
 ```
 
 `/api/health` confirma liveness. `/api/ready` valida DB, bootstrap del negocio/admin y escritura de directorios criticos.
@@ -55,6 +65,13 @@ sudo -u www-data /opt/comanda/ops/ec2/scripts/backup-db.sh
 sudo /opt/comanda/ops/ec2/scripts/restore-db.sh s3://bucket/comanda.dump postgresql://...
 ```
 
+Para un restore drill no destructivo:
+
+```bash
+sudo env DATABASE_URL=postgresql://usuario:password@127.0.0.1:5432/comanda?schema=public \
+  /opt/comanda/ops/ec2/scripts/restore-drill.sh s3://bucket/comanda.dump http://127.0.0.1:3001/api/ready
+```
+
 ### Restore de uploads
 
 ```bash
@@ -64,6 +81,7 @@ sudo AWS_REGION=sa-east-1 bash /opt/comanda/ops/ec2/scripts/restore-uploads.sh s
 Despues del restore:
 1. correr `npx prisma migrate deploy`;
 2. validar login, `/menu`, caja y mesas.
+3. aplicar o revisar [la politica S3 versionada](./politica-retencion-s3.md) si el bucket quedo sin lifecycle.
 
 ## Reconfiguracion de Mercado Pago
 

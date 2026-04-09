@@ -250,15 +250,23 @@ describe('Publico MercadoPago', () => {
         subtotal: 50,
         total: 50,
         estadoPago: 'PENDIENTE',
-        origen: 'MENU_PUBLICO',
-        items: {
-          create: [{
-            productoId: producto.id,
-            cantidad: 1,
-            precioUnitario: 50,
-            subtotal: 50
-          }]
-        }
+        origen: 'MENU_PUBLICO'
+      }
+    });
+    const ronda = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 1
+      }
+    });
+    await prisma.pedidoItem.create({
+      data: {
+        pedidoId: pedido.id,
+        rondaId: ronda.id,
+        productoId: producto.id,
+        cantidad: 1,
+        precioUnitario: 50,
+        subtotal: 50
       }
     });
 

@@ -78,6 +78,7 @@ describe('Mesas Endpoints', () => {
       .set('Authorization', authHeader(tokenAdmin))
       .expect(200);
 
+    expect(listado.headers['cache-control']).toBe('no-store');
     const numeros = listado.body.map((mesa) => mesa.numero);
     expect(numeros).toContain(1);
     expect(numeros).toContain(10);
@@ -123,9 +124,7 @@ describe('Mesas Endpoints', () => {
     const response = await request(app)
       .delete(`/api/mesas/${mesa.id}`)
       .set('Authorization', authHeader(tokenAdmin))
-      .expect(200);
-
-    expect(response.body.message).toBe('Mesa desactivada correctamente');
+      .expect(204);
 
     const inactivas = await request(app)
       .get('/api/mesas?activa=false')

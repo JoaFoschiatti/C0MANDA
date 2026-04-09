@@ -1,24 +1,11 @@
 const crypto = require('crypto');
 const net = require('net');
 const { createHttpError } = require('../utils/http-error');
+const { getClientIpFromRequest, normalizeIp } = require('../utils/client-ip');
 
 const DEFAULT_SIGNATURE_TTL_SECONDS = 120;
 
-const normalizeIp = (value) => {
-  const ip = String(value || '').trim();
-  if (!ip) {
-    return '';
-  }
-
-  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
-};
-
-const getRequestSourceIp = (req) => normalizeIp(
-  String(req.headers['x-forwarded-for'] || '').split(',')[0]
-  || req.ip
-  || req.socket?.remoteAddress
-  || ''
-);
+const getRequestSourceIp = (req) => getClientIpFromRequest(req);
 
 const ipv4ToInt = (ip) => ip.split('.').reduce((acc, octet) => ((acc << 8) + Number(octet)) >>> 0, 0);
 

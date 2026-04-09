@@ -1,5 +1,7 @@
 const request = require('supertest');
 const app = require('../app');
+const { getNegocio } = require('../db/prisma');
+const publicoService = require('../services/publico.service');
 const {
   prisma,
   uniqueId,
@@ -189,6 +191,51 @@ describe('Publico Endpoints', () => {
     expect(response.body.pedido.clienteTelefono).toBeUndefined();
     expect(response.body.pedido.clienteDireccion).toBeUndefined();
     expect(response.body.pedido.clienteEmail).toBeUndefined();
+  });
+
+  it('createPublicOrder registra el pago en efectivo usando el total persistido del pedido', async () => {
+    const categoria = await prisma.categoria.create({
+      data: {
+        nombre: `Cat-${uniqueId('cash-service')}`,
+        orden: 1,
+        activa: true
+      }
+    });
+
+    const producto = await prisma.producto.create({
+      data: {
+        nombre: `Prod-${uniqueId('cash-service')}`,
+        precio: 123,
+        categoriaId: categoria.id,
+        disponible: true
+      }
+    });
+
+    const negocio = await getNegocio();
+    const result = await publicoService.createPublicOrder(prisma, {
+      negocio,
+      body: {
+        items: [
+          { productoId: producto.id, cantidad: 1 },
+          { productoId: producto.id, cantidad: 2 }
+        ],
+        clienteNombre: 'Cliente Cash',
+        clienteTelefono: '3411111111',
+        tipoEntrega: 'RETIRO',
+        metodoPago: 'EFECTIVO',
+        montoAbonado: 500
+      },
+      requestMeta: {}
+    });
+
+    const pagos = await prisma.pago.findMany({
+      where: { pedidoId: result.pedido.id }
+    });
+
+    expect(pagos).toHaveLength(1);
+    expect(Number(pagos[0].monto)).toBe(369);
+    expect(Number(pagos[0].montoAbonado)).toBe(500);
+    expect(Number(pagos[0].vuelto)).toBe(131);
   });
 
   it('GET /api/publico/config y /api/publico/menu devuelven cache-control publico', async () => {

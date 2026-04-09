@@ -239,9 +239,7 @@ describe('Reservas Endpoints', () => {
     const response = await request(app)
       .delete(`/api/reservas/${creada.body.id}`)
       .set('Authorization', authHeader(tokenAdmin))
-      .expect(200);
-
-    expect(response.body.message).toBe('Reserva eliminada');
+      .expect(204);
 
     const mesaActualizada = await prisma.mesa.findUnique({ where: { id: mesa.id } });
     expect(mesaActualizada.estado).toBe('LIBRE');

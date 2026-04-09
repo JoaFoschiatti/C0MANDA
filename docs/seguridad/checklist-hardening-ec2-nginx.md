@@ -67,20 +67,22 @@ Resultado esperado:
 
 ## 4. Endpoints sensibles
 
-- [ ] Verificar si `/api/ready` esta expuesto publicamente.
+- [ ] Verificar que `/api/ready` no este expuesto publicamente.
 - [ ] Verificar si `/api/impresion/jobs/*` tiene alguna restriccion adicional de red.
 - [ ] Verificar si `/uploads/` expone mas de lo necesario.
 
 Comandos:
 
 ```bash
-curl -s https://tu-dominio.com/api/ready
+curl -s -o /dev/null -w "%{http_code}\n" https://tu-dominio.com/api/ready
+curl -s http://127.0.0.1:3001/api/ready
 curl -I https://tu-dominio.com/uploads/archivo-inexistente
 ```
 
 Resultado esperado:
 
-- `/api/ready` no deberia exponer demasiado detalle a internet.
+- `/api/ready` deberia devolver `403` o equivalente en el borde publico.
+- `/api/ready` debe responder correctamente por loopback.
 - `/api/impresion/jobs/*` idealmente deberia quedar filtrado por borde.
 - `/uploads/` no debe listar directorios ni devolver tipos inseguros.
 
@@ -140,7 +142,8 @@ En Windows:
 - [ ] Salida de `ss -ltnp`
 - [ ] Captura de security groups de EC2
 - [ ] `nginx -t`
-- [ ] `curl -Ik` de `/`, `/api/health`, `/api/ready`
+- [ ] `curl -Ik` de `/` y `/api/health`
+- [ ] validacion publica y por loopback de `/api/ready`
 - [ ] `stat` de `.env` y `/opt/comanda/uploads`
 - [ ] Estado de `certbot.timer`
 
@@ -153,4 +156,4 @@ La instancia solo deberia considerarse endurecida para esta fase si:
 - existe mitigacion de rate limiting en edge o un plan inmediato para agregarla;
 - `/api/impresion/jobs/*` no queda expuesto a cualquier IP;
 - los secretos operativos son fuertes y no placeholders;
-- `/api/ready` no entrega mas detalle del necesario a internet.
+- `/api/ready` no queda expuesto publicamente y solo se valida por loopback.

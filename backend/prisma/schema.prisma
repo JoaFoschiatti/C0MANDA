@@ -87,6 +87,11 @@ enum EstadoPrintJob {
   ERROR
 }
 
+enum EstadoIdempotentRequest {
+  IN_PROGRESS
+  COMPLETED
+}
+
 enum EstadoCaja {
   ABIERTO
   CERRADO
@@ -166,6 +171,7 @@ model Usuario {
   mfaCredential   UsuarioMfa?
   oauthStates     MercadoPagoOAuthState[]
   reembolsos      Reembolso[]            @relation("ReembolsoUsuario")
+  idempotentRequests IdempotentRequest[]
 
   @@map("usuarios")
 }
@@ -238,6 +244,25 @@ model BridgeRequestNonce {
   @@unique([bridgeId, nonce])
   @@index([expiresAt])
   @@map("bridge_request_nonces")
+}
+
+model IdempotentRequest {
+  id             String                   @id @default(uuid())
+  usuarioId      Int
+  operation      String
+  idempotencyKey String
+  requestHash    String
+  status         EstadoIdempotentRequest @default(IN_PROGRESS)
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  usuario        Usuario                  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, operation, idempotencyKey], map: "idempotent_requests_usuario_operacion_key")
+  @@index([status, updatedAt])
+  @@index([createdAt])
+  @@map("idempotent_requests")
 }
 
 model RefreshToken {

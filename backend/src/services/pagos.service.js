@@ -196,6 +196,9 @@ const registrarReembolso = async (prisma, payload) => {
   const { pagoId, monto, motivo, usuarioId } = payload;
 
   const montoReembolso = parseFloat(monto);
+  if (!Number.isFinite(montoReembolso) || montoReembolso <= 0) {
+    throw createHttpError.badRequest('El monto del reembolso debe ser mayor a 0');
+  }
 
   const result = await prisma.$transaction(async (tx) => {
     const pago = await tx.pago.findUnique({

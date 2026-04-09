@@ -9,8 +9,10 @@ Group=www-data
 WorkingDirectory=/opt/comanda/backend
 EnvironmentFile=/opt/comanda/backend/.env
 Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
 Environment=UPLOADS_DIR=/opt/comanda/uploads
 ExecStart=/usr/bin/node src/server.js
+ExecStopPost=/bin/bash /opt/comanda/ops/ec2/scripts/notify-failure.sh backend
 Restart=always
 RestartSec=5
 StandardOutput=journal

@@ -1,4 +1,4 @@
-require('dotenv').config();
+const { loadRuntimeEnv } = require('../src/config/load-env');
 const { PrismaClient } = require('@prisma/client');
 const {
   bootstrapCore,
@@ -8,6 +8,8 @@ const {
   resetVisualSeedState,
   seedVisualData
 } = require('../src/services/visual-seed.service');
+
+loadRuntimeEnv();
 
 const prisma = new PrismaClient();
 

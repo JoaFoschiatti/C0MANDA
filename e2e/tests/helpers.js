@@ -1,10 +1,12 @@
+const fs = require('fs');
 const { expect } = require('@playwright/test');
 const path = require('path');
 const {
+  TEST_DATA_PATH,
   SCREENSHOTS_DIR,
   appendQaReport,
-  readTestData,
-  buildFutureLocalDateTime
+  buildFutureLocalDateTime,
+  readTestData
 } = require('../support');
 
 const ROLE_HOME_PATTERNS = {
@@ -51,7 +53,7 @@ const getRoleCredentials = (testData, role) => {
   return data;
 };
 
-const loginAsRole = async (page, role, testData = readTestData()) => {
+const loginAsRole = async (page, role, testData = readTestData(), options = {}) => {
   const credentials = getRoleCredentials(testData, role);
   await page.goto('/login');
   await waitForAppReady(page, 'input[type="email"]');
@@ -59,12 +61,38 @@ const loginAsRole = async (page, role, testData = readTestData()) => {
   await page.locator('input[placeholder="********"]').fill(credentials.password);
   await page.locator('button[type="submit"]').click();
   await expect(page).toHaveURL(ROLE_HOME_PATTERNS[role], { timeout: 15000 });
-  await expect(page.getByText(credentials.nombre).first()).toBeVisible({ timeout: 10000 });
+  if (options.expectName !== false && credentials.nombre) {
+    await expect(page.getByText(credentials.nombre).first()).toBeVisible({ timeout: 10000 });
+  }
   await expect(page.getByText('Cargando interfaz...')).toHaveCount(0, { timeout: 15000 });
   return credentials;
 };
 
-const loginAsAdmin = async (page, testData = readTestData()) => loginAsRole(page, 'ADMIN', testData);
+const loginAsAdmin = async (page, testData = readTestData(), options = {}) => (
+  loginAsRole(page, 'ADMIN', testData, options)
+);
+
+const loadSmokeContext = () => {
+  if (fs.existsSync(TEST_DATA_PATH)) {
+    return readTestData();
+  }
+
+  const userEmail = process.env.SMOKE_ADMIN_EMAIL;
+  const userPassword = process.env.SMOKE_ADMIN_PASSWORD;
+  const userName = process.env.SMOKE_ADMIN_NAME || userEmail || 'Admin smoke';
+  const productName = process.env.SMOKE_MENU_EXPECT_TEXT || '';
+
+  if (!userEmail || !userPassword) {
+    throw new Error('Faltan SMOKE_ADMIN_EMAIL y SMOKE_ADMIN_PASSWORD para el smoke de produccion');
+  }
+
+  return {
+    userEmail,
+    userPassword,
+    userName,
+    productName
+  };
+};
 
 const saveQaScreenshot = async (page, name, entry) => {
   const fileName = `${name}.png`;
@@ -83,6 +111,7 @@ module.exports = {
   readTestData,
   loginAsAdmin,
   buildFutureLocalDateTime,
+  loadSmokeContext,
   openAndWait,
   saveQaScreenshot,
   waitForAppReady

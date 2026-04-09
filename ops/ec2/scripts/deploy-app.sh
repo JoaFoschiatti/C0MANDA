@@ -47,5 +47,7 @@ systemctl restart comanda-backend
 nginx -t
 systemctl reload nginx
 
+APP_DIR="${APP_DIR}" bash "${APP_DIR}/ops/ec2/scripts/post-deploy-smoke.sh"
+
 echo "Deploy completado. Estado actual:"
 systemctl --no-pager --full status comanda-backend

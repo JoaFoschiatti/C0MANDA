@@ -1,5 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { loadTestEnv } = require('./load-test-env');
+loadTestEnv();
 const { prisma } = require('../../db/prisma');
 const { normalizeEmail } = require('../../utils/email');
 const { ensureBaseSucursales } = require('../../services/sucursales.service');
@@ -81,7 +83,9 @@ const cleanupOperationalData = async () => {
   await prisma.comprobanteFiscal.deleteMany();
   await prisma.printJob.deleteMany();
   await prisma.bridgeRequestNonce.deleteMany();
+  await prisma.idempotentRequest.deleteMany();
   await prisma.movimientoStock.deleteMany();
+  await prisma.reembolso.deleteMany();
   await prisma.pago.deleteMany();
   await prisma.pedidoAuditoria.deleteMany();
   await prisma.pedidoItem.deleteMany();
@@ -108,6 +112,8 @@ const cleanupOperationalData = async () => {
   await prisma.producto.deleteMany();
   await prisma.categoria.deleteMany();
   await prisma.modificador.deleteMany();
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "movimientos_stock" RESTART IDENTITY CASCADE');
+  await prisma.movimientoStock.deleteMany();
   await prisma.ingrediente.deleteMany();
   await prisma.mesa.deleteMany();
   await prisma.configuracion.deleteMany();

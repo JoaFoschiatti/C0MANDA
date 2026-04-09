@@ -24,8 +24,7 @@
 ### E2E / Release
 
 - `PLAYWRIGHT_RELEASE_LABEL=2026-03-07 npx playwright test`: OK, `30/30` tests
-- Evidencia automatica: [e2e/artifacts/release/2026-03-07](/C:/Programacion/Comanda/e2e/artifacts/release/2026-03-07)
-- Reporte QA visual: [qa-review.json](/C:/Programacion/Comanda/e2e/artifacts/release/2026-03-07/qa-review.json)
+- Evidencia automatica y capturas locales no se versionan en git; si se conservan, deben archivarse fuera del repo o en el sistema de CI.
 
 ## Validacion visual manual
 
@@ -37,13 +36,10 @@ Pasada manual corta con navegador real sobre:
 - `menu/mesa`
 - `tareas`
 
-Capturas:
+Capturas y artefactos:
 
-- [mcp-login.png](/C:/Programacion/Comanda/e2e/artifacts/release/2026-03-07/manual/mcp-login.png)
-- [mcp-dashboard.png](/C:/Programacion/Comanda/e2e/artifacts/release/2026-03-07/manual/mcp-dashboard.png)
-- [mcp-menu.png](/C:/Programacion/Comanda/e2e/artifacts/release/2026-03-07/manual/mcp-menu.png)
-- [mcp-menu-mesa.png](/C:/Programacion/Comanda/e2e/artifacts/release/2026-03-07/manual/mcp-menu-mesa.png)
-- [mcp-tareas.png](/C:/Programacion/Comanda/e2e/artifacts/release/2026-03-07/manual/mcp-tareas.png)
+- no versionar `e2e/artifacts/` en el repo principal;
+- si una entrega necesita evidencia visual, exportarla y adjuntarla al release o al sistema de tickets.
 
 ## Estado
 

@@ -8,6 +8,7 @@
   },
   "scripts": {
     "test": "npx playwright test",
+    "test:smoke": "npx playwright test tests/smoke.spec.js",
     "test:release": "npx playwright test",
     "test:headed": "npx playwright test --headed",
     "test:debug": "npx playwright test --debug"

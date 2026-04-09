@@ -3,6 +3,7 @@ const router = express.Router();
 const mesasController = require('../controllers/mesas.controller');
 const { verificarToken, esAdmin, esMozo, verificarRol } = require('../middlewares/auth.middleware');
 const { validate } = require('../middlewares/validate.middleware');
+const { idempotency } = require('../middlewares/idempotency.middleware');
 const { asyncHandler } = require('../utils/async-handler');
 const {
   idParamSchema,
@@ -22,8 +23,8 @@ router.get('/:id', validate({ params: idParamSchema }), asyncHandler(mesasContro
 router.post('/', esAdmin, validate({ body: crearMesaBodySchema }), asyncHandler(mesasController.crear));
 router.put('/:id', esAdmin, validate({ params: idParamSchema, body: actualizarMesaBodySchema }), asyncHandler(mesasController.actualizar));
 router.patch('/:id/estado', esMozo, validate({ params: idParamSchema, body: cambiarEstadoBodySchema }), asyncHandler(mesasController.cambiarEstado));
-router.post('/:id/precuenta', verificarRol('ADMIN', 'MOZO', 'CAJERO'), validate({ params: idParamSchema }), asyncHandler(mesasController.precuenta));
-router.post('/:id/liberar', verificarRol('ADMIN', 'CAJERO'), validate({ params: idParamSchema }), asyncHandler(mesasController.liberar));
+router.post('/:id/precuenta', verificarRol('ADMIN', 'MOZO', 'CAJERO'), validate({ params: idParamSchema }), idempotency('mesas:precuenta'), asyncHandler(mesasController.precuenta));
+router.post('/:id/liberar', verificarRol('ADMIN', 'CAJERO'), validate({ params: idParamSchema }), idempotency('mesas:liberar'), asyncHandler(mesasController.liberar));
 router.delete('/:id', esAdmin, validate({ params: idParamSchema }), asyncHandler(mesasController.eliminar));
 
 // PATCH /mesas/posiciones - actualizar posiciones en el plano

@@ -8,6 +8,7 @@ const { logger } = require('../utils/logger');
 const listar = async (req, res) => {
   const prisma = getPrisma(req);
   const mesas = await mesasService.listar(prisma, req.query);
+  res.set('Cache-Control', 'no-store');
   res.json(mesas);
 };
 
@@ -51,7 +52,8 @@ const precuenta = async (req, res) => {
   let impresion = null;
   try {
     impresion = await printService.enqueuePrintJobs(prisma, result.pedido.id, {
-      tipos: ['CAJA', 'CLIENTE']
+      tipos: ['CAJA', 'CLIENTE'],
+      ...(req.idempotency?.printBatchId ? { batchId: req.idempotency.printBatchId } : {})
     });
     eventBus.publish('impresion.updated', {
       pedidoId: result.pedido.id,

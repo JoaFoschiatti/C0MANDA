@@ -36,4 +36,4 @@ node index.js
 
 Antes de correrlo como servicio, probalo en una consola normal para confirmar que el spooler imprime bien.
 
-La guia de entrega y operacion del bridge esta en [docs/entrega/bridge-windows.md](/C:/Programacion/Comanda/docs/entrega/bridge-windows.md).
+La guia de entrega y operacion del bridge esta en [docs/entrega/bridge-windows.md](../docs/entrega/bridge-windows.md).

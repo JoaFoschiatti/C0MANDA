@@ -2,6 +2,7 @@ const { MercadoPagoConfig, Preference, Payment } = require('mercadopago');
 const { prisma } = require('../db/prisma');
 const { decrypt, encrypt } = require('./crypto.service');
 const { logger } = require('../utils/logger');
+const { sanitizeForLogs } = require('../utils/log-redaction');
 
 const refreshOAuthToken = async (config) => {
   if (!config?.refreshToken) {
@@ -17,7 +18,7 @@ const refreshOAuthToken = async (config) => {
   try {
     refreshToken = decrypt(config.refreshToken);
   } catch (error) {
-    logger.error('Error al desencriptar refresh token de MP:', error);
+    logger.error('Error al desencriptar refresh token de MP:', sanitizeForLogs(error));
     return null;
   }
 
@@ -34,7 +35,7 @@ const refreshOAuthToken = async (config) => {
 
   const tokenData = await tokenResponse.json().catch(() => ({}));
   if (!tokenResponse.ok || tokenData.error) {
-    logger.warn('Error al refrescar token de MP:', tokenData);
+    logger.warn('Error al refrescar token de MP:', sanitizeForLogs(tokenData));
     return null;
   }
 
@@ -82,7 +83,7 @@ async function getMercadoPagoClient() {
     const accessToken = decrypt(config.accessToken);
     return new MercadoPagoConfig({ accessToken });
   } catch (error) {
-    logger.error('Error al desencriptar token de MP:', error);
+    logger.error('Error al desencriptar token de MP:', sanitizeForLogs(error));
     return null;
   }
 }
@@ -166,7 +167,7 @@ async function searchPaymentByReference(externalReference) {
 
     return result.results?.find((item) => item.status === 'approved') || null;
   } catch (error) {
-    logger.error(`Error buscando pago por referencia ${externalReference}:`, error);
+    logger.error(`Error buscando pago por referencia ${externalReference}:`, sanitizeForLogs(error));
     return null;
   }
 }

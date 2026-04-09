@@ -1,6 +1,12 @@
 import axios from 'axios'
 import toast from 'react-hot-toast'
-import { isQueueableOperation, addToQueue, processQueue } from '../utils/offline-queue'
+import {
+  addToQueue,
+  createIdempotencyKey,
+  isQueueableOperation,
+  normalizeRequestPath,
+  processQueue,
+} from '../utils/offline-queue'
 import {
   isBackendConnectivityError,
   markBackendAvailable,
@@ -11,6 +17,11 @@ const MAX_RETRIES = 3
 const RETRY_DELAYS = [1000, 2000, 4000]
 const OFFLINE_TOAST_ID = 'network-offline'
 const BACKEND_UNAVAILABLE_TOAST_ID = 'backend-unavailable'
+const IDEMPOTENCY_HEADER = 'Idempotency-Key'
+const CACHE_CONTROL_HEADER = 'Cache-Control'
+const PRAGMA_HEADER = 'Pragma'
+const NO_STORE_VALUE = 'no-store'
+const NO_CACHE_VALUE = 'no-cache'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -21,22 +32,51 @@ const api = axios.create({
   withCredentials: true
 })
 
+const getHeaderValue = (headers, name) => {
+  if (!headers) return undefined
+  if (typeof headers.get === 'function') return headers.get(name)
+  return headers[name] ?? headers[name.toLowerCase()]
+}
+
+const setHeaderValue = (headers, name, value) => {
+  if (!headers) return { [name]: value }
+  if (typeof headers.set === 'function') {
+    headers.set(name, value)
+    return headers
+  }
+
+  headers[name] = value
+  return headers
+}
+
 // --- Request interceptor: offline detection + queue ---
 api.interceptors.request.use(
   config => {
-    if (navigator.onLine) return config
-
     const method = (config.method || 'get').toLowerCase()
     const url = config.url || ''
+    const path = normalizeRequestPath(url)
+
+    if (method === 'get' && path.startsWith('/mesas')) {
+      config.headers = setHeaderValue(config.headers, CACHE_CONTROL_HEADER, NO_STORE_VALUE)
+      config.headers = setHeaderValue(config.headers, PRAGMA_HEADER, NO_CACHE_VALUE)
+    }
 
     if (isQueueableOperation(method, url)) {
-      const item = addToQueue({ method, url, data: config.data })
+      config.headers = config.headers || {}
+      const idempotencyKey = getHeaderValue(config.headers, IDEMPOTENCY_HEADER) || createIdempotencyKey()
+      config.headers = setHeaderValue(config.headers, IDEMPOTENCY_HEADER, idempotencyKey)
+
+      if (navigator.onLine) return config
+
+      const item = addToQueue({ method, url, data: config.data, idempotencyKey })
       const error = new Error('Operacion encolada offline')
       error.__queued = true
       error.__queueItem = item
       toast('Guardado localmente, se sincronizara al reconectar', { icon: '\u{1F4E6}' })
       return Promise.reject(error)
     }
+
+    if (navigator.onLine) return config
 
     const error = new Error('Sin conexion a internet')
     error.__offline = true

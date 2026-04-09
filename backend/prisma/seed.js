@@ -1,7 +1,9 @@
-require('dotenv').config();
+const { loadRuntimeEnv } = require('../src/config/load-env');
 const { PrismaClient } = require('@prisma/client');
 const { bootstrapCore } = require('../src/services/bootstrap.service');
 const { resetVisualSeedState, seedVisualData } = require('../src/services/visual-seed.service');
+
+loadRuntimeEnv();
 
 const DEMO_CREDENTIALS = [
   { rol: 'ADMIN', email: 'admin@comanda.local', password: 'admin123' },

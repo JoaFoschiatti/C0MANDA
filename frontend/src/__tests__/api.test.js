@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 const axiosState = vi.hoisted(() => ({
   requestHandlers: [],
@@ -29,10 +29,10 @@ vi.mock('axios', () => ({
 }))
 
 vi.mock('react-hot-toast', () => ({
-  default: {
+  default: Object.assign(vi.fn(), {
     dismiss: vi.fn(),
     error: vi.fn()
-  }
+  })
 }))
 
 const loadApiModule = async () => {
@@ -44,14 +44,30 @@ const loadApiModule = async () => {
 }
 
 describe('api interceptor', () => {
+  let storage
+
   beforeEach(() => {
     vi.clearAllMocks()
-    localStorage.removeItem.mockReset()
+    storage = {}
+    localStorage.getItem.mockImplementation((key) => (Object.prototype.hasOwnProperty.call(storage, key) ? storage[key] : null))
+    localStorage.setItem.mockImplementation((key, value) => {
+      storage[key] = String(value)
+    })
+    localStorage.removeItem.mockImplementation((key) => {
+      delete storage[key]
+    })
+    localStorage.clear.mockImplementation(() => {
+      storage = {}
+    })
     window.location.assign.mockReset()
     Object.defineProperty(global.navigator, 'onLine', {
       configurable: true,
       value: true
     })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('redirige y limpia sesion en 401', async () => {
@@ -143,5 +159,53 @@ describe('api interceptor', () => {
     expect(axiosState.responseSuccessHandlers.at(-1)(response)).toBe(response)
     expect(getBackendStatusSnapshot().apiAvailable).toBe(true)
     expect(toast.dismiss).toHaveBeenCalledWith('backend-unavailable')
+  })
+
+  it('adjunta Idempotency-Key a mutaciones encolables y la conserva al encolarse offline', async () => {
+    vi.stubGlobal('crypto', {
+      randomUUID: vi.fn()
+        .mockReturnValueOnce('queue-item-id-1')
+        .mockReturnValue('request-idempotency-key'),
+    })
+
+    Object.defineProperty(global.navigator, 'onLine', {
+      configurable: true,
+      value: false
+    })
+
+    await loadApiModule()
+    const { getQueue } = await import('../utils/offline-queue')
+
+    const requestConfig = {
+      method: 'post',
+      url: '/pedidos',
+      data: { tipo: 'MESA' },
+      headers: {},
+    }
+
+    const queuedError = axiosState.requestHandlers.at(-1).success(requestConfig)
+
+    await expect(queuedError).rejects.toMatchObject({ __queued: true })
+    expect(requestConfig.headers['Idempotency-Key']).toBe('queue-item-id-1')
+
+    const queue = getQueue()
+    expect(queue).toHaveLength(1)
+    expect(queue[0].idempotencyKey).toBe('queue-item-id-1')
+    expect(queue[0].data).toEqual({ tipo: 'MESA' })
+  })
+
+  it('marca no-store en lecturas de mesas', async () => {
+    await loadApiModule()
+
+    const requestConfig = {
+      method: 'get',
+      url: '/mesas?activa=true',
+      headers: {},
+    }
+
+    const result = axiosState.requestHandlers.at(-1).success(requestConfig)
+
+    expect(result.headers['Cache-Control']).toBe('no-store')
+    expect(result.headers.Pragma).toBe('no-cache')
   })
 })

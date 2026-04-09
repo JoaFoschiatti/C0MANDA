@@ -68,11 +68,11 @@ const createCategoriaYProducto = async () => {
 };
 
 describe('Pedidos Endpoints', () => {
-    let tokenAdmin;
+  let tokenAdmin;
   let tokenMozo;
 
-  beforeAll(async () => {
-        await cleanupOperationalData();
+  beforeEach(async () => {
+    await cleanupOperationalData();
     await ensureNegocio();
     const admin = await createUsuario({
       email: `${uniqueId('admin')}@example.com`,
@@ -994,12 +994,13 @@ describe('Pedidos Endpoints', () => {
     expect(cocina).toBeDefined();
     expect(cocina.sucursal).toBeUndefined();
     expect(cocina.mesa).toEqual({ numero: 70 });
-    expect(cocina.items[0]).toEqual(expect.objectContaining({
+    expect(cocina.items).toBeUndefined();
+    expect(cocina.rondas[0].items[0]).toEqual(expect.objectContaining({
       cantidad: 1,
       observaciones: 'Bien cocido',
       producto: { nombre: producto.nombre }
     }));
-    expect(cocina.items[0].modificadores[0]).toEqual({
+    expect(cocina.rondas[0].items[0].modificadores[0]).toEqual({
       id: expect.any(Number),
       modificador: {
         nombre: modificador.nombre,

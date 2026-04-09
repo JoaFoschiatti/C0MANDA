@@ -20,7 +20,8 @@ describe('runtime config', () => {
       BACKEND_URL: 'https://api.comanda.example.com',
       ENCRYPTION_KEY: 'a'.repeat(64),
       MERCADOPAGO_WEBHOOK_SECRET: 'webhook-secret',
-      BRIDGE_TOKEN: 'bridge-token-123456'
+      BRIDGE_TOKEN: 'bridge-token-123456',
+      ALERT_WEBHOOK_URL: 'https://hooks.example.com/comanda'
     })).not.toThrow();
   });
 
@@ -45,8 +46,24 @@ describe('runtime config', () => {
       ENCRYPTION_KEY: 'b'.repeat(64),
       MERCADOPAGO_WEBHOOK_SECRET: 'webhook-secret',
       BRIDGE_TOKEN: 'bridge-token-123456',
+      ALERT_WEBHOOK_URL: 'https://hooks.example.com/comanda',
       ARCA_CUIT: '30712345678'
     })).toThrow(/ARCA/);
+  });
+
+  it('rejects production environment without an alert sink', () => {
+    expect(() => validateProductionEnvironment({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://user:pass@127.0.0.1:5432/comanda?schema=public',
+      DIRECT_URL: 'postgresql://user:pass@127.0.0.1:5432/comanda?schema=public',
+      JWT_SECRET: '12345678901234567890123456789012',
+      PUBLIC_ORDER_JWT_SECRET: 'abcdefghijklmnopqrstuvwxyz123456',
+      FRONTEND_URL: 'https://comanda.example.com',
+      BACKEND_URL: 'https://api.comanda.example.com',
+      ENCRYPTION_KEY: 'c'.repeat(64),
+      MERCADOPAGO_WEBHOOK_SECRET: 'webhook-secret',
+      BRIDGE_TOKEN: 'bridge-token-123456'
+    })).toThrow(/SENTRY_DSN o ALERT_WEBHOOK_URL/);
   });
 
   it('ensures runtime directories are writable', () => {

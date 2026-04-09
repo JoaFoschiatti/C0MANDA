@@ -643,7 +643,7 @@ const createPublicOrder = async (prisma, { negocio, body, requestMeta = {} }) =>
         throw createHttpError.badRequest('El monto abonado no alcanza para cubrir el pedido');
       }
 
-      return tx.pedido.create({
+      const createdPedido = await tx.pedido.create({
         data: {
           tipo: 'DELIVERY',
           sucursalId: SUCURSAL_IDS.DELIVERY,
@@ -659,10 +659,7 @@ const createPublicOrder = async (prisma, { negocio, body, requestMeta = {} }) =>
           observaciones: observacionesValue,
           origen: 'MENU_PUBLICO',
           estadoPago: 'PENDIENTE',
-          operacionConfirmada: false,
-          items: {
-            create: itemsData
-          }
+          operacionConfirmada: false
         },
         select: {
           id: true,
@@ -673,6 +670,24 @@ const createPublicOrder = async (prisma, { negocio, body, requestMeta = {} }) =>
           estadoPago: true
         }
       });
+
+      const ronda = await tx.pedidoRonda.create({
+        data: {
+          pedidoId: createdPedido.id,
+          numero: 1
+        },
+        select: { id: true }
+      });
+
+      await tx.pedidoItem.createMany({
+        data: itemsData.map((item) => ({
+          pedidoId: createdPedido.id,
+          rondaId: ronda.id,
+          ...item
+        }))
+      });
+
+      return createdPedido;
     });
   } catch (error) {
     if (!clientRequestIdValue || !isClientRequestIdConstraintError(error)) {
@@ -715,11 +730,12 @@ const createPublicOrder = async (prisma, { negocio, body, requestMeta = {} }) =>
   });
 
   if (metodoPago === 'EFECTIVO' && montoAbonado) {
-    const vuelto = parseFloat(montoAbonado) - total;
+    const totalPedido = toNumber(pedido.total);
+    const vuelto = parseFloat(montoAbonado) - totalPedido;
     await prisma.pago.create({
       data: {
         pedidoId: pedido.id,
-        monto: total,
+        monto: totalPedido,
         metodo: 'EFECTIVO',
         canalCobro: 'CHECKOUT_WEB',
         estado: 'PENDIENTE',

@@ -271,9 +271,31 @@ const enqueuePrintJobs = async (prisma, pedidoId, options = {}) => {
   const batchId = options.batchId || generateBatchId();
   const tipos = normalizeTipos(options.tipos);
   const roundIds = normalizeRoundIds(options);
+  const normalizedPedidoId = parseInt(pedidoId, 10);
+
+  if (options.batchId) {
+    const existingJobs = await prisma.printJob.findMany({
+      where: {
+        pedidoId: normalizedPedidoId,
+        batchId
+      },
+      select: {
+        id: true,
+        anchoMm: true
+      }
+    });
+
+    if (existingJobs.length > 0) {
+      return {
+        batchId,
+        total: existingJobs.length,
+        anchoMm: existingJobs[0].anchoMm || anchoMm
+      };
+    }
+  }
 
   const pedido = await prisma.pedido.findUnique({
-    where: { id: parseInt(pedidoId) },
+    where: { id: normalizedPedidoId },
     include: {
       mesa: true,
       usuario: { select: { nombre: true } },

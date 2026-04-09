@@ -18,6 +18,7 @@ const {
   getRequestIp,
   logPublicAbuseSignal
 } = require('../services/public-order-security.service');
+const { getClientIpFromRequest } = require('../utils/client-ip');
 const {
   pedidoIdParamSchema,
   createPublicOrderBodySchema
@@ -30,9 +31,12 @@ const PUBLIC_CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=120';
 const noopLimiter = (_req, _res, next) => next();
 
 const buildPublicRequestMeta = (req) => ({
+  clientIp: getClientIpFromRequest(req),
   ip: req.ip,
+  remoteAddress: req.socket?.remoteAddress,
   forwardedFor: req.headers['x-forwarded-for'],
-  userAgent: req.headers['user-agent']
+  userAgent: req.headers['user-agent'],
+  trustProxy: req.app?.get?.('trust proxy')
 });
 
 const normalizePhoneForLimiter = (value) => String(value || '').replace(/\D+/g, '').slice(-15) || 'anon';

@@ -131,6 +131,10 @@ const validateProductionEnvironment = (env = process.env) => {
 
   validateArcaConfig(env, errors);
 
+  if (!env.SENTRY_DSN && !env.ALERT_WEBHOOK_URL) {
+    errors.push('Produccion requiere SENTRY_DSN o ALERT_WEBHOOK_URL para alertas');
+  }
+
   if (errors.length > 0) {
     throw new Error(`Configuracion invalida de produccion:\n- ${errors.join(`\n- `)}`);
   }

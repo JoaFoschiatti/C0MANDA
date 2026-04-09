@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { normalizeEmail } = require('../utils/email');
 const { SUCURSAL_IDS } = require('../constants/sucursales');
+const { ensureBaseSucursales } = require('./sucursales.service');
 const {
   saveUsuarioByEmail,
   seedBaseDemoUsers,
@@ -1643,11 +1644,21 @@ const createPedidoScenario = async (prisma, refs, scenario) => {
         updatedAt
       }
     });
+    const ronda = await tx.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        usuarioId: usuario?.id || null,
+        numero: 1,
+        createdAt,
+        updatedAt
+      }
+    });
 
     for (const item of totals.items) {
       await tx.pedidoItem.create({
         data: {
           pedidoId: pedido.id,
+          rondaId: ronda.id,
           productoId: item.productoId,
           cantidad: item.cantidad,
           precioUnitario: item.precioUnitario,
@@ -2453,6 +2464,7 @@ const seedVisualData = async (prisma, options = {}) => {
   } = options;
   const roleEmails = buildRoleEmailSets({ includeExtraUsers });
 
+  await ensureBaseSucursales(prisma);
   await ensureVisualConfigs(prisma, configOptions);
   await ensureVisualUsers(prisma, { includeExtraUsers });
   await ensureVisualMesas(prisma);

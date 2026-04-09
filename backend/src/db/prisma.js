@@ -1,5 +1,8 @@
+const { loadRuntimeEnv } = require('../config/load-env');
 const { PrismaClient } = require('@prisma/client');
 const { createHttpError } = require('../utils/http-error');
+
+loadRuntimeEnv();
 
 const prisma = new PrismaClient();
 const NEGOCIO_SINGLETON_ID = 1;

@@ -75,6 +75,16 @@ if [[ -n "${BRIDGE_TOKEN:-}" && "${#BRIDGE_TOKEN}" -lt 16 ]]; then
   add_error "BRIDGE_TOKEN debe tener al menos 16 caracteres"
 fi
 
+if [[ -z "${HOST:-}" ]]; then
+  add_warning "HOST no esta definido en backend/.env; systemd deberia fijarlo a 127.0.0.1"
+elif [[ "${HOST}" != "127.0.0.1" ]]; then
+  add_error "HOST debe ser 127.0.0.1 en produccion"
+fi
+
+if [[ -z "${SMOKE_ADMIN_EMAIL:-}" || -z "${SMOKE_ADMIN_PASSWORD:-}" ]]; then
+  add_error "Faltan SMOKE_ADMIN_EMAIL y SMOKE_ADMIN_PASSWORD para el smoke post-deploy"
+fi
+
 if [[ -n "${ENCRYPTION_KEY:-}" ]]; then
   if [[ ! "${ENCRYPTION_KEY}" =~ ^[a-fA-F0-9]{64}$ ]]; then
     add_error "ENCRYPTION_KEY debe tener 64 caracteres hexadecimales"
@@ -119,6 +129,12 @@ if [[ -n "${ARCA_CUIT:-}" ]]; then
   done
 fi
 
+if [[ -z "${ALERT_WEBHOOK_URL:-}" && -z "${SENTRY_DSN:-}" ]]; then
+  add_error "Falta un sink de alertas: define ALERT_WEBHOOK_URL o SENTRY_DSN"
+elif [[ -z "${ALERT_WEBHOOK_URL:-}" ]]; then
+  add_warning "ALERT_WEBHOOK_URL no esta configurado; las alertas de sistema quedaran solo en journald"
+fi
+
 if [[ -z "${MERCADOPAGO_ACCESS_TOKEN:-}" ]]; then
   add_warning "MERCADOPAGO_ACCESS_TOKEN no esta configurado en .env; confirmar que se cargara desde UI"
 elif contains_placeholder "${MERCADOPAGO_ACCESS_TOKEN}"; then
@@ -137,6 +153,21 @@ if [[ -n "${SMTP_HOST:-}" ]]; then
   done
 fi
 
+bridge_required="${BRIDGE_REQUIRED:-false}"
+bridge_allowed_ips="${BRIDGE_ALLOWED_IPS:-}"
+bridge_has_real_ip=false
+
+if [[ -n "${bridge_allowed_ips}" ]]; then
+  IFS=',' read -ra bridge_ip_list <<< "${bridge_allowed_ips}"
+  for raw_ip in "${bridge_ip_list[@]}"; do
+    bridge_ip="${raw_ip//[[:space:]]/}"
+    case "${bridge_ip}" in
+      ''|127.0.0.1|::1|localhost) ;;
+      *) bridge_has_real_ip=true ;;
+    esac
+  done
+fi
+
 if [[ -f "${NGINX_CONF}" ]]; then
   if grep -q 'comanda\.example\.com' "${NGINX_CONF}"; then
     add_error "La configuracion de nginx todavia usa comanda.example.com"
@@ -145,8 +176,24 @@ if [[ -f "${NGINX_CONF}" ]]; then
   if grep -q 'ssl-cert-snakeoil' "${NGINX_CONF}"; then
     add_warning "La configuracion de nginx todavia referencia certificados snakeoil"
   fi
+
+  if [[ "${bridge_required}" == "true" ]]; then
+    if [[ "${bridge_has_real_ip}" != true ]]; then
+      add_error "BRIDGE_REQUIRED=true pero BRIDGE_ALLOWED_IPS sigue limitado a loopback"
+    fi
+
+    if grep -q '# allow 203\.0\.113\.10;' "${NGINX_CONF}" || grep -q '# allow 198\.51\.100\.0/24;' "${NGINX_CONF}"; then
+      add_error "BRIDGE_REQUIRED=true pero nginx sigue teniendo allowlists de ejemplo"
+    fi
+  elif [[ "${bridge_has_real_ip}" != true ]]; then
+    add_warning "BRIDGE_ALLOWED_IPS sigue en loopback; el bridge quedara solo local"
+  fi
 else
-  add_warning "No se encontro ${NGINX_CONF}; revisar nginx manualmente"
+  if [[ "${bridge_required}" == "true" ]]; then
+    add_error "No se encontro ${NGINX_CONF} y BRIDGE_REQUIRED=true"
+  else
+    add_warning "No se encontro ${NGINX_CONF}; revisar nginx manualmente"
+  fi
 fi
 
 if [[ "${#warnings[@]}" -gt 0 ]]; then

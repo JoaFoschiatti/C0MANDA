@@ -11,6 +11,7 @@ Guia resumida para la instalacion unica en EC2.
 - `ENCRYPTION_KEY`: clave AES-256 en hex para credenciales cifradas.
 - `FRONTEND_URL`: URL publica del frontend.
 - `BACKEND_URL`: URL publica del backend.
+- `HOST`: bind explicito del backend. En produccion se recomienda `127.0.0.1`.
 - `.env.test` opcional: si existe, los tests backend lo cargan por encima de `.env`.
 
 ## Mercado Pago
@@ -24,6 +25,7 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 ## Impresion local
 
 - `BRIDGE_TOKEN`: autenticacion del bridge de impresion.
+- `BRIDGE_REQUIRED`: `true` obliga a validar allowlists reales del bridge en preflight.
 - `PRINT_WIDTH_MM`
 - `PRINT_MAX_RETRIES`
 - `PRINT_BACKOFF_MS`
@@ -39,6 +41,11 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 
 - `PORT`: default `3001`.
 - `NODE_ENV`: `development`, `test` o `production`.
+- `ALERT_WEBHOOK_URL`: webhook alternativo para alertas operativas si no se usa `SENTRY_DSN`.
+- `MFA_REQUIRED_ROLES`: lista separada por comas de roles que requieren MFA (ej: `ADMIN,CAJERO`).
+  Politica por defecto:
+  en `development` y `test` MFA queda desactivado si no se define la variable;
+  en `production` MFA aplica por defecto a `ADMIN,CAJERO` si no se define la variable.
 - `UPLOADS_DIR`: directorio absoluto o relativo para archivos servidos en `/uploads`. En EC2 se recomienda `/opt/comanda/uploads`.
 - `PUBLIC_ORDER_TOKEN_EXPIRES_IN`: expiracion de tokens publicos de pedido.
 - `PUBLIC_ORDERING_PAUSED`: pausa pedidos online publicos sin apagar la API.
@@ -63,6 +70,7 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 - `JWT_SECRET` debe tener al menos 32 caracteres.
 - `PUBLIC_ORDER_JWT_SECRET` debe tener al menos 32 caracteres.
 - `BRIDGE_TOKEN` debe tener al menos 16 caracteres.
+- Produccion requiere `SENTRY_DSN` o `ALERT_WEBHOOK_URL`.
 - `MERCADOPAGO_WEBHOOK_SECRET` debe estar configurado si se usan pagos online.
 - `SKIP_WEBHOOK_VERIFICATION` no debe estar en `true` en produccion.
 - Si se carga `ARCA_CUIT`, tambien deben existir `ARCA_CERT_PATH` y `ARCA_KEY_PATH`.
@@ -71,4 +79,5 @@ Estas credenciales son globales para la instalacion; no existe configuracion por
 
 - Copiar `.env.test.example` a `.env.test` para aislar Jest en un schema dedicado, por ejemplo `?schema=test`.
 - Alternativamente, definir `DATABASE_URL` y `DIRECT_URL` en el entorno o en CI. Si se usa archivo alternativo, exportar `TEST_ENV_FILE=./ruta/al/env`.
+- El archivo de ejemplo replica los valores usados por CI para que el circuito local sea reproducible.
 - `npm run db:reset:test` resetea ese schema con la baseline actual sin tocar `public`.

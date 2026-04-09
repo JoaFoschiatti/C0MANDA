@@ -1,4 +1,5 @@
-require('dotenv').config({ quiet: true });
+const { loadRuntimeEnv } = require('./config/load-env');
+loadRuntimeEnv();
 const { validateProductionSecrets } = require('./utils/validate-env');
 validateProductionSecrets();
 const express = require('express');

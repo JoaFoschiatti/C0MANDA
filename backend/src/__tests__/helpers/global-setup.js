@@ -42,7 +42,9 @@ module.exports = async function globalSetup() {
     await prisma.comprobanteFiscal.deleteMany();
     await prisma.printJob.deleteMany();
     await prisma.bridgeRequestNonce.deleteMany();
+    await prisma.idempotentRequest.deleteMany();
     await prisma.movimientoStock.deleteMany();
+    await prisma.reembolso.deleteMany();
     await prisma.pago.deleteMany();
     await prisma.pedidoAuditoria.deleteMany();
     await prisma.pedidoItem.deleteMany();
@@ -58,12 +60,15 @@ module.exports = async function globalSetup() {
     await prisma.usuarioTrustedDevice.deleteMany();
     await prisma.usuarioMfaRecoveryCode.deleteMany();
     await prisma.usuarioMfa.deleteMany();
+    await prisma.operationalEvent.deleteMany();
     await prisma.usuario.deleteMany({
       where: { email: { not: 'admin@comanda.local' } }
     });
     await prisma.producto.deleteMany();
     await prisma.categoria.deleteMany();
     await prisma.modificador.deleteMany();
+    await prisma.$executeRawUnsafe('TRUNCATE TABLE "movimientos_stock" RESTART IDENTITY CASCADE');
+    await prisma.movimientoStock.deleteMany();
     await prisma.ingrediente.deleteMany();
     await prisma.mesa.deleteMany();
     await prisma.configuracion.deleteMany();

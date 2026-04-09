@@ -1,4 +1,4 @@
-require('dotenv').config();
+const { loadRuntimeEnv } = require('../src/config/load-env');
 const { PrismaClient } = require('@prisma/client');
 const { ensureBaseSucursales } = require('../src/services/sucursales.service');
 const { ensureIngredienteStock } = require('../src/services/ingrediente-stock.service');
@@ -7,6 +7,8 @@ const {
   sincronizarStockIngrediente,
   syncIngredienteAggregate
 } = require('../src/services/lotes-stock.service');
+
+loadRuntimeEnv();
 
 const prisma = new PrismaClient();
 

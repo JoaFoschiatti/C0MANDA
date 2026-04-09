@@ -8,6 +8,7 @@ const {
   setBindingCookie
 } = require('../services/mercadopago-oauth-state.service');
 const { logger } = require('../utils/logger');
+const { sanitizeForLogs } = require('../utils/log-redaction');
 
 const iniciarOAuth = async (req, res) => {
   const prisma = getPrisma(req);
@@ -58,7 +59,7 @@ const callbackOAuth = async (req, res) => {
 
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok || tokenData.error) {
-      logger.error('Error al obtener tokens de MP:', tokenData);
+      logger.error('Error al obtener tokens de MP:', sanitizeForLogs(tokenData));
       return res.redirect(`${frontendUrl}/configuracion?mp=error&reason=token_exchange_failed`);
     }
 
@@ -70,14 +71,14 @@ const callbackOAuth = async (req, res) => {
       const userData = await userResponse.json();
       userEmail = userData.email;
     } catch (error) {
-      logger.warn('No se pudo obtener email del usuario MP:', error);
+      logger.warn('No se pudo obtener email del usuario MP:', sanitizeForLogs(error));
     }
 
     await mercadoPagoConfigService.guardarOAuthConfig(tokenData, userEmail);
     clearBindingCookie(res);
     return res.redirect(`${frontendUrl}/configuracion?mp=connected`);
   } catch (error) {
-    logger.error('Error en callback de OAuth:', error);
+    logger.error('Error en callback de OAuth:', sanitizeForLogs(error));
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     clearBindingCookie(res);
     return res.redirect(`${frontendUrl}/configuracion?mp=error&reason=server_error`);

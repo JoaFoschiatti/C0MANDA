@@ -6,6 +6,7 @@ const { iniciarJobLotesVencidos, detenerJobLotesVencidos } = require('./jobs/lot
 const { ensureRuntimeDirectories, validateProductionEnvironment } = require('./config/runtime');
 
 const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0');
 const SHUTDOWN_TIMEOUT_MS = 10000;
 
 let server;
@@ -16,9 +17,10 @@ const start = async () => {
   const runtimePaths = ensureRuntimeDirectories();
   await assertNegocioBootstrap();
 
-  server = app.listen(PORT, () => {
-    logger.info(`API corriendo en http://localhost:${PORT}`, {
+  server = app.listen(PORT, HOST, () => {
+    logger.info(`API corriendo en http://${HOST}:${PORT}`, {
       port: PORT,
+      host: HOST,
       environment: process.env.NODE_ENV || 'development',
       uploadsDir: runtimePaths.uploadsDir,
       logsDir: runtimePaths.logsDir

@@ -26,14 +26,15 @@ const emitMesaUpdated = (mesaId, estado) => {
   });
 };
 
-const enqueueKitchenRounds = async (prisma, pedidoId, roundIds = []) => {
+const enqueueKitchenRounds = async (prisma, pedidoId, roundIds = [], options = {}) => {
   if (!roundIds.length) {
     return null;
   }
 
   const impresion = await printService.enqueuePrintJobs(prisma, pedidoId, {
     tipos: ['COCINA'],
-    roundIds
+    roundIds,
+    ...(options.batchId ? { batchId: options.batchId } : {})
   });
 
   await pedidosService.markRoundsSentToKitchen(prisma, roundIds);
@@ -119,7 +120,9 @@ const cambiarEstado = async (req, res) => {
   let impresion = null;
   if (roundIdsToPrint.length > 0) {
     try {
-      impresion = await enqueueKitchenRounds(prisma, pedidoAntes.id, roundIdsToPrint);
+      impresion = await enqueueKitchenRounds(prisma, pedidoAntes.id, roundIdsToPrint, {
+        batchId: req.idempotency?.printBatchId
+      });
       eventBus.publish('impresion.updated', {
         pedidoId: pedidoAntes.id,
         ok: 0,

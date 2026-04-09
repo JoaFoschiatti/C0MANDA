@@ -10,3 +10,4 @@ Group=www-data
 WorkingDirectory=/opt/comanda
 EnvironmentFile=/opt/comanda/backend/.env
 ExecStart=/bin/bash /opt/comanda/ops/ec2/scripts/backup-db.sh
+ExecStopPost=/bin/bash /opt/comanda/ops/ec2/scripts/notify-failure.sh backup

@@ -7,7 +7,17 @@
     "dev": "concurrently -k --kill-others-on-fail --names backend,frontend --prefix-colors green,blue \"npm:dev:backend\" \"npm:dev:frontend:wait\"",
     "dev:backend": "npm --prefix backend run db:generate && npm --prefix backend run db:deploy && npm --prefix backend run db:bootstrap && npm --prefix backend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
-    "dev:frontend:wait": "wait-on http-get://127.0.0.1:3001/api/ready && npm run dev:frontend"
+    "dev:frontend:wait": "wait-on http-get://127.0.0.1:3001/api/ready && npm run dev:frontend",
+    "lint:backend": "npm --prefix backend run lint",
+    "lint:frontend": "npm --prefix frontend run lint",
+    "test:backend": "npm --prefix backend run test -- --runInBand",
+    "test:frontend": "npm --prefix frontend run test",
+    "build:frontend": "npm --prefix frontend run build",
+    "test:smoke": "npm --prefix e2e run test:smoke",
+    "ci:gate": "npm run lint:backend && npm run lint:frontend && npm run test:backend && npm run test:frontend && npm run build:frontend && npm run test:smoke",
+    "preflight:production": "bash ops/ec2/scripts/preflight-production.sh",
+    "deploy:smoke": "bash ops/ec2/scripts/post-deploy-smoke.sh",
+    "restore:drill": "bash ops/ec2/scripts/restore-drill.sh"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

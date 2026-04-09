@@ -38,12 +38,16 @@ const findCookie = (response, name) => response.headers['set-cookie']?.find((coo
 
 describe('Auth Endpoints', () => {
   let originalTrustProxy;
+  let originalNodeEnv;
+  let originalMfaRequiredRoles;
   let adminToken;
   let loginEmail;
   const loginPassword = 'passwordSeguro123';
 
   beforeAll(async () => {
     originalTrustProxy = app.get('trust proxy');
+    originalNodeEnv = process.env.NODE_ENV;
+    originalMfaRequiredRoles = process.env.MFA_REQUIRED_ROLES;
     app.set('trust proxy', 1);
     await cleanupOperationalData();
     await ensureNegocio();
@@ -62,8 +66,19 @@ describe('Auth Endpoints', () => {
     loginEmail = loginUser.email;
   });
 
+  beforeEach(() => {
+    process.env.NODE_ENV = 'test';
+    delete process.env.MFA_REQUIRED_ROLES;
+  });
+
   afterAll(async () => {
     await cleanupOperationalData();
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalMfaRequiredRoles == null) {
+      delete process.env.MFA_REQUIRED_ROLES;
+    } else {
+      process.env.MFA_REQUIRED_ROLES = originalMfaRequiredRoles;
+    }
     app.set('trust proxy', originalTrustProxy);
   });
 
@@ -117,9 +132,31 @@ describe('Auth Endpoints', () => {
       expect(response.body.usuario.email).toBe(loginEmail);
     });
 
-    it('should require MFA setup for ADMIN without MFA configured', async () => {
+    it('should not require MFA challenge by default in test env', async () => {
       const admin = await createUsuario({
         email: `${uniqueId('admin-mfa')}@example.com`,
+        passwordPlano: loginPassword,
+        rol: 'ADMIN'
+      });
+
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: admin.email,
+          password: loginPassword
+        })
+        .expect(200);
+
+      expect(response.body.next).toBeUndefined();
+      expect(response.body.usuario.email).toBe(admin.email);
+    });
+
+    it('should require MFA setup for ADMIN in production by default', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.MFA_REQUIRED_ROLES;
+
+      const admin = await createUsuario({
+        email: `${uniqueId('admin-mfa-prod')}@example.com`,
         passwordPlano: loginPassword,
         rol: 'ADMIN'
       });
@@ -143,7 +180,38 @@ describe('Auth Endpoints', () => {
       expect(findCookie(response, MFA_PREAUTH_COOKIE)).toBeDefined();
     });
 
+    it('should require MFA setup for CAJERO in production by default', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.MFA_REQUIRED_ROLES;
+
+      const cajero = await createUsuario({
+        email: `${uniqueId('cajero-mfa-prod')}@example.com`,
+        passwordPlano: loginPassword,
+        rol: 'CAJERO'
+      });
+
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: cajero.email,
+          password: loginPassword
+        })
+        .expect(202);
+
+      expect(response.body).toMatchObject({
+        next: 'MFA_SETUP_REQUIRED',
+        usuario: {
+          id: cajero.id,
+          email: cajero.email,
+          rol: 'CAJERO'
+        }
+      });
+      expect(findCookie(response, MFA_PREAUTH_COOKIE)).toBeDefined();
+    });
+
     it('should confirm MFA setup and trust the device for ADMIN users', async () => {
+      process.env.MFA_REQUIRED_ROLES = 'ADMIN';
+
       const agent = request.agent(app);
       const admin = await createUsuario({
         email: `${uniqueId('admin-mfa-setup')}@example.com`,
@@ -179,6 +247,8 @@ describe('Auth Endpoints', () => {
     });
 
     it('should skip the MFA challenge on a remembered device', async () => {
+      process.env.MFA_REQUIRED_ROLES = 'ADMIN';
+
       const agent = request.agent(app);
       const admin = await createUsuario({
         email: `${uniqueId('admin-mfa-trusted')}@example.com`,

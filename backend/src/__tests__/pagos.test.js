@@ -13,6 +13,27 @@ const {
 describe('Pagos Endpoints', () => {
     let token;
 
+  const crearPedidoConPagoAprobado = async (total = 100) => {
+    const pedido = await prisma.pedido.create({
+      data: {
+        tipo: 'MOSTRADOR',
+        subtotal: total,
+        total
+      }
+    });
+
+    const pagoResponse = await request(app)
+      .post('/api/pagos')
+      .set('Authorization', authHeader(token))
+      .send({ pedidoId: pedido.id, monto: total, metodo: 'EFECTIVO' })
+      .expect(201);
+
+    return {
+      pedido,
+      pago: pagoResponse.body.pago
+    };
+  };
+
   beforeAll(async () => {
         await cleanupOperationalData();
     await ensureNegocio();
@@ -293,6 +314,74 @@ describe('Pagos Endpoints', () => {
         propinaMonto: 0
       })
       .expect(404);
+  });
+
+  it('POST /api/pagos/reembolso rechaza monto menor o igual a 0', async () => {
+    const { pago } = await crearPedidoConPagoAprobado(100);
+
+    const response = await request(app)
+      .post('/api/pagos/reembolso')
+      .set('Authorization', authHeader(token))
+      .send({
+        pagoId: pago.id,
+        monto: 0,
+        motivo: 'Carga invalida'
+      })
+      .expect(400);
+
+    expect(response.body.error.message).toBe('Datos inválidos');
+    expect(response.body.error.details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'monto' })
+    ]));
+  });
+
+  it('POST /api/pagos/reembolso rechaza monto NaN o faltante', async () => {
+    const { pago } = await crearPedidoConPagoAprobado(100);
+
+    const [nanResponse, missingResponse] = await Promise.all([
+      request(app)
+        .post('/api/pagos/reembolso')
+        .set('Authorization', authHeader(token))
+        .send({
+          pagoId: pago.id,
+          monto: 'NaN',
+          motivo: 'Carga invalida'
+        })
+        .expect(400),
+      request(app)
+        .post('/api/pagos/reembolso')
+        .set('Authorization', authHeader(token))
+        .send({
+          pagoId: pago.id,
+          motivo: 'Falta monto'
+        })
+        .expect(400)
+    ]);
+
+    expect(nanResponse.body.error.message).toBe('Datos inválidos');
+    expect(missingResponse.body.error.message).toBe('Datos inválidos');
+  });
+
+  it('POST /api/pagos/reembolso no permite aumentar saldo con payload invalido', async () => {
+    const { pedido, pago } = await crearPedidoConPagoAprobado(100);
+
+    await request(app)
+      .post('/api/pagos/reembolso')
+      .set('Authorization', authHeader(token))
+      .send({
+        pagoId: pago.id,
+        monto: -10,
+        motivo: 'Intento malicioso'
+      })
+      .expect(400);
+
+    const estadoCobro = await request(app)
+      .get(`/api/pagos/pedido/${pedido.id}`)
+      .set('Authorization', authHeader(token))
+      .expect(200);
+
+    expect(Number(estadoCobro.body.totalPagado)).toBe(100);
+    expect(Number(estadoCobro.body.pendiente)).toBe(0);
   });
 
   it('GET /api/pagos/mercadopago/transferencia-config devuelve alias, titular y cvu', async () => {

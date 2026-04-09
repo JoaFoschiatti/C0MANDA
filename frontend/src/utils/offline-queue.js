@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'comanda_offline_queue'
+const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 
 const QUEUEABLE_OPERATIONS = [
   { method: 'post', pattern: /^\/pedidos$/ },
@@ -18,19 +19,43 @@ const OPERATION_LABELS = {
   'post:/pedidos/cerrar': 'Cerrar pedido',
 }
 
+export function normalizeRequestPath(url) {
+  if (!url) return ''
+
+  try {
+    const pathname = new URL(url, 'http://localhost').pathname
+    return pathname.startsWith('/api/') ? pathname.slice(4) : pathname
+  } catch {
+    const pathname = String(url).split(/[?#]/)[0]
+    return pathname.startsWith('/api/') ? pathname.slice(4) : pathname
+  }
+}
+
+export function createIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `idempotency-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 function getOperationLabel(method, url) {
-  if (method === 'post' && /^\/pedidos$/.test(url)) return OPERATION_LABELS['post:/pedidos']
-  if (method === 'patch' && /^\/pedidos\/\d+\/estado$/.test(url)) return OPERATION_LABELS['patch:/pedidos/estado']
-  if (method === 'post' && /^\/pagos$/.test(url)) return OPERATION_LABELS['post:/pagos']
-  if (method === 'post' && /^\/mesas\/\d+\/liberar$/.test(url)) return OPERATION_LABELS['post:/mesas/liberar']
-  if (method === 'post' && /^\/mesas\/\d+\/precuenta$/.test(url)) return OPERATION_LABELS['post:/mesas/precuenta']
-  if (method === 'post' && /^\/pedidos\/\d+\/cerrar$/.test(url)) return OPERATION_LABELS['post:/pedidos/cerrar']
+  const normalizedMethod = method.toLowerCase()
+  const path = normalizeRequestPath(url)
+
+  if (normalizedMethod === 'post' && /^\/pedidos$/.test(path)) return OPERATION_LABELS['post:/pedidos']
+  if (normalizedMethod === 'patch' && /^\/pedidos\/\d+\/estado$/.test(path)) return OPERATION_LABELS['patch:/pedidos/estado']
+  if (normalizedMethod === 'post' && /^\/pagos$/.test(path)) return OPERATION_LABELS['post:/pagos']
+  if (normalizedMethod === 'post' && /^\/mesas\/\d+\/liberar$/.test(path)) return OPERATION_LABELS['post:/mesas/liberar']
+  if (normalizedMethod === 'post' && /^\/mesas\/\d+\/precuenta$/.test(path)) return OPERATION_LABELS['post:/mesas/precuenta']
+  if (normalizedMethod === 'post' && /^\/pedidos\/\d+\/cerrar$/.test(path)) return OPERATION_LABELS['post:/pedidos/cerrar']
   return 'Operacion pendiente'
 }
 
 export function isQueueableOperation(method, url) {
   const m = method.toLowerCase()
-  return QUEUEABLE_OPERATIONS.some(op => op.method === m && op.pattern.test(url))
+  const path = normalizeRequestPath(url)
+  return QUEUEABLE_OPERATIONS.some(op => op.method === m && op.pattern.test(path))
 }
 
 export function getQueue() {
@@ -46,7 +71,7 @@ function saveQueue(queue) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(queue))
 }
 
-export function addToQueue({ method, url, data }) {
+export function addToQueue({ method, url, data, idempotencyKey }) {
   const queue = getQueue()
   const item = {
     id: crypto.randomUUID(),
@@ -58,6 +83,7 @@ export function addToQueue({ method, url, data }) {
     retries: 0,
     maxRetries: 3,
     description: getOperationLabel(method, url),
+    idempotencyKey: idempotencyKey || createIdempotencyKey(),
   }
   queue.push(item)
   saveQueue(queue)
@@ -89,7 +115,8 @@ export async function processQueue(axiosInstance) {
   for (const item of pending) {
     try {
       item.status = 'syncing'
-      saveQueue(getQueue().map(q => q.id === item.id ? item : q))
+      item.idempotencyKey ||= createIdempotencyKey()
+      saveQueue(queue)
 
       await axiosInstance({
         method: item.method,
@@ -97,6 +124,9 @@ export async function processQueue(axiosInstance) {
         data: item.data,
         __fromQueue: true,
         skipToast: true,
+        headers: {
+          [IDEMPOTENCY_HEADER]: item.idempotencyKey,
+        },
       })
 
       removeFromQueue(item.id)
@@ -104,13 +134,13 @@ export async function processQueue(axiosInstance) {
     } catch (err) {
       const status = err.response?.status
       if (status && status >= 400 && status < 500) {
-        // Client error — don't retry
+        // Client error - don't retry
         item.status = 'failed'
         item.error = err.response?.data?.error?.message || 'Error del servidor'
-        saveQueue(getQueue().map(q => q.id === item.id ? item : q))
+        saveQueue(queue)
         failed++
       } else {
-        // Network/server error — retry later
+        // Network/server error - retry later
         item.retries++
         if (item.retries >= item.maxRetries) {
           item.status = 'failed'
@@ -119,7 +149,7 @@ export async function processQueue(axiosInstance) {
         } else {
           item.status = 'pending'
         }
-        saveQueue(getQueue().map(q => q.id === item.id ? item : q))
+        saveQueue(queue)
       }
     }
   }

@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { logger } = require('../utils/logger');
+const { resolveClientIp } = require('../utils/client-ip');
 
 const normalizePhone = (value) => String(value || '').replace(/\D+/g, '').slice(-15);
 
@@ -17,10 +18,12 @@ const summarizeUserAgent = (value) => {
   return userAgent ? userAgent.slice(0, 200) : null;
 };
 
-const getRequestIp = (requestMeta = {}) => {
-  const forwardedFor = String(requestMeta.forwardedFor || '').split(',')[0]?.trim();
-  return forwardedFor || requestMeta.ip || 'unknown';
-};
+const getRequestIp = (requestMeta = {}) => resolveClientIp({
+  ip: requestMeta.clientIp || requestMeta.ip,
+  forwardedFor: requestMeta.forwardedFor,
+  remoteAddress: requestMeta.remoteAddress,
+  trustProxy: requestMeta.trustProxy
+});
 
 const buildPublicAuditContext = ({
   action,

@@ -14,7 +14,7 @@ const MFA_PREAUTH_TTL_MS = 10 * 60 * 1000;
 const TRUSTED_DEVICE_FALLBACK_MS = 30 * 24 * 60 * 60 * 1000;
 const TOTP_STEP_MS = 30 * 1000;
 const TOTP_WINDOW_STEPS = 1;
-const MFA_REQUIRED_ROLES = new Set([]);
+const DEFAULT_PROD_MFA_REQUIRED_ROLES = ['ADMIN', 'CAJERO'];
 const RECOVERY_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const RECOVERY_CODE_COUNT = 8;
 
@@ -54,7 +54,35 @@ const normalizeCode = (value) => String(value || '').replace(/\s+/g, '').toUpper
 
 const normalizeTotpCode = (value) => normalizeCode(value).replace(/\D/g, '');
 
-const requiresMfaForRole = (role) => MFA_REQUIRED_ROLES.has(role);
+const normalizeRole = (value) => String(value || '').trim().toUpperCase();
+
+const parseConfiguredMfaRoles = () => {
+  if (process.env.MFA_REQUIRED_ROLES == null) {
+    return null;
+  }
+
+  return new Set(
+    String(process.env.MFA_REQUIRED_ROLES)
+      .split(',')
+      .map((role) => normalizeRole(role))
+      .filter(Boolean)
+  );
+};
+
+const getMfaRequiredRoles = () => {
+  const configured = parseConfiguredMfaRoles();
+  if (configured) {
+    return configured;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return new Set(DEFAULT_PROD_MFA_REQUIRED_ROLES);
+  }
+
+  return new Set();
+};
+
+const requiresMfaForRole = (role) => getMfaRequiredRoles().has(normalizeRole(role));
 
 const setMfaPreAuthCookie = (res, usuario, stage) => {
   const token = jwt.sign(

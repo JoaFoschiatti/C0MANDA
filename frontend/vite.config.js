@@ -11,7 +11,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
-            urlPattern: /\/api\/(productos|categorias|mesas)(\?.*)?$/,
+            urlPattern: /\/api\/(productos|categorias)(\?.*)?$/,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',

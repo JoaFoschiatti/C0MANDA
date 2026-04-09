@@ -33,6 +33,10 @@ const validateProductionSecrets = () => {
     violations.push('DATABASE_URL usa credenciales por defecto (postgres:postgres)');
   }
 
+  if (!process.env.SENTRY_DSN && !process.env.ALERT_WEBHOOK_URL) {
+    violations.push('Debes configurar SENTRY_DSN o ALERT_WEBHOOK_URL para recibir alertas en produccion');
+  }
+
   if (violations.length > 0) {
     const message = [
       '',

@@ -387,10 +387,17 @@ describe('Reportes Endpoints', () => {
         createdAt
       }
     });
+    const rondaPedido1 = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido1.id,
+        numero: 1
+      }
+    });
 
     await prisma.pedidoItem.create({
       data: {
         pedidoId: pedido1.id,
+        rondaId: rondaPedido1.id,
         productoId: productoA.id,
         cantidad: 1,
         precioUnitario: 100,
@@ -416,10 +423,17 @@ describe('Reportes Endpoints', () => {
         createdAt
       }
     });
+    const rondaPedido2 = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido2.id,
+        numero: 1
+      }
+    });
 
     await prisma.pedidoItem.create({
       data: {
         pedidoId: pedido2.id,
+        rondaId: rondaPedido2.id,
         productoId: productoB.id,
         cantidad: 1,
         precioUnitario: 50,
@@ -494,11 +508,18 @@ describe('Reportes Endpoints', () => {
         createdAt
       }
     });
+    const rondaPedido = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 1
+      }
+    });
 
     await prisma.pedidoItem.createMany({
       data: [
         {
           pedidoId: pedido.id,
+          rondaId: rondaPedido.id,
           productoId: base.id,
           cantidad: 1,
           precioUnitario: 100,
@@ -506,6 +527,7 @@ describe('Reportes Endpoints', () => {
         },
         {
           pedidoId: pedido.id,
+          rondaId: rondaPedido.id,
           productoId: variante.id,
           cantidad: 2,
           precioUnitario: 150,
@@ -615,10 +637,17 @@ describe('Reportes Endpoints', () => {
         createdAt
       }
     });
+    const rondaConsumo = await prisma.pedidoRonda.create({
+      data: {
+        pedidoId: pedido.id,
+        numero: 1
+      }
+    });
 
     await prisma.pedidoItem.create({
       data: {
         pedidoId: pedido.id,
+        rondaId: rondaConsumo.id,
         productoId: producto.id,
         cantidad: 3,
         precioUnitario: 100,

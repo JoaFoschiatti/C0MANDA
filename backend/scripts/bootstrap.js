@@ -1,6 +1,8 @@
-require('dotenv').config();
+const { loadRuntimeEnv } = require('../src/config/load-env');
 const { PrismaClient } = require('@prisma/client');
 const { bootstrapCore } = require('../src/services/bootstrap.service');
+
+loadRuntimeEnv();
 
 const prisma = new PrismaClient();
 

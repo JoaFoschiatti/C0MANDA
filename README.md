@@ -79,7 +79,7 @@ Si ejecutas solo el frontend, Vite seguira mostrando `http proxy error` mientras
 
 ## Variables de entorno clave
 
-Ver [backend/.env.example](/C:/Programacion/Comanda/backend/.env.example).
+Ver [backend/.env.example](./backend/.env.example).
 
 Las mas importantes para un ambiente productivo son:
 
@@ -121,7 +121,7 @@ Las mas importantes para un ambiente productivo son:
 
 ## Produccion
 
-La guia operativa esta en [DEPLOY.md](/C:/Programacion/Comanda/DEPLOY.md). El pack ejecutable esta en [ops/ec2/README.md](/C:/Programacion/Comanda/ops/ec2/README.md). Hay una guia dedicada para ejecutar deploys desde la propia EC2 con Codex CLI en [ops/ec2/CODEX-CLI-DEPLOY.md](/C:/Programacion/Comanda/ops/ec2/CODEX-CLI-DEPLOY.md). El handoff de entrega esta en [docs/entrega](/C:/Programacion/Comanda/docs/entrega). El escenario objetivo es:
+La guia operativa esta en [DEPLOY.md](./DEPLOY.md). El pack ejecutable esta en [ops/ec2/README.md](./ops/ec2/README.md). Hay una guia dedicada para ejecutar deploys desde la propia EC2 con Codex CLI en [ops/ec2/CODEX-CLI-DEPLOY.md](./ops/ec2/CODEX-CLI-DEPLOY.md). El handoff de entrega esta en [docs/entrega](./docs/entrega). El escenario objetivo es:
 
 - EC2 Ubuntu 24.04 amd64 como host principal.
 - Si se usan opciones gratuitas de AWS, el host recomendado es `t3.micro`; `t3.small` solo como alivio temporal si el primer deploy queda justo de RAM.

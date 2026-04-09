@@ -4,7 +4,16 @@ const path = require('path');
 const dotenv = require(path.join(__dirname, '../backend/node_modules/dotenv'));
 const { PrismaClient } = require(path.join(__dirname, '../backend/node_modules/@prisma/client'));
 
-dotenv.config({ path: path.join(__dirname, '../backend/.env') });
+const backendEnvFiles = [
+  path.join(__dirname, '../backend/.env.test'),
+  path.join(__dirname, '../backend/.env')
+];
+
+for (const envFile of backendEnvFiles) {
+  if (fs.existsSync(envFile)) {
+    dotenv.config({ path: envFile });
+  }
+}
 
 const TEST_DATA_PATH = path.join(__dirname, '.e2e-test-data.json');
 const ARTIFACTS_DIR = path.join(__dirname, 'artifacts');
@@ -160,10 +169,18 @@ const seedKitchenPedido = async (prisma, options = {}) => {
       observaciones: options.observaciones || `${FIXTURES.prefix} pedido cocina`
     }
   });
+  const ronda = await prisma.pedidoRonda.create({
+    data: {
+      pedidoId: pedido.id,
+      usuarioId: options.usuarioId || null,
+      numero: 1
+    }
+  });
 
   await prisma.pedidoItem.create({
     data: {
       pedidoId: pedido.id,
+      rondaId: ronda.id,
       productoId: options.productoId,
       cantidad: options.cantidad || 1,
       precioUnitario: options.precioUnitario ?? options.total ?? 2500,
@@ -189,10 +206,18 @@ const seedDeliveryPedido = async (prisma, options = {}) => {
       observaciones: options.observaciones || `${FIXTURES.prefix} pedido delivery`
     }
   });
+  const ronda = await prisma.pedidoRonda.create({
+    data: {
+      pedidoId: pedido.id,
+      usuarioId: options.usuarioId || null,
+      numero: 1
+    }
+  });
 
   await prisma.pedidoItem.create({
     data: {
       pedidoId: pedido.id,
+      rondaId: ronda.id,
       productoId: options.productoId,
       cantidad: options.cantidad || 1,
       precioUnitario: options.precioUnitario ?? options.total ?? 3200,
@@ -230,10 +255,18 @@ const seedPaidOrderForReports = async (prisma, options = {}) => {
       observaciones: options.observaciones || `${FIXTURES.prefix} pedido reporte`
     }
   });
+  const ronda = await prisma.pedidoRonda.create({
+    data: {
+      pedidoId: pedido.id,
+      usuarioId: options.usuarioId || null,
+      numero: 1
+    }
+  });
 
   await prisma.pedidoItem.create({
     data: {
       pedidoId: pedido.id,
+      rondaId: ronda.id,
       productoId: options.productoId,
       cantidad: options.cantidad || 1,
       precioUnitario: options.precioUnitario ?? total,

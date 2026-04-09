@@ -20,8 +20,15 @@ const crearPreferenciaBodySchema = z.object({
   pedidoId: z.coerce.number().int().positive()
 }).strip();
 
+const reembolsoBodySchema = z.object({
+  pagoId: z.coerce.number().int().positive(),
+  monto: z.coerce.number().finite().positive(),
+  motivo: z.string().trim().min(1).max(500)
+}).strip();
+
 module.exports = {
   pedidoIdParamSchema,
   registrarPagoBodySchema,
-  crearPreferenciaBodySchema
+  crearPreferenciaBodySchema,
+  reembolsoBodySchema
 };
