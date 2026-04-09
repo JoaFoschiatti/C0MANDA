@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const request = require('supertest');
 
 const mockGetPayment = jest.fn();
@@ -20,10 +21,19 @@ const {
   cleanupOperationalData
 } = require('./helpers/test-helpers');
 
+const signWebhook = (dataId, requestId) => {
+  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const manifest = `id:${dataId};request-id:${requestId};ts:${ts};`;
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(manifest);
+  const v1 = hmac.digest('hex');
+  return { xSignature: `ts=${ts},v1=${v1}`, xRequestId: requestId };
+};
+
 describe('MercadoPago Webhook', () => {
   beforeAll(() => {
     process.env.NODE_ENV = 'test';
-    process.env.SKIP_WEBHOOK_VERIFICATION = 'true';
   });
 
   beforeEach(async () => {
@@ -66,8 +76,11 @@ describe('MercadoPago Webhook', () => {
     });
     mockSaveTransaction.mockResolvedValue({});
 
+    const sig1 = signWebhook('123', 'req-1');
     await request(app)
-      .post('/api/pagos/webhook/mercadopago')
+      .post('/api/pagos/webhook/mercadopago?data.id=123')
+      .set('x-signature', sig1.xSignature)
+      .set('x-request-id', sig1.xRequestId)
       .send({ type: 'payment', data: { id: '123' } })
       .expect(200);
 
@@ -85,8 +98,11 @@ describe('MercadoPago Webhook', () => {
     const pedidoActual = await prisma.pedido.findUnique({ where: { id: pedido.id } });
     expect(pedidoActual.estadoPago).toBe('APROBADO');
 
+    const sig2 = signWebhook('123', 'req-2');
     await request(app)
-      .post('/api/pagos/webhook/mercadopago')
+      .post('/api/pagos/webhook/mercadopago?data.id=123')
+      .set('x-signature', sig2.xSignature)
+      .set('x-request-id', sig2.xRequestId)
       .send({ type: 'payment', data: { id: '123' } })
       .expect(200);
 
@@ -125,8 +141,11 @@ describe('MercadoPago Webhook', () => {
     });
     mockSaveTransaction.mockResolvedValue({});
 
+    const sig = signWebhook('999', 'req-3');
     await request(app)
-      .post('/api/pagos/webhook/mercadopago')
+      .post('/api/pagos/webhook/mercadopago?data.id=999')
+      .set('x-signature', sig.xSignature)
+      .set('x-request-id', sig.xRequestId)
       .send({ type: 'payment', data: { id: '999' } })
       .expect(200);
 
